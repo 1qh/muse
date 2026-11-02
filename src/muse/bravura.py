@@ -3,11 +3,12 @@ from __future__ import annotations
 
 import re
 from fractions import Fraction as F
+from typing import Any
 
 import pymupdf
 
 from muse.model import LETTERS, Bar, Event, Head, Issue, Score, Text
-from muse.symbolfont import nominal_dots, parse_chord
+from muse.symbolfont import parse_chord
 
 BLACK, HALF = 0xF4BE, 0xF4BD
 RESTS = {0xE4E5: F(1), 0xE4E6: F(1, 2), 0xE4E7: F(1, 4), 0xE4E4: F(2)}
@@ -68,20 +69,20 @@ def decode(path: str) -> Score:
         for x in xs:
             if not merged or x - merged[-1] > 5:
                 merged.append(x)
-        start = next((c[1] for c in chars if abs(c[2] - base) < 25 and 0xE080 <= c[0] <= 0xE089), None)
+        next((c[1] for c in chars if abs(c[2] - base) < 25 and 0xE080 <= c[0] <= 0xE089), None)
         left_edge = 58.0
         cols = [left_edge] + [m for m in merged if m > left_edge + 8]
-        next_base = bases[s_i + 1] if s_i + 1 < len(bases) else base + 80
-        prev_base = bases[s_i - 1] if s_i else base - 80
+        bases[s_i + 1] if s_i + 1 < len(bases) else base + 80
+        bases[s_i - 1] if s_i else base - 80
         row_chars = [c for c in chars if base - 50 < c[2] < base + 22 and abs(c[3] - size) < 9]
         row_new: list[Bar] = []
-        for a, b in zip(cols, cols[1:]):
+        for a, b in zip(cols, cols[1:], strict=False):
             content = [c for c in row_chars if a <= c[1] < b - 0.5]
             if not any(c[0] in (BLACK, HALF, BAR_REST) or c[0] in RESTS for c in content):
                 continue  # the gap between 2 strokes of 1 printed bar line
             bar = Bar(len(bars) + 1, 0, a, b, length)
             bar.new_system = not row_new and bool(bars)
-            bar.base = base  # type: ignore[attr-defined]
+            bar.base = base
             if not bars:
                 bar.key = 1
                 bar.time = (2, 4)
@@ -156,14 +157,13 @@ def decode(path: str) -> Score:
             if bar.volta == "1":
                 while j + 1 < len(bars) and not bars[j].repeat_end:
                     j += 1
-            bars[j].volta_stop = bar.volta  # type: ignore[assignment]
+            bars[j].volta_stop = bar.volta
     return Score(bars, [], flags, False, clef_octave=-1)
 
 
-def read_bar(bar: Bar, content, base, step, size, stems, fills, flags) -> list[list[Event]]:
+def read_bar(bar: Bar, content: list[tuple[int, float, float, float]], base: float, step: float, size: float, stems: list[Any], fills: list[Any], flags: list[Issue]) -> list[list[Event]]:
     events: list[Event] = []
     state: dict[tuple[str, int], int] = {}
-    is_full_rest = False
     content = sorted(content, key=lambda c: c[1])
     for code, x, y, sz in content:
         grace = sz < 15
@@ -203,7 +203,7 @@ def read_bar(bar: Bar, content, base, step, size, stems, fills, flags) -> list[l
         elif code in RESTS:
             events.append(Event(x, [], RESTS[code]))
         elif code == BAR_REST:
-            is_full_rest = True
+            pass
     events.sort(key=lambda e: (e.x))
     merged: list[Event] = []
     for ev in events:
@@ -218,7 +218,7 @@ def read_bar(bar: Bar, content, base, step, size, stems, fills, flags) -> list[l
     if not merged:
         return [[Event(bar.left, [], bar.length, bar_rest=True)]]
     real = [e for e in merged if not e.grace]
-    for code, tx, ty, _ in [c for c in content if c[0] == 0xE883]:
+    for _, tx, _, _ in [c for c in content if c[0] == 0xE883]:
         nearest = min(range(len(real)), key=lambda i: abs(real[i].x - tx))
         done = False
         for span in range(1, 5):
@@ -243,13 +243,13 @@ def read_bar(bar: Bar, content, base, step, size, stems, fills, flags) -> list[l
     return [merged]
 
 
-def wire_ties(bars: list[Bar], ties) -> None:
+def wire_ties(bars: list[Bar], ties: list[Any]) -> None:
     all_ev = [e for b in bars for v in b.voices for e in v if e.heads]
     for r in ties:
-        l = [e for e in all_ev if abs(e.x + 3 - r.x0) < 9 and any(abs(h.y - r.y0) < 16 for h in e.heads) and abs((getattr(e, "x")) - r.x0) < 10]
+        starts = [e for e in all_ev if abs(e.x + 3 - r.x0) < 9 and any(abs(h.y - r.y0) < 16 for h in e.heads) and abs((e.x) - r.x0) < 10]
         rr = [e for e in all_ev if abs(e.x + 2 - r.x1) < 9 and e.x > r.x0 + 3 and any(abs(h.y - r.y1) < 16 for h in e.heads)]
-        if l and rr:
-            a = min(l, key=lambda e: abs(e.x - r.x0))
+        if starts and rr:
+            a = min(starts, key=lambda e: abs(e.x - r.x0))
             b = min(rr, key=lambda e: abs(e.x - r.x1))
             pair = [(p, q) for p in a.heads for q in b.heads if (p.step, p.octave) == (q.step, q.octave)]
             if pair:

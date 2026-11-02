@@ -4,6 +4,7 @@ from __future__ import annotations
 import dataclasses
 import re
 from fractions import Fraction as F
+from typing import Any
 
 import pymupdf
 
@@ -40,10 +41,6 @@ class Span:
     italic: bool
 
 
-def is_music(font: str, music_font: str) -> bool:
-    return font.startswith(music_font)
-
-
 def font_map(doc: pymupdf.Document) -> dict[str, str]:
     """Printed PDFs lose font names; recover each role from its glyph usage."""
     counts: dict[str, dict[str, int]] = {}
@@ -74,14 +71,6 @@ def load(page: pymupdf.Page, music: dict[str, str]) -> tuple[list[G], list[Span]
                         spans.append(Span(text, s["chars"][0]["origin"][0], s["origin"][1], s["bbox"][2], s["font"], s["size"],
                                           bool(flags & 16) or "bold" in name, bool(flags & 2) or "italic" in name))
     return glyphs, spans
-
-
-def is_chord_span(s: Span) -> bool:
-    return abs(s.size - 10.8) < 0.3 or abs(s.size - 8.0) < 0.3
-
-
-def chord_rows(spans: list[Span], glyphs: list[G], base: float, next_base: float | None) -> list[list[tuple[float, str, str]]]:
-    return []
 
 
 ROOT_RE = re.compile(r"^[A-G]")
@@ -161,7 +150,7 @@ class Decoder:
                 if bar.volta == "1":
                     while j + 1 < len(self.bars) and not self.bars[j].repeat_end:
                         j += 1
-                self.bars[j].volta_stop = bar.volta  # type: ignore[assignment]
+                self.bars[j].volta_stop = bar.volta
 
     def page(self, page_no: int, page: pymupdf.Page) -> None:
         glyphs, spans = load(page, self.music)
@@ -182,7 +171,7 @@ class Decoder:
             if abs(g.size - size) < 0.5:
                 staff_glyphs[owner(g.y)].append(g)
         drawings = page.get_drawings()
-        beams = []
+        beams: list[Any] = []
         curves = []
         lines = []
         boxes = []
@@ -210,7 +199,6 @@ class Decoder:
                 systems.append([b])
                 i += 1
         first_on_page = True
-        chord_used: set[int] = set()
         for s_i, sys in enumerate(systems):
             self.system(page_no, sys, staff_glyphs, spans, glyphs, beams, curves, lines, boxes, size, first_on_page, systems, s_i)
             first_on_page = False
@@ -221,9 +209,9 @@ class Decoder:
 
     def same_bars(self, a: list[G], b: list[G]) -> bool:
         xa, xb = self.bar_xs(a), self.bar_xs(b)
-        return len(xa) >= 2 and len(xa) == len(xb) and all(abs(p - q) < 2.5 for p, q in zip(xa, xb))
+        return len(xa) >= 2 and len(xa) == len(xb) and all(abs(p - q) < 2.5 for p, q in zip(xa, xb, strict=False))
 
-    def system(self, page_no, sys, staff_glyphs, spans, glyphs, beams, curves, lines, boxes, size, first_on_page, systems, s_i) -> None:
+    def system(self, page_no: int, sys: list[float], staff_glyphs: dict[float, list[G]], spans: list[Span], glyphs: list[G], beams: list[Any], curves: list[Any], lines: list[Any], boxes: list[Any], size: float, first_on_page: bool, systems: list[list[float]], s_i: int) -> None:
         top = sys[0]
         raw = sorted((round(g.x, 1), g.code) for g in staff_glyphs[top] if g.code in BARS)
         col_list: list[tuple[float, float, set[int]]] = []  # left x, right x, codes of 1 printed bar line
@@ -236,10 +224,8 @@ class Decoder:
             return any(lo <= g.x < hi and (g.code in HEADS or g.code in RESTS or g.code in (BAR_REST, SIMILE)) for b in sys for g in staff_glyphs[b])
         if len(col_list) > 1 and not heard(col_list[0][1], col_list[1][0]):
             col_list = col_list[1:] if len(col_list[1][2]) > 1 else col_list
-            if col_list and col_list[0][2] == {0xF06C}:
-                pass
-        col_codes = {c[0]: c[2] for c in col_list}
-        pairs = [(a, b) for a, b in zip(col_list, col_list[1:])]
+        {c[0]: c[2] for c in col_list}
+        pairs = [(a, b) for a, b in zip(col_list, col_list[1:], strict=False)]
         # column region of this system
         prev_base = systems[s_i - 1][-1] if s_i else None
         next_base = systems[s_i + 1][0] if s_i + 1 < len(systems) else None
@@ -254,12 +240,11 @@ class Decoder:
                 return chord_lo <= s.y < top  # marks stand above the staff they label
             return y_lo <= s.y < y_hi
         my_spans = [s for s in spans if mine(s)]
-        keys = 0
         new_bars: list[Bar] = []
         for p_i, (col_a, col_b) in enumerate(pairs):
             left, right = col_a[1], col_b[0]
             bar = Bar(len(self.bars) + 1, page_no, left, right, self.time_len)
-            bar.base = top  # type: ignore[attr-defined]
+            bar.base = top
             bar.new_system = p_i == 0 and bool(self.bars)
             bar.new_page = p_i == 0 and first_on_page and bool(self.bars)
             if 0xF07B in col_a[2] and 0xF0D3 not in col_a[2]:
@@ -291,7 +276,7 @@ class Decoder:
         first.key = self.key
         self.first = False
 
-    def bar_contents(self, bar: Bar, sys: list[float], staff_glyphs, beams, size) -> None:
+    def bar_contents(self, bar: Bar, sys: list[float], staff_glyphs: dict[float, list[G]], beams: list[Any], size: float) -> None:
         self.top_base = sys[0]
         for idx, base in enumerate(sys):
             self.current_base = base
@@ -320,11 +305,10 @@ class Decoder:
             self.time_len = F(new[0] * 4, new[1])
             bar.length = self.time_len
 
-    def read_staff(self, bar: Bar, base: float, near: list[G], whole_staff: list[G], beams, size) -> list[list[Event]]:
+    def read_staff(self, bar: Bar, base: float, near: list[G], whole_staff: list[G], beams: list[Any], size: float) -> list[list[Event]]:
         step = STEP_PER_SIZE * size
         stems = [g for g in whole_staff if g.code in (0xF0C7, 0xF0C8)]
         events: list[Event] = []
-        rests: list[Event] = []
         bar_rest = False
         stem_xs = []
         for h in near:
@@ -424,8 +408,6 @@ class Decoder:
         total = sum((e.length for e in chords), F(0))
         if total == bar.length:
             return [self.timed(chords)]
-        if rests_only and total < bar.length:
-            pass
         self.mark_short(bar, chords)
         groups: dict[int, list[Event]] = {}
         for ev in chords:
@@ -522,7 +504,7 @@ class Decoder:
             out += self.fill(bar.length - t, other[-1].x + 1, t)
         return [a if a is full else out, out if a is full else b] if False else ([full, out] if a is full else [out, full])
 
-    def curves(self, bars: list[Bar], sys: list[float], curves) -> None:
+    def curves(self, bars: list[Bar], sys: list[float], curves: list[Any]) -> None:
         seen: list[tuple[float, float, float]] = []
         all_ev = [(ev, bar) for bar in bars for voices in (bar.voices, bar.voices2) for voice in voices for ev in voice if ev.heads]
         unique = []
@@ -573,7 +555,7 @@ class Decoder:
                             h.alter = state.get(key, default)
         # a tie carries the alteration across the bar line
         flat = [ev for bar in self.bars for voice in bar.voices[:1] for ev in voice if ev.heads]
-        for a, b in zip(flat, flat[1:]):
+        for a, b in zip(flat, flat[1:], strict=False):
             for h in a.heads:
                 if h.tie_start:
                     for q in b.heads:
@@ -583,7 +565,6 @@ class Decoder:
 
     def chords_and_text(self, bars: list[Bar], sys: list[float], spans: list[Span], glyphs: list[G], size: float, s_i: int) -> None:
         small_flats = [g for g in glyphs if g.code in FLATS | SHARPS and abs(g.size - size) > 0.5 and g.size > 10]
-        chord_y = {}
         items = []
         for s in spans:
             if any(n in s.text for n in NOISE) or s.size > 16:
@@ -592,15 +573,11 @@ class Decoder:
                 self.printed.append((bars[0].number, int(s.text)))
                 continue  # printed bar number
             items.append(s)
-        chord_spans = [s for s in items if s.font.lower().startswith("times new roman+") or s.font in self.times_fonts()]
-        rows: dict[int, list] = {}
         used = set()
         for s in items:
             if not self.is_chord(s):
                 continue
             used.add(id(s))
-            row = round(s.y / 7)
-            rows.setdefault(row, []).append(s)
         # merge rows: superscripts ride a little higher
         allitems = sorted((s for s in items if id(s) in used), key=lambda s: (s.size < 9, s.y))
         groups: list[list[Span]] = []
@@ -627,16 +604,11 @@ class Decoder:
                     continue
                 bar.chords.append(chord)
                 self.prev_chord = chord
-        for s in sorted((s for s in items if id(s) not in used), key=lambda s: (round(s.y), s.x)):
-            pass
         self.place_texts(bars, sys, [s for s in items if id(s) not in used], s_i)
 
     @staticmethod
     def fix_accidentals(text: str) -> str:
         return text
-
-    def times_fonts(self) -> set[str]:
-        return set()
 
     def is_chord(self, s: Span) -> bool:
         text = s.text.strip()
@@ -673,7 +645,6 @@ class Decoder:
                 continue
             if re.fullmatch(r"[12]\.", text):
                 continue
-            m = None
             if first.size > 13 and first.bold and first.italic and s_i == 0:
                 bars[0].tempo = (re.sub(r"\s*=.*$", "", text), self.tempo_value(spans))
                 continue
@@ -681,7 +652,7 @@ class Decoder:
                 continue
             base = min(sys, key=lambda b: abs(first.y - (b - 8.6)))
             bar = next((b for b in bars if first.x < b.right - 2), bars[-1])
-            runs = []
+            runs: list[tuple[str, bool, bool]] = []
             for i, s in enumerate(group):
                 piece = s.text.strip() if len(group) == 1 else s.text
                 if i and s.x - group[i - 1].x1 > 1.5 and not piece.startswith(" ") and not runs[-1][0].endswith(" "):
@@ -703,7 +674,7 @@ class Decoder:
                 return int(m[1])
         raise ValueError("no tempo printed")
 
-    def signs(self, bars: list[Bar], top: list[G], glyphs, size, base, y_lo, y_hi) -> None:
+    def signs(self, bars: list[Bar], top: list[G], glyphs: list[G], size: float, base: float, y_lo: float, y_hi: float) -> None:
         if not bars:
             return
         span = bars[-1].right - bars[0].left
@@ -723,10 +694,10 @@ class Decoder:
                     else:
                         bars[-1].to_coda = True
 
-    def wedges(self, bars: list[Bar], lines, top, y_hi) -> None:
+    def wedges(self, bars: list[Bar], lines: list[Any], top: float, y_hi: float) -> None:
         if not bars:
             return
-        cand = [l for l in lines if top - 40 < l[1] < y_hi and abs(l[2] - l[0]) > 10]
+        cand = [seg for seg in lines if top - 40 < seg[1] < y_hi and abs(seg[2] - seg[0]) > 10]
         for i, a in enumerate(cand):
             for b in cand[i + 1:]:
                 if abs(a[2] - b[0]) < 0.5 and abs(a[3] - b[1]) < 0.5:

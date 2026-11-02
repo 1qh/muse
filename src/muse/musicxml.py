@@ -73,7 +73,7 @@ def note_xml(ev: Event, voice: int) -> str:
             parts.append(f"<stem>{ev.stem}</stem>")
         if h.shape in SHAPES:
             parts.append(('<notehead filled="no">' if h.shape == "diamond" else "<notehead>") + SHAPES[h.shape] + "</notehead>")
-        if getattr(ev, "beam_state", None) and not i:
+        if ev.beam_state and not i:
             parts.append(f'<beam number="1">{ev.beam_state}</beam>')
         nota = []
         if h.tie_stop:
@@ -84,7 +84,7 @@ def note_xml(ev: Event, voice: int) -> str:
             nota.append('<slur type="stop" number="1"/>')
         if h.slur_start:
             nota.append('<slur type="start" number="1"/>')
-        if ev.tuplet and getattr(ev, "tuplet_state", None) and not i:
+        if ev.tuplet and ev.tuplet_state and not i:
             nota.append(f'<tuplet type="{ev.tuplet_state}" bracket="no"/>')
         if not i:
             if ev.accent:
@@ -107,7 +107,7 @@ def set_beam_states(voice: list[Event]) -> None:
         prev = i > 0 and voice[i - 1].beam == ev.beam
         nxt = i + 1 < len(voice) and voice[i + 1].beam == ev.beam
         if prev or nxt:
-            ev.beam_state = "continue" if prev and nxt else "end" if prev else "begin"  # type: ignore[attr-defined]
+            ev.beam_state = "continue" if prev and nxt else "end" if prev else "begin"
     run = F(0)
     for ev in voice:
         if not ev.tuplet:
@@ -118,7 +118,7 @@ def set_beam_states(voice: list[Event]) -> None:
         if run in (F(1, 2), F(1), F(2)):
             state = "stop"
             run = F(0)
-        ev.tuplet_state = state  # type: ignore[attr-defined]
+        ev.tuplet_state = state
 
 
 def x_to_time(bar: Bar, voices: list[list[Event]], x: float) -> F:
@@ -135,7 +135,7 @@ def x_to_time(bar: Bar, voices: list[list[Event]], x: float) -> F:
     best = min(ok[1:-1] or ok[:1], key=lambda p: abs(p[0] - x))
     if abs(best[0] - x) < 9 and len(ok) > 2:
         return best[1]
-    for a, b in zip(ok, ok[1:]):
+    for a, b in zip(ok, ok[1:], strict=False):
         if a[0] <= x <= b[0] and b[0] > a[0]:
             frac = (x - a[0]) / (b[0] - a[0])
             t = a[1] + (b[1] - a[1]) * F(frac).limit_denominator(64)
@@ -180,9 +180,9 @@ def measure(bar: Bar, part: int, score: Score) -> str:
         if bar.coda:
             out.append('<direction placement="above"><direction-type><coda/></direction-type><sound coda="coda"/></direction>')
     bar_texts = list(bar.texts if part == 1 else bar.texts2)
-    for i, voice in enumerate(voices):
+    for voice in voices:
         set_beam_states(voice)
-    pos = F(0)
+    F(0)
     chords = sorted(((x_to_time(bar, voices, c.x), c) for c in bar.chords), key=lambda p: p[0]) if part == 1 else []
     wedge_events = bar.wedges if part == 1 else []
     for i, voice in enumerate(voices):
@@ -201,13 +201,13 @@ def measure(bar: Bar, part: int, score: Score) -> str:
                     out.append(harmony(c, t - ev.onset))
                 chords = [p for p in chords if p not in pending]
                 limit = voice[j + 1].x if j + 1 < len(voice) else bar.right + 1
-                for lo, hi, kind in wedge_events:
+                for lo, _, kind in wedge_events:
                     if lo >= 0 and (j == 0 and lo < ev.x or ev.x <= lo < limit):
                         out.append(f'<direction placement="below"><direction-type><wedge type="{kind}"/></direction-type></direction>')
             out.append(note_xml(ev, i + 1))
             if i == 0:
                 limit = voice[j + 1].x if j + 1 < len(voice) else bar.right + 1
-                for lo, hi, kind in wedge_events:
+                for _, hi, _ in wedge_events:
                     if hi >= 0 and (ev.x <= hi < limit or (j == 0 and hi < ev.x)):
                         out.append('<direction placement="below"><direction-type><wedge type="stop"/></direction-type></direction>')
     if part == 1:

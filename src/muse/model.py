@@ -37,6 +37,8 @@ class Event:
     accent: bool = False
     fermata: bool = False
     grace: bool = False
+    beam_state: str | None = None
+    tuplet_state: str | None = None
     onset: F = F(0)
 
     @property
@@ -88,7 +90,7 @@ class Bar:
     final: bool = False
     double: bool = False
     volta: str | None = None
-    volta_stop: bool = False
+    volta_stop: str | bool = False
     segno: bool = False
     coda: bool = False
     to_coda: bool = False
@@ -99,6 +101,7 @@ class Bar:
     wedges: list[tuple[float, float, str]] = dataclasses.field(default_factory=list)
     simile: bool = False
     clef_octave: int = 0
+    base: float = 0.0
 
 
 @dataclasses.dataclass

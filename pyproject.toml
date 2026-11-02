@@ -3,3 +3,26 @@ name = "muse"
 version = "0"
 requires-python = ">=3.12"
 dependencies = ["pymupdf>=1.26"]
+
+[project.optional-dependencies]
+dev = ["pytest", "ruff", "mypy"]
+
+[tool.ruff]
+line-length = 300
+src = ["src"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "RET"]
+
+[tool.mypy]
+strict = true
+mypy_path = "src"
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[[tool.mypy.overrides]]
+module = "pymupdf"
+follow_imports = "skip"
