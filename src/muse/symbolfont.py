@@ -345,7 +345,7 @@ class Decoder:
                         or (b.x1 <= stem_x <= b.x1 + 2.2 and not any(abs(o - b.x0) < 1.5 for o in stem_xs)))]
                     level = len({round((b.y0 + b.y1) / 2) for b in hits})
                     if hits:
-                        beam_id = id(min(hits, key=lambda b: abs((b.y0 + b.y1) / 2 - tip)))
+                        beam_id = id(max(hits, key=lambda b: b.width))  # the primary beam spans its whole group
                     for fl in near:
                         if fl.code in FLAGS and abs(fl.x - g.x) < 1.2:
                             level = max(level, FLAGS[fl.code])
@@ -397,6 +397,7 @@ class Decoder:
             else:
                 chords.append(ev)
         for ev in chords:
+            ev.heads = list({(h.step, h.octave): h for h in ev.heads}.values())  # a source can stamp 1 head twice
             ev.heads.sort(key=lambda h: -h.y)
         for tx, ty in self.threes:
             if bar.left <= tx < bar.right and chords and abs(ty - self.current_base) < 45:
@@ -599,7 +600,7 @@ class Decoder:
                 if chord is None:
                     self.flags.append(Issue(bars[0].number if bars else 0, f"unread chord {text!r}"))
                     continue
-                bar = next((b for b in bars if x < b.right - 4), bars[-1] if bars else None)
+                bar = next((b for b in bars if x < b.right - 8), bars[-1] if bars else None)  # a label centred on a first note starts left of the bar line
                 if bar is None:
                     continue
                 bar.chords.append(chord)

@@ -10,3 +10,4 @@ __pycache__/
 work/
 out/
 uv.lock
+src/muse.egg-info/

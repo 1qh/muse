@@ -19,6 +19,7 @@ def source(name):
 
 
 def reading(score):
+    """Stable text form of everything a decoder reads."""
     rows = []
     for b in score.bars:
         for voices in (b.voices, b.voices2):
@@ -44,6 +45,11 @@ def test_every_voice_fills_its_bar(name):
                 assert sum((e.length for e in v), F(0)) == b.length, b.number
 
 
+def test_all_notes_of_a_beam_share_a_group():
+    groups = [e.beam for b in decode(source("SongH-Dm")).bars[34:35] for v in b.voices2 for e in v if e.heads and e.length == F(1, 4)]
+    assert len(set(groups)) == 4 and len(groups) == 16
+
+
 @pytest.mark.parametrize("name", sorted(BARS))
 def test_reading_is_pinned(name):
     """Digest of the reading proven against the sources; contains no sheet content."""
@@ -52,12 +58,12 @@ def test_reading_is_pinned(name):
 
 
 PINNED = {
-    'SongA-Cm': '5328db82c42e3962',
-    'SongB-Em': '96299b564e377418',
-    'SongC-Dm': 'e84e64d2505c91fb',
+    'SongA-Cm': '89eed07708940683',
+    'SongB-Em': 'fb7e08f753da1140',
+    'SongC-Dm': '726310cf0747df8b',
     'SongD-Am': 'c37c5b2fb18c3d6a',
-    'SongE-Dm': 'b3591fdeb83a74c5',
-    'SongF-Fm': '79339cc923da82a4',
+    'SongE-Dm': '2c500bc901b8de92',
+    'SongF-Fm': '5d6f5cc6e5f1f0e8',
     'SongG-Em': '60060770bcc2a593',
     'SongH-Dm': '5aedeb548a1c4274',
 }
