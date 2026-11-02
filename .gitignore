@@ -1,0 +1,10 @@
+*.pdf
+*.png
+*.mscz
+*.mscx
+*.musicxml
+*.mxl
+.DS_Store
+.venv/
+__pycache__/
+work/
