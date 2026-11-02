@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<museScore version="4.70">
+  <Style>
+    <pageWidth>8.26772</pageWidth>
+    <pageHeight>11.6929</pageHeight>
+    <pagePrintableWidth>7.48031</pagePrintableWidth>
+    <pageEvenLeftMargin>0.393701</pageEvenLeftMargin>
+    <pageOddLeftMargin>0.393701</pageOddLeftMargin>
+    <pageEvenTopMargin>0.393701</pageEvenTopMargin>
+    <pageEvenBottomMargin>0.393701</pageEvenBottomMargin>
+    <pageOddTopMargin>0.393701</pageOddTopMargin>
+    <pageOddBottomMargin>0.393701</pageOddBottomMargin>
+    <Spatium>1.4</Spatium>
+    <minMeasureWidth>3</minMeasureWidth>
+    <minNoteDistance>0.4</minNoteDistance>
+    <measureSpacing>1.0</measureSpacing>
+    <harmonyFretDist>0.8</harmonyFretDist>
+    <showHeader>0</showHeader>
+    <headerFirstPage>0</headerFirstPage>
+    <showFooter>0</showFooter>
+    <footerFirstPage>0</footerFirstPage>
+    <hideEmptyStaves>1</hideEmptyStaves>
+    <dontHideStavesInFirstSystem>0</dontHideStavesInFirstSystem>
+    <firstSystemInstNameVisibility>2</firstSystemInstNameVisibility>
+    <subsSystemInstNameVisibility>2</subsSystemInstNameVisibility>
+    <hideInstrumentNameIfOneInstrument>1</hideInstrumentNameIfOneInstrument>
+    <lastSystemFillLimit>0</lastSystemFillLimit>
+    <enableIndentationOnFirstSystem>0</enableIndentationOnFirstSystem>
+    <showMeasureNumber>1</showMeasureNumber>
+    <measureNumberSystem>1</measureNumberSystem>
+    <createMultiMeasureRests>0</createMultiMeasureRests>
+  </Style>
+</museScore>
