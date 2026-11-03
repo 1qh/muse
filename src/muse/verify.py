@@ -86,6 +86,14 @@ def chord_beat_problems(src: pathlib.Path, path: pathlib.Path) -> list[str]:
     return problems
 
 
+def tempo_text(final: pathlib.Path) -> str:
+    """The number the score's tempo mark prints."""
+    with zipfile.ZipFile(final) as z:
+        name = next(n for n in z.namelist() if n.endswith(".mscx") and "/" not in n)
+        found = re.search(r"<Tempo>.*?=\s*([\d.]+)\s*</text>", z.read(name).decode("utf-8"), re.S)
+    return found[1] if found else ""
+
+
 def check(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> list[str]:
     """The latest score and its PDF, in the original tone, against the source decode."""
     info = song_of(src)
@@ -103,6 +111,9 @@ def check(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> list[str]
     keys = {k.text for k in root.iter("fifths")}
     if keys != {str(fifths)}:
         problems.append(f"key {keys}")
+    tempo = next((b.tempo for b in score.bars if b.tempo), None)
+    if tempo and tempo_text(final) != f"{tempo[1]:g}":
+        problems.append(f"tempo prints {tempo_text(final)}, the sheet says {tempo[1]:g}")
     notes = chords = 0
     for p_i, part in enumerate(parts):
         for m, bar in zip(part.findall("measure"), score.bars, strict=False):

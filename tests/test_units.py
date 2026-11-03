@@ -3,8 +3,8 @@ from fractions import Fraction as F
 
 import pymupdf
 
-from muse import musicxml, port
-from muse.model import Bar, Chord, Event, Head, Score
+from muse import musicxml, piano, port
+from muse.model import Bar, Chord, Event, Head, Score, Text
 from muse.navigate import expected_order
 from muse.pdfcheck import chord_collisions, foreign_fonts, margin_words, oversized_text, past_margin, title_problems
 from muse.symbolfont import Decoder, assemble_chords, nominal_dots, parse_chord
@@ -256,3 +256,26 @@ def test_stem_split_drops_a_rest_stamped_under_a_note() -> None:
     stray = Event(1.5, [], F(1))
     split = stem_split([up, down, stray], F(4))
     assert split == ([up], [down])
+
+
+def test_a_tempo_decimal_printed_in_2_spans_is_read_whole() -> None:
+    class S:
+        def __init__(self, text: str) -> None:
+            self.text = text
+
+    assert Decoder.tempo_value([S("Slow = 52"), S(".5")]) == 52.5
+    assert Decoder.tempo_value([S("Slow = 43"), S("86")]) == 43
+
+
+def _bar(number: int, notes: bool, coda: bool = False, label: str = "") -> Bar:
+    heads = [Head(0.0, 0.0, "C", 5)] if notes else []
+    texts = [Text(0.0, 0.0, [(label, False, True)], False)] if label else []
+    return Bar(number, 0, 0.0, 1.0, F(4), voices=[[Event(0.0, heads, F(4))]], coda=coda, texts=texts)
+
+
+def test_an_unlabelled_coda_keeps_only_its_closing_run() -> None:
+    bars = [_bar(1, True), _bar(2, False, label="Verse1: words"), _bar(3, False)]
+    bars += [_bar(4, True, coda=True), _bar(5, False), _bar(6, True), _bar(7, True), _bar(8, True)]
+    found = {(p.name, p.first, p.last) for p in piano.parts(Score(bars, [], []))}
+    assert ("outro", 6, 8) in found and ("intro", 1, 1) in found
+    assert not any(first <= 4 <= last for _, first, last in found)

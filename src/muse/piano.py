@@ -31,6 +31,15 @@ def label_of(bar: Bar) -> str:
     return ""
 
 
+def lyric_of(bar: Bar) -> str:
+    """The hint words after a lyric label, so an ending can find the section it repeats."""
+    for text in [*bar.texts, *bar.texts2]:
+        whole = "".join(run[0] for run in text.runs)
+        if SUNG.match(whole) or ENDING.match(whole):
+            return whole.split(":", 1)[1].strip().rstrip(".… ")
+    return ""
+
+
 def has_notes(bar: Bar) -> bool:
     return any(e.heads for voices in (bar.voices, bar.voices2) for v in voices for e in v)
 
@@ -59,14 +68,28 @@ def sung_stretches(score: Score) -> list[tuple[int, int]]:
         label = label_of(bar)
         lettered = any(LETTER.match(mark) for mark in bar.rehearsal)
         if label and ENDING.match(label + ":"):
+            text = lyric_of(bar)
+            twin = next((b for b in score.bars if b.number != first and lyric_of(b) and lyric_of(b) == text), None)
+            if twin is not None:
+                length = next(z - a for a, z in sung if a == twin.number) if any(a == twin.number for a, _ in sung) else 0
+                sung.append((first, min(end, first + length)))
             continue
         if label:
             closing = end > len(score.bars) or by_number[end - 1].dal_segno
             stop = min(end, first + done[label]) if label in done else end
             if label not in done and closing and sung:  # a last section with no earlier twin runs as long as the one before
-                stop = min(end, first + sung[-1][1] - sung[-1][0])
+                stop = min(end, first + list(done.values())[-1]) if done else end
             done.setdefault(label, end - first)
             sung.append((first, stop))
+        elif bar.coda and end <= len(score.bars):
+            sung.append((first, end))
+        elif bar.coda:
+            run = 0
+            for number in range(end - 1, first, -1):
+                if not has_notes(by_number[number]):
+                    break
+                run += 1
+            sung.append((first, end - run if run >= MIN_TAIL else end))
         elif lettered and not labelled:
             stop = end
             run = 0
@@ -85,14 +108,20 @@ def parts(score: Score) -> list[Part]:
     sung = sung_stretches(score)
     kept = sorted(b.number for b in score.bars if not any(a <= b.number < z for a, z in sung))
     first_sung = sung[0][0] if sung else len(score.bars) + 1
-    last_sung = sung[-1][1] if sung else 0
     found: list[Part] = []
     for number in kept:
         if found and found[-1].last == number - 1 and not by_mark(score, number):
             found[-1].last = number
             continue
-        name = "intro" if number < first_sung else "outro" if number >= last_sung else "interlude"
+        name = "intro" if number < first_sung else "interlude"
         found.append(Part(name, number, number))
+    found = [part for part in found if part.last > part.first or part.last == len(score.bars) or part.name == "intro"]
+    if found and found[-1].last == len(score.bars) and found[-1].name != "intro":
+        found[-1].name = "outro"
+    for part in found:
+        marked = any(mark.lower() == "interlude" for mark in score.bars[part.first - 1].rehearsal)
+        if marked:
+            part.name = "interlude"
     return found
 
 

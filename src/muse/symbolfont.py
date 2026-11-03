@@ -793,7 +793,8 @@ class Decoder:
 
     @staticmethod
     def tempo_value(spans: list[Span]) -> float:
-        values = [float(m[1].replace(" ", "")) for s in spans if (m := re.search(r"=\s*(\d+(?:\s*\.\s*\d+)?)", s.text))]
+        whole = " ".join(s.text for s in spans)  # a decimal can print as 2 spans, such as 52 and .5
+        values = [float(m.replace(" ", "")) for m in re.findall(r"=\s*(\d+(?:\s*\.\s*\d+)?)", whole)]
         if not values:
             raise ValueError("no tempo printed")
         return min(values)  # a sheet may also print the eighth-note equivalent, twice the quarter value

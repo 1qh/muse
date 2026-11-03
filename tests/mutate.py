@@ -8,6 +8,8 @@ import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 MUTATIONS = [
+    ("symbolfont.py", '" ".join(s.text for s in spans)', "spans[0].text", "tempo decimal"),
+    ("piano.py", "sung.append((first, end - run if run >= MIN_TAIL else end))", "sung.append((first, first))", "coda tail"),
     ("scorefile.py", 'and marker.findtext("markerType") != label:', "and False:", "marker type"),
     ("piano.py", "stop = min(end, first + sung[-1][1] - sung[-1][0])", "pass", "closing section"),
     ("scorefile.py", 'holder.findtext("base") or holder.findtext("bass")', 'holder.findtext("base")', "bass tag"),

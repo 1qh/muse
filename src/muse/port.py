@@ -35,6 +35,7 @@ JUMP_LIFT = -7  # clears the chord row it would otherwise touch
 JUMP_WORD_SIZE = 12  # below the chords
 MAX_SHORT_SHARE = 0.15  # readers find many 2-bar lines sparse; smaller notation is preferred
 CHORD_STRETCH = 0.45
+STRETCH_CHOICES = (0.45, 0.15, 0.0)
 TIGHT_DISTANCE = 6.0  # line gap only for a song that fits its pages no other way
 BASE_DISTANCE = 11.0
 MAX_SPATIUM = 3.0
@@ -452,6 +453,22 @@ def largest_fit(start: float, step: float, stop: float, fits: Callable[[float], 
     return low
 
 
+def choose_stretch(src: pathlib.Path, work: pathlib.Path, spatium: float, distance: float, limit: int, variant: str) -> None:
+    """Chord width helps some songs and starves others, so each sheet keeps the share leaving fewest short lines."""
+    global CHORD_STRETCH  # noqa: PLW0603
+    best: tuple[float, float] | None = None
+    for share in STRETCH_CHOICES:
+        CHORD_STRETCH = share
+        try:
+            laid, _, _ = lay_out(src, work, spatium, distance, limit, variant)
+        except DoesNotFit:
+            continue
+        found = short_line_share(rows(laid))
+        if best is None or found < best[0]:
+            best = (found, share)
+    CHORD_STRETCH = best[1] if best else STRETCH_CHOICES[0]
+
+
 def fit(src: pathlib.Path, work: pathlib.Path, variant: str, limit: int) -> tuple[Score, pathlib.Path, float, float, int] | None:
     """The largest notation of 1 sheet within a page limit, its lines then spread over the height left."""
 
@@ -467,6 +484,7 @@ def fit(src: pathlib.Path, work: pathlib.Path, variant: str, limit: int) -> tupl
     if found is None:
         return None
     floor, start = found
+    choose_stretch(src, work, floor, start, limit, variant)
     spatium = largest_fit(floor, 0.05, MAX_SPATIUM, lambda value: fits(value, start))
     distance = largest_fit(start, 1.0, MAX_DISTANCE, lambda value: fits(spatium, value, compact=False))
     score, base, probe = lay_out(src, work, spatium, distance, limit, variant)
