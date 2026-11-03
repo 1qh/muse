@@ -12,7 +12,8 @@ from fractions import Fraction as F
 from muse.pdfcheck import title_problems
 from muse.song import decode, song_of
 
-BANNED = ["ENGRAVER", "Copyright", "Contact", "credit", "Sáng tác", "Trình bày", "credit", "credit"]
+BANNED = ["Copyright", "Contact", "Sáng tác", "Trình bày"]
+PRIVATE_BANNED = "banned.txt"  # names kept with the private outputs
 PC = {"C": 0, "D": 2, "E": 4, "F": 5, "G": 7, "A": 9, "B": 11}
 
 
@@ -95,7 +96,9 @@ def check(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> list[str]
             if F(t, div) != bar.length:
                 problems.append(f"bar {bar.number} voice {v}: {F(t, div)} quarters vs {bar.length}")
     text = subprocess.run(["pdftotext", str(final.with_suffix(".pdf")), "-"], capture_output=True, text=True, check=True).stdout
-    for word in BANNED:
+    for word in [*BANNED, *(out / PRIVATE_BANNED).read_text(encoding="utf-8").split("\n")]:
+        if not word.strip():
+            continue
         if word.lower() in text.lower():
             problems.append(f"banned text in PDF: {word}")
     if re.search(r"\d{9,}", text):

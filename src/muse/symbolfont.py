@@ -21,7 +21,10 @@ KNOWN_GLYPHS = frozenset((0x20, 0x2E, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 
                           0xF0C0, 0xF0C5, 0xF0C7, 0xF0C8, 0xF0CE, 0xF0CF, 0xF0D2, 0xF0D3, 0xF0D9, 0xF0DE, 0xF0E1, 0xF0E4, 0xF0EB, 0xF0EE, 0xF0F3, 0xF0F5, 0xF0F6, 0xF0FA))
 FLATS, SHARPS, NATURALS = {0x62, 0xF062}, {0x23, 0xF023}, {0x6E, 0xF06E}
 STEP_PER_SIZE = 2.16 / 17.9
-NOISE = ("ENGRAVER", "Sáng tác", "Trình bày", "credit", "Copyright", "Contact")
+CREDIT_CLEARANCE = 42.0  # points above the first staff line
+CREDIT_X = 300.0
+MARK_Y = 40.0
+NOISE = ("Sáng tác", "Trình bày", "Copyright", "Contact")  # credit labels; the engraver mark sits above the first staff
 
 
 @dataclasses.dataclass
@@ -575,6 +578,8 @@ class Decoder:
         for s in spans:
             if any(n in s.text for n in NOISE) or s.size > 16:
                 continue
+            if bars and bars[0].number == 1 and s.y < sys[0] - CREDIT_CLEARANCE and (s.x > CREDIT_X or s.y < MARK_Y):
+                continue  # credits sit in the top corners, well above the first staff's chords and cues
             if abs(s.size - 8.0) < 0.3 and s.text.strip().isdigit() and not s.font.startswith("Times") and bars and s.y > sys[0] - 45 and s.x < bars[0].left + 40:
                 self.printed.append((bars[0].number, int(s.text)))
                 continue  # printed bar number

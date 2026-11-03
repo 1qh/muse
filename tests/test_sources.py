@@ -73,3 +73,11 @@ def test_derivation_matches_the_confirmed_song_list(name):
     pin = pins()["songs"][name]
     song = song_of(source(name))
     assert (song.tone, song.fifths, song.direction, song.semis, song.title) == (pin["tone"], pin["fifths"], pin["direction"], pin["semis"], pin["title"])
+
+
+def test_no_private_credit_reaches_the_decoded_text() -> None:
+    names = (pathlib.Path(os.environ["MUSE_PINS"]).parent / "banned.txt").read_text(encoding="utf-8").split("\n")
+    for name in sorted(pins()["songs"]):
+        score = decode(source(name))
+        words = " ".join(run[0] for bar in score.bars for text in [*bar.texts, *bar.texts2] for run in text.runs).lower()
+        assert not [word for word in names if word.strip() and word.lower() in words], name
