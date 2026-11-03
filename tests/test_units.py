@@ -110,3 +110,11 @@ def test_split_prefers_middle_and_avoids_ties_and_lone_bars() -> None:
     row = [1, 2, 3, 4, 5]
     assert port.split_point(row, _row_score(5, set())) == 3
     assert port.split_point(row, _row_score(5, {2})) == 4
+
+
+def test_tie_inside_a_bar_does_not_leave_it() -> None:
+    first = Event(0.0, [Head(0.0, 0.0, "C", 5, tie_start=True)], F(2))
+    last = Event(1.0, [Head(1.0, 0.0, "C", 5, tie_stop=True)], F(2))
+    assert not port.tied_out(Bar(1, 0, 0.0, 1.0, F(4), voices=[[first, last]]))
+    last.heads[0].tie_start = True
+    assert port.tied_out(Bar(1, 0, 0.0, 1.0, F(4), voices=[[first, last]]))

@@ -98,7 +98,8 @@ def rows(score: Score) -> list[list[int]]:
 
 
 def tied_out(bar: Bar) -> bool:
-    return any(head.tie_start for voice in [*bar.voices, *bar.voices2] for ev in voice for head in ev.heads)
+    """Whether a tie leaves the bar: only a voice's last event can carry one past the barline."""
+    return any(head.tie_start for voice in [*bar.voices, *bar.voices2] if voice for head in voice[-1].heads)
 
 
 def split_point(row: list[int], score: Score) -> int:
