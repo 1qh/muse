@@ -24,7 +24,7 @@ MAX_MERGE_ROUNDS = 12
 BARS_PER_LINE = 8
 TIE_REACH = 2  # extra bars a line may take to avoid breaking on a tie
 PICKUP_EVENTS = 2  # a first bar this thin shares the opening line as a pickup
-MIN_SPATIUM = 1.2
+SIZE_FLOORS = (1.2, 1.1, 1.0)  # below 1.2 only for a song that fits its pages no other way
 MAX_PAGES = 2
 MAX_WORKERS = 9
 SIGN_SIZE = 25  # a sign may exceed the chords: about 2.5 times the default sign
@@ -462,10 +462,12 @@ def fit(src: pathlib.Path, work: pathlib.Path, variant: str, limit: int) -> tupl
             return False
         return not compact or short_line_share(rows(laid)) <= MAX_SHORT_SHARE
 
-    start = next((gap for gap in (BASE_DISTANCE, TIGHT_DISTANCE) if fits(MIN_SPATIUM, gap, compact=False)), None)
-    if start is None:
+    floors = [(size, gap) for size in SIZE_FLOORS for gap in (BASE_DISTANCE, TIGHT_DISTANCE) if size == SIZE_FLOORS[0] or gap == TIGHT_DISTANCE]
+    found = next((pair for pair in floors if fits(pair[0], pair[1], compact=False)), None)
+    if found is None:
         return None
-    spatium = largest_fit(MIN_SPATIUM, 0.05, MAX_SPATIUM, lambda value: fits(value, start))
+    floor, start = found
+    spatium = largest_fit(floor, 0.05, MAX_SPATIUM, lambda value: fits(value, start))
     distance = largest_fit(start, 1.0, MAX_DISTANCE, lambda value: fits(spatium, value, compact=False))
     score, base, probe = lay_out(src, work, spatium, distance, limit, variant)
     return score, base, spatium, distance, len(pymupdf.open(probe))
@@ -546,6 +548,7 @@ def port(src: pathlib.Path, out_dir: pathlib.Path, work: pathlib.Path) -> dict[s
     found = piano.parts(decode(src))
     probe_score = decode(src)
     report["parts"] = [(p.name, p.first, p.last, piano.staff_of([probe_score.bars[n - 1] for n in range(p.first, p.last + 1)])) for p in found]
+    (work / f"{info.name}-report.json").write_text(json.dumps(report, ensure_ascii=False), encoding="utf-8")
     return report
 
 
