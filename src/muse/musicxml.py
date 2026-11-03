@@ -26,11 +26,14 @@ def harmony(chord: Chord, onset: F) -> str:
     return f'<harmony><root><root-step>{chord.root}</root-step>{alter}</root><kind text="{text}">{kind_value(chord.kind)}</kind>{bass}{offset}</harmony>'
 
 
+MAX_TEXT_SIZE = 11.0  # every text stays below the chords
+
+
 def words(text: Text, staff_offset: int = 0) -> str:
     place = "above" if text.above else "below"
     runs = []
     for content, bold, italic in text.runs:
-        attrs = f'font-size="{text.size:g}"'
+        attrs = f'font-size="{min(text.size, MAX_TEXT_SIZE):g}"'
         if bold:
             attrs += ' font-weight="bold"'
         if italic:
@@ -171,7 +174,7 @@ def measure(bar: Bar, part: int, score: Score) -> str:
     if part == 1:
         if bar.tempo:
             label, bpm = bar.tempo
-            out.append(f'<direction placement="above"><direction-type><words font-weight="bold" font-style="italic" font-size="12">{escape(label)}</words></direction-type></direction>')
+            out.append(f'<direction placement="above"><direction-type><words font-weight="bold" font-style="italic" font-size="{MAX_TEXT_SIZE:g}">{escape(label)}</words></direction-type></direction>')
             out.append(f'<direction placement="above"><direction-type><metronome><beat-unit>quarter</beat-unit><per-minute>{bpm}</per-minute></metronome></direction-type><sound tempo="{bpm}"/></direction>')
         for mark in bar.rehearsal:
             out.append(f'<direction placement="above"><direction-type><rehearsal enclosure="square">{escape(mark)}</rehearsal></direction-type></direction>')

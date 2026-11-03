@@ -1,19 +1,26 @@
 """Port 1 source PDF: decode, write MusicXML, create the MuseScore file, transpose, export."""
 from __future__ import annotations
 
+import concurrent.futures
+import itertools
 import json
 import pathlib
 import re
 import subprocess
 import sys
 import zipfile
+from collections.abc import Callable
 
 import pymupdf
 
-from muse import bravura, musicxml, symbolfont
+from muse import bravura, musicxml, pdfcheck, symbolfont
 from muse.model import Bar, Score
 
-MAX_LAYOUT_ROUNDS = 6
+MAX_LAYOUT_ROUNDS = 14
+BASE_SPATIUM = 1.6
+BASE_DISTANCE = 11.0
+MAX_SPATIUM = 3.0
+MAX_DISTANCE = 40.0
 STYLE = pathlib.Path(__file__).with_name("style.mss")
 # song -> (target key fifths, direction, semitones)
 TONES = {
@@ -25,6 +32,18 @@ TONES = {
     "SongF": ("Em", 1, "down", -1),
     "SongG": ("Em", 1, "", 0),
     "SongH": ("Em", 1, "up", 2),
+}
+
+
+TITLES = {
+    "SongA": "Song A",
+    "SongB": "Song B",
+    "SongC": "Song C",
+    "SongD": "Song D",
+    "SongE": "Song E",
+    "SongF": "Song F",
+    "SongG": "Song G",
+    "SongH": "Song H",
 }
 
 
@@ -129,6 +148,23 @@ def split_point(row: list[int], score: Score) -> int:
     return candidates[0]
 
 
+def crowded_rows(pdf: pathlib.Path, firsts: list[int]) -> set[int]:
+    """First bar of every line holding chords that run together, matched by page and height."""
+    where = []
+    for page_no, page in enumerate(pymupdf.open(pdf)):
+        for block in page.get_text("dict")["blocks"]:
+            for line in block.get("lines", []):
+                for span in line["spans"]:
+                    if span["text"].strip().isdigit() and span["bbox"][0] < 60 and "Italic" in span["font"] and int(span["text"]) in firsts:
+                        where.append((page_no, span["bbox"][1], int(span["text"])))
+    where.append((0, 0.0, 1))
+    crowded = set()
+    for page_no, y, _ in pdfcheck.chord_collisions(pdf):
+        same_page = [item for item in where if item[0] == page_no]
+        crowded.add(min(same_page, key=lambda item: abs(item[1] - y))[2])
+    return crowded
+
+
 def balanced_pages(heights: list[float], pages: int) -> list[int]:
     """Indexes of the lines that start pages 2 and up, keeping the tallest page as short as possible."""
     count = len(heights)
@@ -187,41 +223,95 @@ def balance(score: Score, probe: pathlib.Path) -> bool:
     return True
 
 
-def port(src: pathlib.Path, out_dir: pathlib.Path, work: pathlib.Path) -> Score:
+class DoesNotFit(Exception):
+    """This size does not fit the song's page count."""
+
+
+def styled(work: pathlib.Path, title: str, spatium: float, distance: float) -> pathlib.Path:
+    """A copy of the style at 1 notation size and line gap, with the song title at the top right of every page."""
+    text = STYLE.read_text(encoding="utf-8")
+    for tag, value in (("Spatium", spatium), ("minSystemDistance", distance), ("maxSystemDistance", distance), ("oddHeaderR", title), ("evenHeaderR", title)):
+        text, count = re.subn(rf"<{tag}>[^<]*</{tag}>", f"<{tag}>{value}</{tag}>", text)
+        if count != 1:
+            raise RuntimeError(f"style has no single {tag}")
+    path = work / f"{title}.mss"
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
+def lay_out(src: pathlib.Path, work: pathlib.Path, spatium: float, distance: float, pages: int | None) -> tuple[Score, pathlib.Path, pathlib.Path]:
+    """Build 1 song at 1 size: no line wraps on its own and lines spread evenly over its pages."""
     song = src.stem.split("-")[0]
-    tone, fifths, direction, _ = TONES[song]
+    style = styled(work, TITLES[song], spatium, distance)
     score = decode(src)
     for bar in score.bars:  # lines stay; pages fill up
         bar.new_system = bar.new_system or bar.new_page
         bar.new_page = False
-    work.mkdir(parents=True, exist_ok=True)
-    out_dir.mkdir(parents=True, exist_ok=True)
     xml = work / f"{song}.musicxml"
     base = work / f"{song}.mscz"
     probe = work / f"{song}-layout.pdf"
     for _ in range(MAX_LAYOUT_ROUNDS):
         xml.write_text(musicxml.write(score), encoding="utf-8")
-        run("-S", str(STYLE), "-o", str(base), str(xml))
+        run("-S", str(style), "-o", str(base), str(xml))
         strip_title_frame(base)
         run("-o", str(probe), str(base))
         declared = rows(score)
         firsts = {row[0] for row in declared}
         wraps = [n for n in system_starts(probe) if n not in firsts]
-        if not wraps:
+        crowded = crowded_rows(probe, [row[0] for row in declared]) if not wraps else set()
+        splittable = [row for row in declared if len(row) > 1 and (any(n in row for n in wraps) or row[0] in crowded)]
+        if not splittable:
+            if wraps or crowded:
+                raise DoesNotFit(f"{song}: lines {wraps or sorted(crowded)} do not fit")
             break
-        for row in declared:
-            if any(n in row for n in wraps):
-                score.bars[split_point(row, score) - 1].new_system = True
+        for row in splittable:
+            score.bars[split_point(row, score) - 1].new_system = True
     else:
-        raise RuntimeError(f"{song}: rows still wrap at {wraps}")
-    pages = len(pymupdf.open(probe))
+        raise DoesNotFit(f"{song}: rows still wrap at {wraps}")
+    found = len(pymupdf.open(probe))
+    if pages is not None and found != pages:
+        raise DoesNotFit(f"{song}: {found} pages, not {pages}")
     if balance(score, probe):
         xml.write_text(musicxml.write(score), encoding="utf-8")
-        run("-S", str(STYLE), "-o", str(base), str(xml))
+        run("-S", str(style), "-o", str(base), str(xml))
         strip_title_frame(base)
         run("-o", str(probe), str(base))
-        if len(pymupdf.open(probe)) != pages:
-            raise RuntimeError(f"{song}: even pages need {len(pymupdf.open(probe))} pages, not {pages}")
+        if len(pymupdf.open(probe)) != found:
+            raise DoesNotFit(f"{song}: even pages need {len(pymupdf.open(probe))} pages, not {found}")
+    return score, base, probe
+
+
+def largest_fit(start: float, step: float, stop: float, fits: Callable[[float], bool]) -> float:
+    """Bisect for the largest value that fits, to within 1 step; start is known to fit."""
+    low, high = start, stop + step
+    while high - low > step + 1e-9:
+        middle = round(start + round(((low + high) / 2 - start) / step) * step, 2)
+        if fits(middle):
+            low = middle
+        else:
+            high = middle
+    return low
+
+
+def port(src: pathlib.Path, out_dir: pathlib.Path, work: pathlib.Path) -> Score:
+    song = src.stem.split("-")[0]
+    tone, fifths, direction, _ = TONES[song]
+    work.mkdir(parents=True, exist_ok=True)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    _, _, probe = lay_out(src, work, BASE_SPATIUM, BASE_DISTANCE, None)
+    pages = len(pymupdf.open(probe))
+
+    def fits(spatium: float, distance: float) -> bool:
+        try:
+            lay_out(src, work, spatium, distance, pages)
+        except DoesNotFit:
+            return False
+        return True
+
+    spatium = largest_fit(BASE_SPATIUM, 0.05, MAX_SPATIUM, lambda value: fits(value, BASE_DISTANCE))
+    distance = largest_fit(BASE_DISTANCE, 1.0, MAX_DISTANCE, lambda value: fits(spatium, value))
+    score, base, _ = lay_out(src, work, spatium, distance, pages)
+    print(song, "pages", pages, "spatium", spatium, "distance", distance, flush=True)
     real_jumps(base)
     final = out_dir / f"{song}-{tone}.mscz"
     if direction:
@@ -236,13 +326,13 @@ def port(src: pathlib.Path, out_dir: pathlib.Path, work: pathlib.Path) -> Score:
 def main() -> None:
     src_dir, out_dir, work = map(pathlib.Path, sys.argv[1:4])
     wanted = sys.argv[4:]
-    for src in sorted(src_dir.glob("*.pdf")):
-        if wanted and src.stem.split("-")[0] not in wanted:
-            continue
-        score = port(src, out_dir, work)
-        print(src.stem, "bars", len(score.bars), "flags", len(score.flags), "corrections", len(score.corrections))
-        for issue in score.flags:
-            print("  FLAG", issue.bar, issue.message)
+    sources = [src for src in sorted(src_dir.glob("*.pdf")) if not wanted or src.stem.split("-")[0] in wanted]
+    with concurrent.futures.ProcessPoolExecutor(max_workers=len(sources)) as pool:
+        results = pool.map(port, sources, itertools.repeat(out_dir), itertools.repeat(work))
+        for src, score in zip(sources, results, strict=True):
+            print(src.stem, "bars", len(score.bars), "flags", len(score.flags), "corrections", len(score.corrections))
+            for issue in score.flags:
+                print("  FLAG", issue.bar, issue.message)
 
 
 if __name__ == "__main__":

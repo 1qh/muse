@@ -2,10 +2,14 @@
 from __future__ import annotations
 
 import pathlib
+import re
 import sys
 
 import pymupdf
 
+CHORD = re.compile(r"(?:[A-G][#b♯♭]?)?(?:maj|min|dim|sus|add|aug|m|\d|[#b♯♭()/ ]|[A-G][#b♯♭]?)*")
+MIN_CHORD_GAP = 1.0  # clear space between 2 chords, in chord font sizes
+MUSIC_FONTS = ("Leland", "Bravura", "MScore", "mscore")
 TOP_BAND = 0.015  # the style keeps text out of the page top, music above the first staff included
 BOTTOM_BAND = 0.992  # no word reaches the bottom edge region: printable music ends above it
 
@@ -23,10 +27,64 @@ def margin_words(path: pathlib.Path) -> list[str]:
     return found
 
 
+def foreign_fonts(path: pathlib.Path) -> list[str]:
+    """Any text font but the style's own means a letter fell back mid-word."""
+    names = {font[3].split("+")[-1] for page in pymupdf.open(path) for font in page.get_fonts()}
+    return sorted(name for name in names if not name.startswith(MUSIC_FONTS + ("SFPro", "SF-Pro", "SF Pro")))
+
+
+def oversized_text(path: pathlib.Path) -> list[str]:
+    """Words at or above the biggest chord size; chords must be the biggest text on the page."""
+    spans = []
+    for page in pymupdf.open(path):
+        for block in page.get_text("dict")["blocks"]:
+            for line in block.get("lines", []):
+                for span in line["spans"]:
+                    text = span["text"].strip()
+                    if text and not all(0xE000 <= ord(c) <= 0xF8FF for c in text):
+                        spans.append((round(span["size"], 1), text))
+    top = max(size for size, _ in spans)
+    return sorted({text for size, text in spans if size >= top and not CHORD.fullmatch(text)})
+
+
+def chord_collisions(path: pathlib.Path) -> list[tuple[int, float, str]]:
+    """Chord roots with too little clear space before them, read per character: page, height, root."""
+    found = []
+    for number, page in enumerate(pymupdf.open(path), 1):
+        chars = []
+        for block in page.get_text("rawdict")["blocks"]:
+            for line in block.get("lines", []):
+                for span in line["spans"]:
+                    for ch in span["chars"]:
+                        if not ch["c"].isspace() and not 0xE000 <= ord(ch["c"]) <= 0xF8FF:
+                            chars.append((span["size"], ch["origin"][1], ch["bbox"][0], ch["bbox"][2], ch["c"]))
+        if not chars:
+            continue
+        top = max(c[0] for c in chars)
+        ordered = sorted((c for c in chars if abs(c[0] - top) < 0.05), key=lambda c: (round(c[1], 0), c[2]))
+        for before, after in zip(ordered, ordered[1:], strict=False):
+            is_root = after[4] in "ABCDEFG" and before[4] != "/"
+            if abs(before[1] - after[1]) < 1 and is_root and after[2] - before[3] < top * MIN_CHORD_GAP:
+                found.append((number - 1, after[1] - top, after[4]))
+    return found
+
+
+def title_problems(path: pathlib.Path, title: str) -> list[str]:
+    """The title prints exactly once in the top right corner of every page; lyrics may repeat its words."""
+    problems = []
+    spellings = {title, title.replace("Đ", "Ð")}  # SF Pro's text layer reports Đ as its look-alike
+    for number, page in enumerate(pymupdf.open(path), 1):
+        hits = [hit for spelling in spellings for hit in page.search_for(spelling)
+                if hit.x1 > page.rect.width * 0.7 and hit.y1 < page.rect.height * 0.06]
+        if len(hits) != 1:
+            problems.append(f"p{number}: title printed {len(hits)} times at the top right")
+    return problems
+
+
 def main() -> None:
     bad = 0
     for path in sorted(pathlib.Path(sys.argv[1]).glob("*.pdf")):
-        found = margin_words(path)
+        found = margin_words(path) + foreign_fonts(path) + oversized_text(path) + [c[2] for c in chord_collisions(path)]
         print(path.name, "margin words", found)
         bad += len(found)
     raise SystemExit(1 if bad else 0)

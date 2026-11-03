@@ -6,7 +6,7 @@ import pymupdf
 from muse import musicxml, port
 from muse.model import Bar, Chord, Event, Head, Score
 from muse.navigate import expected_order
-from muse.pdfcheck import margin_words
+from muse.pdfcheck import chord_collisions, foreign_fonts, margin_words, oversized_text, title_problems
 from muse.symbolfont import Decoder, assemble_chords, nominal_dots, parse_chord
 from muse.verify import midi
 
@@ -124,3 +124,70 @@ def test_pages_split_as_evenly_as_possible() -> None:
     assert port.balanced_pages([10.0] * 6, 2) == [3]
     assert port.balanced_pages([30.0, 10.0, 10.0, 10.0], 2) == [1]
     assert port.balanced_pages([10.0] * 6, 3) == [2, 4]
+
+
+def test_largest_fit_finds_the_edge_in_few_tries() -> None:
+    tried = []
+
+    def fits(value: float) -> bool:
+        tried.append(value)
+        return value <= 2.2
+
+    assert port.largest_fit(1.6, 0.05, 3.0, fits) == 2.2
+    assert len(tried) <= 6
+
+
+def test_font_check_refuses_a_fallback_font(tmp_path) -> None:
+    path = tmp_path / "fallback.pdf"
+    doc = pymupdf.open()
+    doc.new_page().insert_text((100, 400), "word", fontname="helv")
+    doc.save(path)
+    assert foreign_fonts(path) == ["Helvetica"]
+
+
+def test_chords_must_be_the_biggest_text(tmp_path) -> None:
+    good = tmp_path / "good.pdf"
+    doc = pymupdf.open()
+    page = doc.new_page()
+    page.insert_text((100, 100), "Am7", fontsize=14)
+    page.insert_text((100, 200), "Strings", fontsize=11)
+    doc.save(good)
+    page.insert_text((200, 100), "Dm add2", fontsize=14)
+    page.insert_text((300, 100), "maj7", fontsize=14)
+    doc.save(good)
+    assert oversized_text(good) == []
+    bad = tmp_path / "bad.pdf"
+    page.insert_text((100, 300), "Strings", fontsize=14)
+    doc.save(bad)
+    assert oversized_text(bad) == ["Strings"]
+
+
+def test_chords_running_together_are_found(tmp_path) -> None:
+    path = tmp_path / "chords.pdf"
+    doc = pymupdf.open()
+    page = doc.new_page()
+    page.insert_text((100, 100), "Am7", fontsize=14)
+    width = pymupdf.get_text_length("Am7", fontsize=14)
+    page.insert_text((100 + width + 0.5, 100), "Dm7", fontsize=14)
+    page.insert_text((300, 100), "G7", fontsize=14)
+    doc.save(path)
+    assert [c[2] for c in chord_collisions(path)] == ["D"]
+
+
+def test_title_must_print_once_at_the_top_right(tmp_path) -> None:
+    path = tmp_path / "title.pdf"
+    doc = pymupdf.open()
+    page = doc.new_page(width=595, height=842)
+    page.insert_text((500, 30), "Song", fontsize=9)
+    doc.save(path)
+    assert title_problems(path, "Song") == []
+    other = pymupdf.open()
+    other.new_page(width=595, height=842).insert_text((100, 400), "Song", fontsize=9)
+    moved = tmp_path / "moved.pdf"
+    other.save(moved)
+    assert title_problems(moved, "Song") == ["p1: title printed 0 times at the top right"]
+    missing = pymupdf.open()
+    missing.new_page(width=595, height=842).insert_text((100, 400), "music", fontsize=9)
+    absent = tmp_path / "absent.pdf"
+    missing.save(absent)
+    assert title_problems(absent, "Song") == ["p1: title printed 0 times at the top right"]

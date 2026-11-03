@@ -9,11 +9,11 @@ import xml.etree.ElementTree as ET
 import zipfile
 from fractions import Fraction as F
 
-from muse.port import TONES, decode
+from muse.pdfcheck import title_problems
+from muse.port import TITLES, TONES, decode
 
 BANNED = ["ENGRAVER", "Copyright", "Contact", "credit", "Sáng tác", "Trình bày", "credit", "credit"]
 PC = {"C": 0, "D": 2, "E": 4, "F": 5, "G": 7, "A": 9, "B": 11}
-TITLES = {"SongA": "SONG A", "SongB": "SONG B", "SongC": "SONG C", "SongD": "SONG D", "SongE": "SONG E", "SongF": "SONG F", "SongG": "Song G", "SongH": "SONG H"}
 
 
 def midi(step: str, alter: int, octave: int) -> int:
@@ -100,8 +100,7 @@ def check(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> list[str]
             problems.append(f"banned text in PDF: {word}")
     if re.search(r"\d{9,}", text):
         problems.append("long digit run in PDF")
-    if TITLES[song] in text:
-        problems.append(f"title in PDF: {TITLES[song]}")
+    problems += title_problems(final.with_suffix(".pdf"), TITLES[song])
     if stored_chord_names(final) != sorted(c.kind for bar in score.bars for c in bar.chords if c.kind):
         problems.append("stored chord names differ from the source")
     print(f"{song}-{tone}: bars {len(score.bars)} notes {notes} chords {chords} corrections {len(score.corrections)} flags {len(score.flags)} problems {len(problems)}")
