@@ -4,6 +4,7 @@ from __future__ import annotations
 import concurrent.futures
 import itertools
 import json
+import os
 import pathlib
 import re
 import subprocess
@@ -13,7 +14,7 @@ from collections.abc import Callable
 
 import pymupdf
 
-from muse import musicxml, pdfcheck
+from muse import musicxml, pdfcheck, piano, scorefile
 from muse.model import Bar, Score
 from muse.song import Song, decode, song_of
 from muse.song import sources as song_sources
@@ -27,7 +28,8 @@ MIN_SPATIUM = 1.2
 MAX_PAGES = 2
 MAX_WORKERS = 9
 SIGN_SIZE = 25  # a sign may exceed the chords: about 2.5 times the default sign
-SIGN_GLYPHS = {"segno": "\ue047", "coda": "\ue048"}
+LEGACY_SIGN_SIZE = 25  # MuseScore 3 sizes the sign as text
+LEGACY_ONLY_FONTS = ("staffFontFace", "systemFontFace", "beginFontFace", "continueFontFace", "endFontFace")  # its names for text styles
 JUMP_LIFT = -7  # clears the chord row it would otherwise touch
 JUMP_WORD_SIZE = 12  # below the chords
 MAX_SHORT_SHARE = 0.15  # readers find many 2-bar lines sparse; smaller notation is preferred
@@ -36,6 +38,9 @@ TIGHT_DISTANCE = 6.0  # line gap only for a song that fits its pages no other wa
 BASE_DISTANCE = 11.0
 MAX_SPATIUM = 3.0
 MAX_DISTANCE = 40.0
+ORIGINAL = "original"
+TONE = "tone"
+PIANO = "piano"
 STYLE = pathlib.Path(__file__).with_name("style.mss")
 SF_PRO_FILES = tuple(f"SF-Pro-Display-{face}.otf" for face in ("Regular", "RegularItalic", "Bold", "BoldItalic"))
 FONT_DIRS = (pathlib.Path.home() / "Library" / "Fonts", pathlib.Path("/Library/Fonts"))
@@ -86,8 +91,7 @@ def real_jumps(mscz: pathlib.Path) -> None:
             pattern = re.compile(r"\s*<StaffText>(?:(?!</StaffText>).)*?<text><sym>" + sym + r"</sym></text>\s*</StaffText>", re.S)
             for m in reversed(list(pattern.finditer(text))):
                 start = text.rfind("<voice>", 0, m.start())
-                glyph = SIGN_GLYPHS[sym]
-                element = f'<Marker><style>repeat_left</style><text><font size="{SIGN_SIZE}"/><font face="Bravura Text"/>{glyph}</text><label>{label}</label></Marker>'
+                element = f"<Marker><style>repeat_left</style><text><sym>{sym}</sym></text><label>{label}</label><centerOnSymbol>0</centerOnSymbol><musicSymbolSize>{SIGN_SIZE}</musicSymbolSize></Marker>"
                 text = text[:start] + element + text[start:m.start()] + text[m.end():]
         items[name] = text.encode("utf-8")
     with zipfile.ZipFile(mscz, "w", zipfile.ZIP_DEFLATED) as z:
@@ -296,14 +300,14 @@ class DoesNotFit(Exception):
     """This size does not fit the song's page count."""
 
 
-def styled(work: pathlib.Path, title: str, spatium: float, distance: float) -> pathlib.Path:
+def styled(work: pathlib.Path, name: str, title: str, spatium: float, distance: float) -> pathlib.Path:
     """A copy of the style at 1 notation size and line gap, with the song title at the top right of every page."""
     text = STYLE.read_text(encoding="utf-8")
     for tag, value in (("Spatium", spatium), ("minSystemDistance", distance), ("maxSystemDistance", distance), ("oddHeaderR", title), ("evenHeaderR", title)):
         text, count = re.subn(rf"<{tag}>[^<]*</{tag}>", f"<{tag}>{value}</{tag}>", text)
         if count != 1:
             raise RuntimeError(f"style has no single {tag}")
-    path = work / f"{title}.mss"
+    path = work / name
     path.write_text(text, encoding="utf-8")
     return path
 
@@ -358,21 +362,23 @@ def transpose_options(song: Song) -> dict[str, object] | None:
     return {"mode": "to_key", "direction": song.direction, "targetKey": song.fifths, "transposeKeySignatures": True, "transposeChordNames": True, "useDoubleSharpsFlats": False, "transposeInterval": 0}
 
 
-def export_probe(song: Song, base: pathlib.Path, probe: pathlib.Path) -> None:
-    """Measure the transposed score: chord names, and so their widths, differ from the source's."""
-    options = transpose_options(song)
+def export_view(options: dict[str, object] | None, base: pathlib.Path, target: pathlib.Path) -> None:
+    """Export a score, in the sheet's tone when it has its own: chord names, and so their widths, differ by key."""
     if options:
-        run("-o", str(probe), "--transpose", json.dumps(options), str(base))
+        run("-o", str(target), "--transpose", json.dumps(options), str(base))
     else:
-        run("-o", str(probe), str(base))
+        run("-o", str(target), str(base))
 
 
-def lay_out(src: pathlib.Path, work: pathlib.Path, spatium: float, distance: float, pages: int | None) -> tuple[Score, pathlib.Path, pathlib.Path]:
-    """Build 1 song at 1 size: no line wraps on its own and lines spread evenly over its pages."""
+def lay_out(src: pathlib.Path, work: pathlib.Path, spatium: float, distance: float, pages: int | None, variant: str = TONE) -> tuple[Score, pathlib.Path, pathlib.Path]:
+    """Build 1 sheet of a song at 1 size: no line wraps on its own and lines spread evenly over its pages."""
     score = decode(src)
     info = song_of(src, score)
-    song = info.name
-    style = styled(work, info.title, spatium, distance)
+    if variant == PIANO:
+        piano.reduce(score)
+    options = None if variant == ORIGINAL else transpose_options(info)
+    song = f"{info.name}-{variant}"
+    style = styled(work, f"{song}.mss", info.title, spatium, distance)
     xml = work / f"{song}.musicxml"
     base = work / f"{song}.mscz"
     probe = work / f"{song}-layout.pdf"
@@ -380,17 +386,20 @@ def lay_out(src: pathlib.Path, work: pathlib.Path, spatium: float, distance: flo
     tied = [tied_out(bar) for bar in score.bars]
     fixed = {block[0] for block in sections(score)}
 
-    def measure() -> tuple[list[list[int]], set[int]]:
-        for index, bar in enumerate(score.bars):
-            bar.new_system = index in starts and index != 0
-            bar.new_page = False
+    def build() -> None:
         xml.write_text(musicxml.write(score), encoding="utf-8")
         run("-S", str(style), "-o", str(base), str(xml))
         strip_title_frame(base)
         real_jumps(base)
         big_signs(base)
         widen_chord_bars(base, score)
-        export_probe(info, base, probe)
+        export_view(options, base, probe)
+
+    def measure() -> tuple[list[list[int]], set[int]]:
+        for index, bar in enumerate(score.bars):
+            bar.new_system = index in starts and index != 0
+            bar.new_page = False
+        build()
         declared = rows(score)
         firsts = {row[0] for row in declared}
         wraps = [n for n in system_starts(probe) if n not in firsts]
@@ -424,13 +433,7 @@ def lay_out(src: pathlib.Path, work: pathlib.Path, spatium: float, distance: flo
     if pages is not None and found > pages:
         raise DoesNotFit(f"{song}: {found} pages, over {pages}")
     if balance(score, probe):
-        xml.write_text(musicxml.write(score), encoding="utf-8")
-        run("-S", str(style), "-o", str(base), str(xml))
-        strip_title_frame(base)
-        real_jumps(base)
-        big_signs(base)
-        widen_chord_bars(base, score)
-        export_probe(info, base, probe)
+        build()
         if len(pymupdf.open(probe)) != found:
             raise DoesNotFit(f"{song}: even pages need {len(pymupdf.open(probe))} pages, not {found}")
     return score, base, probe
@@ -448,35 +451,101 @@ def largest_fit(start: float, step: float, stop: float, fits: Callable[[float], 
     return low
 
 
-def port(src: pathlib.Path, out_dir: pathlib.Path, work: pathlib.Path) -> Score:
-    info = song_of(src)
-    song, tone = info.name, info.tone
-    work.mkdir(parents=True, exist_ok=True)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    pages = MAX_PAGES
+def fit(src: pathlib.Path, work: pathlib.Path, variant: str, limit: int) -> tuple[Score, pathlib.Path, float, float, int] | None:
+    """The largest notation of 1 sheet within a page limit, its lines then spread over the height left."""
 
     def fits(spatium: float, distance: float, compact: bool = True) -> bool:
         try:
-            laid, _, _ = lay_out(src, work, spatium, distance, pages)
+            laid, _, _ = lay_out(src, work, spatium, distance, limit, variant)
         except DoesNotFit:
             return False
         return not compact or short_line_share(rows(laid)) <= MAX_SHORT_SHARE
 
     start = next((gap for gap in (BASE_DISTANCE, TIGHT_DISTANCE) if fits(MIN_SPATIUM, gap, compact=False)), None)
     if start is None:
-        raise DoesNotFit(f"{song}: over {pages} pages even at the smallest size")
+        return None
     spatium = largest_fit(MIN_SPATIUM, 0.05, MAX_SPATIUM, lambda value: fits(value, start))
     distance = largest_fit(start, 1.0, MAX_DISTANCE, lambda value: fits(spatium, value, compact=False))
-    score, base, _ = lay_out(src, work, spatium, distance, pages)
-    print(song, "pages", pages, "spatium", spatium, "distance", distance, flush=True)
-    final = out_dir / f"{song}-{tone}.mscz"
-    options = transpose_options(info)
-    if options:
-        run("-o", str(final), "--transpose", json.dumps(options), str(base))
-    else:
-        final.write_bytes(base.read_bytes())
-    run("-o", str(final.with_suffix(".pdf")), str(final))
-    return score
+    score, base, probe = lay_out(src, work, spatium, distance, limit, variant)
+    return score, base, spatium, distance, len(pymupdf.open(probe))
+
+
+def legacy_command() -> str:
+    """MuseScore 3's own executable; it is frozen at its last release."""
+    return os.environ.get("MUSE_MS3") or str(pathlib.Path.home() / "Applications" / "MuseScore 3.app" / "Contents" / "MacOS" / "mscore")
+
+
+def build_legacy(src: pathlib.Path, work: pathlib.Path, target: pathlib.Path, spatium: float, distance: float, info: Song) -> None:
+    """The MuseScore 3 file, from the same MusicXML as the latest file, in its own program's format."""
+    score = decode(src)
+    style = styled(work, f"{info.name}-legacy.mss", info.title, spatium, distance)
+    fonts = "".join(f"<{tag}>SF Pro Display</{tag}>" for tag in LEGACY_ONLY_FONTS)
+    style.write_text(style.read_text(encoding="utf-8").replace('version="4.70"', 'version="3.02"').replace("</Style>", fonts + "</Style>"), encoding="utf-8")
+    xml = work / f"{info.name}-{ORIGINAL}.musicxml"
+    raw = work / f"{info.name}-legacy.mscz"
+    done = subprocess.run([legacy_command(), "-S", str(style), "-o", str(raw), str(xml)], capture_output=True, text=True, timeout=240, stdin=subprocess.DEVNULL)
+    if done.returncode:
+        raise RuntimeError(f"MuseScore 3: {done.stderr[-300:]}")
+    strip_title_frame(raw)
+    legacy_signs(raw)
+    big_signs(raw)
+    widen_chord_bars(raw, score)
+    target.write_bytes(raw.read_bytes())
+
+
+def legacy_signs(mscz: pathlib.Path) -> None:
+    """MuseScore 3's import already writes the built-in signs; only their size is ours."""
+    with zipfile.ZipFile(mscz) as z:
+        items = {info.filename: z.read(info.filename) for info in z.infolist()}
+    for name, data in items.items():
+        if name.endswith(".mscx"):
+            text = data.decode("utf-8")
+            for sym in ("segno", "coda"):
+                text = text.replace(f"<text><sym>{sym}</sym></text>", f"<size>{LEGACY_SIGN_SIZE}</size><text><sym>{sym}</sym></text>")
+            items[name] = text.encode("utf-8")
+    with zipfile.ZipFile(mscz, "w", zipfile.ZIP_DEFLATED) as z:
+        for key, data in items.items():
+            z.writestr(key, data)
+
+
+def port(src: pathlib.Path, out_dir: pathlib.Path, work: pathlib.Path) -> dict[str, object]:
+    """Every file of 1 song's folder; returns what was built for the report."""
+    info = song_of(src)
+    work.mkdir(parents=True, exist_ok=True)
+    (out_dir / info.name).mkdir(parents=True, exist_ok=True)
+    report: dict[str, object] = {"song": info.name}
+    original = fit(src, work, ORIGINAL, MAX_PAGES)
+    if original is None:
+        raise DoesNotFit(f"{info.name}: the original tone is over {MAX_PAGES} pages at the smallest size")
+    _, base, spatium, distance, pages = original
+    (out_dir / info.score_file).write_bytes(base.read_bytes())
+    run("-o", str(out_dir / info.original_pdf), str(base))
+    report["original"] = (spatium, distance, pages)
+    # the legacy file reads the original tone's MusicXML, so it is built before anything overwrites it
+    build_legacy(src, work, out_dir / info.legacy_file, spatium, distance, info)
+    legacy_gap = scorefile.difference(out_dir / info.score_file, out_dir / info.legacy_file)
+    report["legacy"] = legacy_gap[:6]
+    if legacy_gap:
+        (out_dir / info.legacy_file).unlink()
+    if info.direction:
+        tone = fit(src, work, TONE, MAX_PAGES)
+        if tone is None:
+            raise DoesNotFit(f"{info.name}: the favourite tone is over {MAX_PAGES} pages at the smallest size")
+        _, base, spatium, distance, pages = tone
+        export_view(transpose_options(info), base, out_dir / info.tone_pdf)
+        report["tone"] = (spatium, distance, pages)
+    sheet = fit(src, work, PIANO, 1) or fit(src, work, PIANO, MAX_PAGES)
+    if sheet is None:
+        raise DoesNotFit(f"{info.name}: the piano sheet is over {MAX_PAGES} pages at the smallest size")
+    _, base, spatium, distance, pages = sheet
+    export_view(transpose_options(info), base, out_dir / info.piano_pdf)
+    keep = work / f"{info.name}-piano-final.mscz"
+    keep.write_bytes(base.read_bytes())
+    report["piano"] = (spatium, distance, pages)
+    found = piano.parts(decode(src))
+    probe_score = decode(src)
+    report["parts"] = [(p.name, p.first, p.last, piano.staff_of([probe_score.bars[n - 1] for n in range(p.first, p.last + 1)])) for p in found]
+    return report
 
 
 def main() -> None:
@@ -486,10 +555,13 @@ def main() -> None:
     sources = [src for src in song_sources(src_dir) if not wanted or src.stem.split("-")[0] in wanted]
     with concurrent.futures.ProcessPoolExecutor(max_workers=min(len(sources), MAX_WORKERS)) as pool:
         results = pool.map(port, sources, itertools.repeat(out_dir), itertools.repeat(work))
-        for src, score in zip(sources, results, strict=True):
-            print(src.stem, "bars", len(score.bars), "flags", len(score.flags), "corrections", len(score.corrections))
-            for issue in score.flags:
-                print("  FLAG", issue.bar, issue.message)
+        reports = list(results)
+    for report in reports:
+        print(json.dumps(report, ensure_ascii=False), flush=True)
+    previous = work / "build-report.json"
+    earlier = json.loads(previous.read_text(encoding="utf-8")) if previous.exists() else {}
+    earlier.update({str(r["song"]): r for r in reports})
+    previous.write_text(json.dumps(earlier, ensure_ascii=False, indent=1), encoding="utf-8")
 
 
 if __name__ == "__main__":

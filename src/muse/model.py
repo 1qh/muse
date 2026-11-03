@@ -105,7 +105,7 @@ class Bar:
     dal_segno: bool = False
     fine: bool = False
     rehearsal: list[str] = dataclasses.field(default_factory=list)
-    tempo: tuple[str, int] | None = None
+    tempo: tuple[str, float] | None = None
     wedges: list[tuple[float, float, str]] = dataclasses.field(default_factory=list)
     simile: bool = False
     clef_octave: int = 0

@@ -36,6 +36,31 @@ class Song:
     semis: int
     title: str
 
+    @property
+    def score_file(self) -> str:
+        return f"{self.name}/{self.name}-{self.source_key}.mscz"
+
+    @property
+    def legacy_file(self) -> str:
+        return f"{self.name}/{self.name}-{self.source_key}-ms3.mscz"
+
+    @property
+    def original_pdf(self) -> str:
+        return f"{self.name}/{self.name}-{self.source_key}.pdf"
+
+    @property
+    def tone_pdf(self) -> str:
+        """The PDF in the favourite tone; the original itself when it already is that tone."""
+        return f"{self.name}/{self.name}-{self.tone}.pdf"
+
+    @property
+    def piano_pdf(self) -> str:
+        return f"{self.name}/{self.name}-{self.tone}-piano.pdf"
+
+    def files(self) -> set[str]:
+        """Exactly what the song's folder holds."""
+        return {self.score_file, self.legacy_file, self.original_pdf, self.tone_pdf, self.piano_pdf}
+
 
 def sources(folders: pathlib.Path) -> list[pathlib.Path]:
     """Every source PDF of 1 folder, or of several joined by the path separator; a song name appears once."""

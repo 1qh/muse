@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import difflib
 import hashlib
+import json
 import os
 import pathlib
 import shutil
@@ -13,9 +14,9 @@ from collections.abc import Callable
 
 import pymupdf
 
-from muse import inverse, navigate, pdfcheck, port, verify
+from muse import inverse, navigate, pdfcheck, piano, port, scorefile, verify
 from muse.model import Score
-from muse.song import decode, song_of, sources
+from muse.song import Song, decode, song_of, sources
 
 A4 = (595.0, 842.0)
 A4_TOLERANCE = 1.5
@@ -23,6 +24,7 @@ EDGE = 8.0  # points of clear paper on every side
 MIN_TIED_CHAIN = 4  # a tied run of this many bars may not fit 1 line
 MIN_HOMR_AGREEMENT = 0.6  # below this the independent reading has stopped agreeing about the song
 LOW_DPI = 72
+WITHHELD = "withheld.json"
 
 
 def page_problems(path: pathlib.Path) -> list[str]:
@@ -134,6 +136,42 @@ def homr_findings(src: pathlib.Path, score: Score, work: pathlib.Path) -> tuple[
     return failures, f"homr agrees on {share:.0%}; differs near bars {bars}"
 
 
+def folder_problems(out: pathlib.Path, songs: list[Song], withheld: set[str]) -> list[str]:
+    """The sheets repo holds exactly the songs' folders, and each folder exactly its files."""
+    wanted: set[str] = set()
+    for song in songs:
+        wanted |= {name for name in song.files() if name != song.legacy_file or song.name not in withheld}
+    held = {str(p.relative_to(out)) for p in out.rglob("*") if p.is_file() and ".git" not in p.relative_to(out).parts and p.name != ".DS_Store"}
+    return [f"missing {name}" for name in sorted(wanted - held)] + [f"stray {name}" for name in sorted(held - wanted)]
+
+
+def withheld_songs() -> dict[str, str]:
+    """Songs whose MuseScore 3 file is held back, each with its stated reason."""
+    path = pathlib.Path(os.environ["MUSE_PRIVATE"]) / WITHHELD
+    return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+
+
+def piano_problems(src: pathlib.Path, sheet: pathlib.Path) -> list[str]:
+    """1 staff, notes only in the kept parts, every other rest hidden, every chord present."""
+    original = decode(src)
+    parts = piano.parts(original)
+    kept = {n for part in parts for n in range(part.first, part.last + 1)}
+    root = scorefile.root_of(sheet)
+    staves = scorefile.staves(root)
+    problems = [f"{len(staves)} staves"] if len(staves) != 1 else []
+    bars = scorefile.read(sheet)[0]
+    if len(bars) != len(original.bars):
+        problems.append(f"{len(bars)} bars, source has {len(original.bars)}")
+    for number, (held, measure, bar) in enumerate(zip(bars, staves[0].findall("Measure"), original.bars, strict=False), 1):
+        if held.pitches and number not in kept:
+            problems.append(f"bar {number}: notes outside the kept parts")
+        if number not in kept and any(rest.findtext("visible") != "0" for rest in measure.iter("Rest")):
+            problems.append(f"bar {number}: rest not hidden")
+        if len(held.chords) != len(bar.chords):
+            problems.append(f"bar {number}: {len(held.chords)} chords, source has {len(bar.chords)}")
+    return problems
+
+
 def check_song(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> tuple[list[str], list[str]]:
     failures: list[str] = []
     notes: list[str] = []
@@ -146,26 +184,50 @@ def check_song(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> tupl
 
     score = decode(src)
     song = song_of(src, score)
-    final = out / f"{song.name}-{song.tone}.pdf"
     guarded("verify", lambda: verify.check(src, out, work))
     guarded("navigate", lambda: navigate.check(src, out, work)[2])
-    guarded("inverse", lambda: inverse.check(src, out, work))
-    guarded("pdf", lambda: pdfcheck.all_problems(final, song.title))
-    guarded("pages", lambda: page_problems(final))
+    guarded("tone", lambda: inverse.check(src, out, work))
+    guarded("chord beats", lambda: verify.chord_beat_problems(src, out / song.score_file))
+    guarded("signs built in", lambda: scorefile.builtin_sign_problems(out / song.score_file))
+    legacy = out / song.legacy_file
+    if legacy.exists():
+        guarded("ms3", lambda: scorefile.difference(out / song.score_file, legacy))
+        guarded("ms3 chord beats", lambda: verify.chord_beat_problems(src, legacy))
+        guarded("ms3 signs built in", lambda: scorefile.builtin_sign_problems(legacy))
     wanted = sum(bar.segno or bar.coda for bar in score.bars)
-    guarded("signs", lambda: [f"{wanted} signs in the score, {len(pdfcheck.sign_sizes(final)[0])} printed"] if len(pdfcheck.sign_sizes(final)[0]) < wanted else [])
-    guarded("ink", lambda: ink_problems(final))
+
+    def judge_pdf(final: pathlib.Path) -> None:
+        short = final.stem.rsplit("-", 1)[-1]
+
+        def signs() -> list[str]:
+            printed = len(pdfcheck.sign_sizes(final)[0])
+            return [f"{wanted} signs in the score, {printed} printed"] if printed < wanted else []
+
+        guarded(f"pdf {short}", lambda: pdfcheck.all_problems(final, song.title))
+        guarded(f"words {short}", lambda: verify.pdf_words_problems(final, song.title))
+        guarded(f"pages {short}", lambda: page_problems(final))
+        guarded(f"ink {short}", lambda: ink_problems(final))
+        guarded(f"signs {short}", signs)
+        notes.append(f"{final.name}: {len(pymupdf.open(final))} pages")
+
+    for final in sorted({out / song.original_pdf, out / song.tone_pdf, out / song.piano_pdf}):
+        judge_pdf(final)
 
     def ties() -> list[str]:
-        starts = line_starts(final)
-        wrong, long_runs = tie_findings(starts, [port.tied_out(bar) for bar in score.bars])
-        lengths = line_lengths(starts, len(score.bars))
-        short = sum(1 for length in lengths if length <= 2)
-        notes.append(f"{short} of {len(lengths)} lines hold 2 bars or fewer")
-        notes.extend(long_runs)
+        wrong: list[str] = []
+        for final in sorted({out / song.original_pdf, out / song.tone_pdf}):
+            starts = line_starts(final)
+            bad, long_runs = tie_findings(starts, [port.tied_out(bar) for bar in score.bars])
+            lengths = line_lengths(starts, len(score.bars))
+            short = sum(1 for length in lengths if length <= 2)
+            notes.append(f"{final.name}: {short} of {len(lengths)} lines hold 2 bars or fewer")
+            notes.extend(long_runs)
+            wrong += bad
         return wrong
 
     guarded("lines", ties)
+    sheet = work / f"{song.name}-piano-final.mscz"
+    guarded("piano", lambda: piano_problems(src, sheet))
 
     def homr() -> list[str]:
         wrong, note = homr_findings(src, score, work)
@@ -181,7 +243,15 @@ def main() -> None:
     src_dir, out, work = map(pathlib.Path, sys.argv[1:4])
     work.mkdir(parents=True, exist_ok=True)
     total = 0
-    for src in sources(src_dir):
+    found = sources(src_dir)
+    held_back = withheld_songs()
+    for name, reason in held_back.items():
+        print(f"withheld MuseScore 3 file: {name}: {reason}")
+    trouble = folder_problems(out, [song_of(src) for src in found], set(held_back))
+    for problem in trouble:
+        print("  FAIL: folders:", problem)
+    total += len(trouble)
+    for src in found:
         try:
             failures, notes = check_song(src, out, work)
         except Exception as error:  # a refused source is a failure of this song, never the end of the run

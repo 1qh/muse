@@ -59,8 +59,8 @@ def signature(bar: Bar, semis: int) -> list[int]:
 
 def check(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> tuple[int, int, list[str]]:
     info = song_of(src)
-    song, tone, semis = info.name, info.tone, info.semis
-    final = out / f"{song}-{tone}.mscz"
+    song, semis = info.name, 0
+    final = out / info.score_file
     mscx = work / f"{song}-unrolled.mscx"
     subprocess.run(["mscore", "--unroll-repeats", "-o", str(mscx), str(final)], capture_output=True, check=True, timeout=240)
     root = ET.parse(mscx).getroot()

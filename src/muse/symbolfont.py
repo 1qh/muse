@@ -715,7 +715,7 @@ class Decoder:
                 if chord is None:
                     self.flags.append(Issue(bars[0].number if bars else 0, f"unread chord {text!r}"))
                     continue
-                bar = next((b for b in bars if x < b.right - 8), bars[-1] if bars else None)  # a label centred on a first note starts left of the bar line
+                bar = next((b for b in bars if x < b.right - 11), bars[-1] if bars else None)  # a label centred on a first note starts left of the bar line
                 if bar is None:
                     continue
                 bar.chords.append(chord)
@@ -792,8 +792,8 @@ class Decoder:
                 target.append(t)
 
     @staticmethod
-    def tempo_value(spans: list[Span]) -> int:
-        values = [int(m[1]) for s in spans if (m := re.search(r"=\s*(\d+)", s.text))]
+    def tempo_value(spans: list[Span]) -> float:
+        values = [float(m[1].replace(" ", "")) for s in spans if (m := re.search(r"=\s*(\d+(?:\s*\.\s*\d+)?)", s.text))]
         if not values:
             raise ValueError("no tempo printed")
         return min(values)  # a sheet may also print the eighth-note equivalent, twice the quarter value

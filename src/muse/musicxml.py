@@ -7,6 +7,7 @@ from xml.sax.saxutils import escape
 from muse.model import Bar, Chord, Event, Score, Text
 
 DIV = 48
+EXACT_OVER_NOTE = 3.5  # points; chords on beat 1 commonly print further than this from their note
 TYPES = {F(4): "whole", F(2): "half", F(1): "quarter", F(1, 2): "eighth", F(1, 4): "16th", F(1, 8): "32nd"}
 SHAPES = {"x": "x", "diamond": "diamond", "filleddiamond": "diamond", "circlex": "circle-x"}
 
@@ -124,6 +125,51 @@ def set_beam_states(voice: list[Event]) -> None:
         ev.tuplet_state = state
 
 
+def beat_of(time: tuple[int, int] | None) -> F:
+    """The beat in quarters: dotted in compound time."""
+    if time and time[1] == 8 and time[0] % 3 == 0:
+        return F(3, 2)
+    return F(4, time[1]) if time else F(1)
+
+
+def empty_bar_onsets(count: int, length: F, time: tuple[int, int] | None) -> list[F]:
+    """Chords of a bar without notes, in printed order: a lone chord on beat 1, several evenly on real beats."""
+    step = beat_of(time)
+    while count * step > length:
+        step /= 2
+    onsets: list[F] = []
+    for index in range(count):
+        wanted = length * index / count
+        at = round(wanted / step) * step
+        onsets.append(max(at, onsets[-1] + step) if onsets else at)
+    return onsets
+
+
+def has_heads(voices: list[list[Event]]) -> bool:
+    return any(e.heads for voice in voices for e in voice)
+
+
+def lone_chord_onset(bar: Bar, voices: list[list[Event]], chord: Chord) -> F:
+    """A lone chord opens the bar; only printing exactly over a note in the bar's 2nd half moves it there."""
+    for event in sorted((e for voice in voices for e in voice if e.heads and not e.grace), key=lambda e: e.onset):
+        if event.onset * 2 >= bar.length and abs(event.x - chord.x) <= EXACT_OVER_NOTE:
+            return event.onset
+    return F(0)
+
+
+def chord_onsets(bar: Bar, time: tuple[int, int] | None) -> list[tuple[F, Chord]]:
+    """Every chord of a bar with its true onset in quarters."""
+    if not bar.chords:
+        return []
+    ordered = sorted(bar.chords, key=lambda c: c.x)
+    if not has_heads(bar.voices) and not has_heads(bar.voices2):
+        return list(zip(empty_bar_onsets(len(ordered), bar.length, time), ordered, strict=True))
+    anchors = bar.voices if has_heads(bar.voices) else bar.voices2
+    if len(ordered) == 1:
+        return [(lone_chord_onset(bar, anchors, ordered[0]), ordered[0])]
+    return sorted(((x_to_time(bar, anchors, c.x), c) for c in ordered), key=lambda p: p[0])
+
+
 def x_to_time(bar: Bar, voices: list[list[Event]], x: float) -> F:
     points = [(bar.left, F(0))]
     for voice in voices:
@@ -146,7 +192,7 @@ def x_to_time(bar: Bar, voices: list[list[Event]], x: float) -> F:
     return F(0)
 
 
-def measure(bar: Bar, part: int, score: Score) -> str:
+def measure(bar: Bar, part: int, score: Score, time: tuple[int, int] | None = None) -> str:
     voices = bar.voices if part == 1 else bar.voices2
     out = [f'<measure number="{bar.number}">']
     if bar.new_page or bar.new_system:
@@ -173,7 +219,7 @@ def measure(bar: Bar, part: int, score: Score) -> str:
         out.append("<attributes>" + "".join(attrs) + "</attributes>")
     if part == 1:
         if bar.tempo:
-            label, bpm = bar.tempo
+            label, bpm = bar.tempo[0], f"{bar.tempo[1]:g}"
             out.append(f'<direction placement="above"><direction-type><words font-weight="bold" font-style="italic" font-size="{MAX_TEXT_SIZE:g}">{escape(label)}</words></direction-type></direction>')
             out.append(f'<direction placement="above"><direction-type><metronome><beat-unit>quarter</beat-unit><per-minute>{bpm}</per-minute></metronome></direction-type><sound tempo="{bpm}"/></direction>')
         for mark in bar.rehearsal:
@@ -185,8 +231,7 @@ def measure(bar: Bar, part: int, score: Score) -> str:
     bar_texts = list(bar.texts if part == 1 else bar.texts2)
     for voice in voices:
         set_beam_states(voice)
-    F(0)
-    chords = sorted(((x_to_time(bar, voices, c.x), c) for c in bar.chords), key=lambda p: p[0]) if part == 1 else []
+    chords = chord_onsets(bar, bar.time or time) if part == 1 else []
     wedge_events = bar.wedges if part == 1 else []
     for i, voice in enumerate(voices):
         if i:
@@ -233,11 +278,22 @@ def measure(bar: Bar, part: int, score: Score) -> str:
     return "".join(out)
 
 
+def times(score: Score) -> list[tuple[int, int] | None]:
+    """The time signature in force in each bar."""
+    current = None
+    found = []
+    for bar in score.bars:
+        current = bar.time or current
+        found.append(current)
+    return found
+
+
 def write(score: Score) -> str:
     parts = '<score-part id="P1"><part-name print-object="no"></part-name></score-part>'
     if score.has_second_staff:
         parts += '<score-part id="P2"><part-name print-object="no"></part-name></score-part>'
-    body = '<part id="P1">' + "".join(measure(b, 1, score) for b in score.bars) + "</part>"
+    in_force = times(score)
+    body = '<part id="P1">' + "".join(measure(b, 1, score, t) for b, t in zip(score.bars, in_force, strict=True)) + "</part>"
     if score.has_second_staff:
-        body += '<part id="P2">' + "".join(measure(b, 2, score) for b in score.bars) + "</part>"
+        body += '<part id="P2">' + "".join(measure(b, 2, score, t) for b, t in zip(score.bars, in_force, strict=True)) + "</part>"
     return f'<?xml version="1.0" encoding="UTF-8"?>\n<score-partwise version="4.0"><part-list>{parts}</part-list>{body}</score-partwise>\n'

@@ -1,0 +1,184 @@
+"""Reduce a score to the pianist's sheet: 1 staff, notes only where the piano plays them, chords everywhere."""
+from __future__ import annotations
+
+import dataclasses
+import re
+
+from muse.model import Bar, Event, Score, Text
+
+SUNG = re.compile(r"\s*(Verse|Pre-?\s?Chorus|Chorus|Rap|Bridge)[\w-]*\s*:", re.I)
+ENDING = re.compile(r"\s*(End|Ending|Outro)\w*\s*:", re.I)
+LETTER = re.compile(r"^[A-Z]\d?$")
+PIANO_CUE = re.compile(r"piano|keys?\b|key/|rhodes", re.I)
+MIN_TAIL = 3  # consecutive bars of notes closing an unlabelled section read as instrumental
+HINT_WORDS = 4
+
+
+@dataclasses.dataclass
+class Part:
+    name: str  # intro, interlude or outro
+    first: int
+    last: int
+    staff: int = 1
+
+
+def label_of(bar: Bar) -> str:
+    """The lyric label a bar opens, such as Chorus-a, or an empty string."""
+    for text in [*bar.texts, *bar.texts2]:
+        whole = "".join(run[0] for run in text.runs)
+        if SUNG.match(whole) or ENDING.match(whole):
+            return whole.split(":")[0].strip()
+    return ""
+
+
+def has_notes(bar: Bar) -> bool:
+    return any(e.heads for voices in (bar.voices, bar.voices2) for v in voices for e in v)
+
+
+def segments(score: Score) -> list[tuple[int, int]]:
+    """1-based [first, end) stretches between section marks, lyric labels and jumps."""
+    bars = score.bars
+    cuts = {1, len(bars) + 1}
+    for bar in bars:
+        if bar.rehearsal or label_of(bar) or bar.coda:
+            cuts.add(bar.number)
+        if bar.dal_segno or bar.final:
+            cuts.add(bar.number + 1)
+    ordered = sorted(c for c in cuts if c <= len(bars) + 1)
+    return list(zip(ordered, ordered[1:], strict=False))
+
+
+def sung_stretches(score: Score) -> list[tuple[int, int]]:
+    """1-based [first, end) stretches a singer carries; a closing bar run past a sibling's length is instrumental."""
+    by_number = {b.number: b for b in score.bars}
+    labelled = any(label_of(b) for b in score.bars)
+    done: dict[str, int] = {}
+    sung: list[tuple[int, int]] = []
+    for first, end in segments(score):
+        bar = by_number[first]
+        label = label_of(bar)
+        lettered = any(LETTER.match(mark) for mark in bar.rehearsal)
+        if label and ENDING.match(label + ":"):
+            continue
+        if label:
+            closing = end > len(score.bars) or by_number[end - 1].dal_segno
+            stop = min(end, first + done[label]) if label in done else end
+            if label not in done and closing and sung:  # a last section with no earlier twin runs as long as the one before
+                stop = min(end, first + sung[-1][1] - sung[-1][0])
+            done.setdefault(label, end - first)
+            sung.append((first, stop))
+        elif lettered and not labelled:
+            stop = end
+            run = 0
+            for number in range(end - 1, first, -1):
+                if not has_notes(by_number[number]):
+                    break
+                run += 1
+            if run >= MIN_TAIL:
+                stop = end - run
+            sung.append((first, stop))
+    return sung
+
+
+def parts(score: Score) -> list[Part]:
+    """Every stretch of bars that keeps its notes, named by where it falls."""
+    sung = sung_stretches(score)
+    kept = sorted(b.number for b in score.bars if not any(a <= b.number < z for a, z in sung))
+    first_sung = sung[0][0] if sung else len(score.bars) + 1
+    last_sung = sung[-1][1] if sung else 0
+    found: list[Part] = []
+    for number in kept:
+        if found and found[-1].last == number - 1 and not by_mark(score, number):
+            found[-1].last = number
+            continue
+        name = "intro" if number < first_sung else "outro" if number >= last_sung else "interlude"
+        found.append(Part(name, number, number))
+    return found
+
+
+def by_mark(score: Score, number: int) -> bool:
+    return bool(score.bars[number - 1].rehearsal) or bool(score.bars[number - 1].coda)
+
+
+def staff_of(bars: list[Bar]) -> int:
+    """The staff cued piano or keys, otherwise the top; a top staff with no notes gives way to the one that has them."""
+    for bar in bars:
+        if any(PIANO_CUE.search("".join(run[0] for run in t.runs)) for t in bar.texts2):
+            return 2
+    if any(any(e.heads for v in b.voices2 for e in v) for b in bars) and not any(any(e.heads for v in b.voices for e in v) for b in bars):
+        return 2
+    return 1
+
+
+def empty_bar(bar: Bar) -> None:
+    bar.voices = [[Event(bar.left, [], bar.length, bar_rest=True, hidden=True)]]
+
+
+def shorten(text: Text) -> None:
+    """Keep a hint lyric's label and first words."""
+    whole = "".join(run[0] for run in text.runs)
+    if not (SUNG.match(whole) or ENDING.match(whole)):
+        return
+    left = HINT_WORDS
+    runs: list[tuple[str, bool, bool]] = []
+    for content, bold, italic in text.runs:
+        if ":" in content or (bold and not runs):
+            runs.append((content, bold, italic))
+            continue
+        words = content.split()
+        if left <= 0:
+            continue
+        taken = words[:left]
+        left -= len(taken)
+        cut = left <= 0 and len(words) >= len(taken)
+        runs.append((" " + " ".join(taken).rstrip(".…") + ("..." if cut else ""), bold, italic))
+    text.runs = runs
+
+
+def clean_ties(score: Score) -> None:
+    """A tie or slur whose other end was removed would dangle."""
+    events = [(e, h) for b in score.bars for v in b.voices for e in v for h in e.heads]
+    open_ties = False
+    for index, (_, head) in enumerate(events):
+        following = events[index + 1][1] if index + 1 < len(events) else None
+        if head.tie_stop and not open_ties:
+            head.tie_stop = False
+        if head.tie_start and not (following and following.tie_stop and following.step == head.step and following.octave == head.octave):
+            head.tie_start = False
+        open_ties = head.tie_start
+    opened = None
+    for _, head in events:
+        if head.slur_stop and opened is None:
+            head.slur_stop = False
+        elif head.slur_stop:
+            opened = None
+        if head.slur_start:
+            if opened is not None:
+                opened.slur_start = False
+            opened = head
+    if opened is not None:
+        opened.slur_start = False
+
+
+def reduce(score: Score) -> list[Part]:
+    """Turn a score into the piano sheet in place, and name what kept its notes."""
+    found = parts(score)
+    keep = {n: part for part in found for n in range(part.first, part.last + 1)}
+    for part in found:
+        part.staff = staff_of([score.bars[n - 1] for n in range(part.first, part.last + 1)])
+    for bar in score.bars:
+        held = keep.get(bar.number)
+        if held is None:
+            empty_bar(bar)
+        elif held.staff == 2:
+            bar.voices = bar.voices2 or [[Event(bar.left, [], bar.length, bar_rest=True, hidden=True)]]
+        bar.voices2 = []
+        bar.texts = [*bar.texts, *bar.texts2]
+        bar.texts2 = []
+        for text in bar.texts:
+            shorten(text)
+        if held is not None and not any(e.heads for v in bar.voices for e in v):
+            empty_bar(bar)
+    score.has_second_staff = False
+    clean_ties(score)
+    return found

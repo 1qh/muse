@@ -10,6 +10,8 @@ import xml.etree.ElementTree as ET
 import zipfile
 from fractions import Fraction as F
 
+from muse import scorefile
+from muse.musicxml import chord_onsets, times
 from muse.pdfcheck import title_problems
 from muse.song import decode, song_of, sources
 
@@ -55,10 +57,40 @@ def stored_chord_names(final: pathlib.Path) -> list[str]:
     return sorted(re.findall(r"<Harmony>(?:(?!</Harmony>).)*?<name>(.*?)</name>", text, re.S))
 
 
+def pdf_words_problems(pdf: pathlib.Path, title: str) -> list[str]:
+    """No credit, contact or stray text in a finished PDF, and the title where it belongs."""
+    problems = []
+    text = subprocess.run(["pdftotext", str(pdf), "-"], capture_output=True, text=True, check=True).stdout
+    for word in BANNED:
+        if word.lower() in text.lower():
+            problems.append(f"banned text in {pdf.name}: {word}")
+    names = (pathlib.Path(os.environ["MUSE_PRIVATE"]) / PRIVATE_BANNED).read_text(encoding="utf-8").split("\n")
+    for word in names:  # proper names match by exact case: lyrics can hold the same words in lower case
+        if word.strip() and word in text:
+            problems.append(f"banned text in {pdf.name}: {word}")
+    if re.search(r"\d{9,}", text):
+        problems.append(f"long digit run in {pdf.name}")
+    return problems + title_problems(pdf, title)
+
+
+def chord_beat_problems(src: pathlib.Path, path: pathlib.Path) -> list[str]:
+    """Every chord of a saved score against its true beat; a bar without notes follows the fixed rule."""
+    score = decode(src)
+    problems = []
+    staff = scorefile.read(path)[0]
+    for bar, time, held in zip(score.bars, times(score), staff, strict=False):
+        want = [onset for onset, _ in chord_onsets(bar, bar.time or time)]
+        got = sorted(chord[0] for chord in held.chords)
+        if got != sorted(want):
+            problems.append(f"bar {bar.number}: chords on {[str(x) for x in got]}, due on {[str(x) for x in want]}")
+    return problems
+
+
 def check(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> list[str]:
+    """The latest score and its PDF, in the original tone, against the source decode."""
     info = song_of(src)
-    song, tone, fifths, semis = info.name, info.tone, info.fifths, info.semis
-    final = out / f"{song}-{tone}.mscz"
+    song, fifths = info.name, info.source_fifths
+    final = out / info.score_file
     score = decode(src)
     xml = work / f"{song}-final.musicxml"
     subprocess.run(["mscore", "-o", str(xml), str(final)], capture_output=True, check=True, timeout=240)
@@ -75,13 +107,13 @@ def check(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> list[str]
     for p_i, part in enumerate(parts):
         for m, bar in zip(part.findall("measure"), score.bars, strict=False):
             voices = bar.voices if p_i == 0 else bar.voices2
-            want = sorted(midi(h.step, h.alter, h.octave) + semis for v in voices for e in v for h in e.heads)
+            want = sorted(midi(h.step, h.alter, h.octave) for v in voices for e in v for h in e.heads)
             got = bar_pitches(m)
             notes += len(got)
             if got != want:
                 problems.append(f"bar {bar.number} part {p_i + 1}: pitches {got} expected {want}")
             if p_i == 0:
-                want_c = sorted(((PC[c.root] + c.root_alter + semis) % 12, -1 if not c.bass else (PC[c.bass] + c.bass_alter + semis) % 12) for c in bar.chords)
+                want_c = sorted(((PC[c.root] + c.root_alter) % 12, -1 if not c.bass else (PC[c.bass] + c.bass_alter) % 12) for c in bar.chords)
                 got_c = bar_roots(m)
                 chords += len(got_c)
                 if want_c != got_c:
@@ -96,20 +128,9 @@ def check(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> list[str]
         for v, t in totals.items():
             if F(t, div) != bar.length:
                 problems.append(f"bar {bar.number} voice {v}: {F(t, div)} quarters vs {bar.length}")
-    text = subprocess.run(["pdftotext", str(final.with_suffix(".pdf")), "-"], capture_output=True, text=True, check=True).stdout
-    for word in BANNED:
-        if word.lower() in text.lower():
-            problems.append(f"banned text in PDF: {word}")
-    names = (pathlib.Path(os.environ["MUSE_PRIVATE"]) / PRIVATE_BANNED).read_text(encoding="utf-8").split("\n")
-    for word in names:  # proper names match by exact case: lyrics can hold the same words in lower case
-        if word.strip() and word in text:
-            problems.append(f"banned text in PDF: {word}")
-    if re.search(r"\d{9,}", text):
-        problems.append("long digit run in PDF")
-    problems += title_problems(final.with_suffix(".pdf"), info.title)
     if stored_chord_names(final) != sorted(c.kind for bar in score.bars for c in bar.chords if c.kind):
         problems.append("stored chord names differ from the source")
-    print(f"{song}-{tone}: bars {len(score.bars)} notes {notes} chords {chords} corrections {len(score.corrections)} flags {len(score.flags)} problems {len(problems)}")
+    print(f"{song}: bars {len(score.bars)} notes {notes} chords {chords} corrections {len(score.corrections)} flags {len(score.flags)} problems {len(problems)}")
     return problems
 
 

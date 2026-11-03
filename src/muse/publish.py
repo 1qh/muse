@@ -38,8 +38,7 @@ def publish(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path, run: Runne
         run(sys.executable, "-m", "muse.gate", str(src), str(out), str(work))
     except Refused as error:
         raise Refused(f"gate failed, nothing published:\n{error}") from error
-    files = sorted(p.name for p in out.iterdir() if p.suffix in (".pdf", ".mscz"))
-    run("git", "add", *files, cwd=out)
+    run("git", "add", "-A", ".", cwd=out)
     extras = stray_files(run("git", "ls-files", cwd=out))
     if extras:
         raise SystemExit(f"the sheets repo holds only PDF and MuseScore files, refusing: {extras}")
