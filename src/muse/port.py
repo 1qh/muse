@@ -129,6 +129,64 @@ def split_point(row: list[int], score: Score) -> int:
     return candidates[0]
 
 
+def balanced_pages(heights: list[float], pages: int) -> list[int]:
+    """Indexes of the lines that start pages 2 and up, keeping the tallest page as short as possible."""
+    count = len(heights)
+    pages = min(pages, count)
+    prefix = [0.0]
+    for height in heights:
+        prefix.append(prefix[-1] + height)
+    best = {(0, 0): (0.0, -1)}
+    for used in range(1, pages + 1):
+        for end in range(used, count + 1):
+            options = [(max(best[(used - 1, start)][0], prefix[end] - prefix[start]), start)
+                       for start in range(used - 1, end) if (used - 1, start) in best]
+            if options:
+                best[(used, end)] = min(options)
+    starts = []
+    end = count
+    for used in range(pages, 0, -1):
+        end = best[(used, end)][1]
+        starts.append(end)
+    return sorted(start for start in starts if start > 0)
+
+
+def line_heights(pdf: pathlib.Path, firsts: list[int]) -> tuple[list[float], int]:
+    """Each line's height from where its bar number prints, the last on a page ending at the page's ink."""
+    where: dict[int, tuple[int, float]] = {}
+    doc = pymupdf.open(pdf)
+    bottoms = []
+    tops = []
+    for page_no, page in enumerate(doc):
+        pix = page.get_pixmap(dpi=72, colorspace=pymupdf.csGRAY)
+        inked = [y for y in range(pix.height) if min(pix.samples[y * pix.width:(y + 1) * pix.width]) < 128]
+        tops.append(float(inked[0]))
+        bottoms.append(float(inked[-1]))
+        for block in page.get_text("dict")["blocks"]:
+            for line in block.get("lines", []):
+                for span in line["spans"]:
+                    if span["text"].strip().isdigit() and span["bbox"][0] < 60 and "Italic" in span["font"]:
+                        where.setdefault(int(span["text"]), (page_no, span["bbox"][1]))
+    where[1] = (0, tops[0])
+    heights = []
+    for index, first in enumerate(firsts):
+        page_no, y = where[first]
+        following = where.get(firsts[index + 1]) if index + 1 < len(firsts) else None
+        heights.append(following[1] - y if following and following[0] == page_no else bottoms[page_no] - y)
+    return heights, len(doc)
+
+
+def balance(score: Score, probe: pathlib.Path) -> bool:
+    """Spread the lines evenly over the pages they need; False when there is only 1 page."""
+    firsts = [row[0] for row in rows(score)]
+    heights, pages = line_heights(probe, firsts)
+    if pages < 2:
+        return False
+    for start in balanced_pages(heights, pages):
+        score.bars[firsts[start] - 1].new_page = True
+    return True
+
+
 def port(src: pathlib.Path, out_dir: pathlib.Path, work: pathlib.Path) -> Score:
     song = src.stem.split("-")[0]
     tone, fifths, direction, _ = TONES[song]
@@ -156,6 +214,14 @@ def port(src: pathlib.Path, out_dir: pathlib.Path, work: pathlib.Path) -> Score:
                 score.bars[split_point(row, score) - 1].new_system = True
     else:
         raise RuntimeError(f"{song}: rows still wrap at {wraps}")
+    pages = len(pymupdf.open(probe))
+    if balance(score, probe):
+        xml.write_text(musicxml.write(score), encoding="utf-8")
+        run("-S", str(STYLE), "-o", str(base), str(xml))
+        strip_title_frame(base)
+        run("-o", str(probe), str(base))
+        if len(pymupdf.open(probe)) != pages:
+            raise RuntimeError(f"{song}: even pages need {len(pymupdf.open(probe))} pages, not {pages}")
     real_jumps(base)
     final = out_dir / f"{song}-{tone}.mscz"
     if direction:

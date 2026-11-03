@@ -118,3 +118,9 @@ def test_tie_inside_a_bar_does_not_leave_it() -> None:
     assert not port.tied_out(Bar(1, 0, 0.0, 1.0, F(4), voices=[[first, last]]))
     last.heads[0].tie_start = True
     assert port.tied_out(Bar(1, 0, 0.0, 1.0, F(4), voices=[[first, last]]))
+
+
+def test_pages_split_as_evenly_as_possible() -> None:
+    assert port.balanced_pages([10.0] * 6, 2) == [3]
+    assert port.balanced_pages([30.0, 10.0, 10.0, 10.0], 2) == [1]
+    assert port.balanced_pages([10.0] * 6, 3) == [2, 4]
