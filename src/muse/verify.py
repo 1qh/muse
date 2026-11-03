@@ -14,7 +14,7 @@ from muse.pdfcheck import title_problems
 from muse.song import decode, song_of
 
 BANNED = ["Copyright", "Contact", "Sáng tác", "Trình bày"]
-PRIVATE_BANNED = "banned.txt"  # names kept outside every repo, in the folder MUSE_PRIVATE names
+PRIVATE_BANNED = "banned.txt"  # names kept in the private spike repo, in the folder MUSE_PRIVATE names
 PC = {"C": 0, "D": 2, "E": 4, "F": 5, "G": 7, "A": 9, "B": 11}
 
 
