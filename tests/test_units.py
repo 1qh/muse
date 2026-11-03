@@ -220,3 +220,10 @@ def test_text_past_the_right_margin_is_found(tmp_path) -> None:
 def test_bars_with_more_chords_get_more_width() -> None:
     assert port.chord_stretch(1) == 1.0
     assert port.chord_stretch(3) > port.chord_stretch(2) > 1.0
+
+
+def test_short_neighbours_merge_unless_fixed_or_refused() -> None:
+    lines = [[1, 2], [3, 4], [5, 6, 7, 8, 9, 10], [11, 12]]
+    assert port.merge_candidates(lines, set(), set()) == {2, 10}
+    assert port.merge_candidates(lines, {2}, set()) == {4}
+    assert port.merge_candidates(lines, {2, 4}, {10}) == set()

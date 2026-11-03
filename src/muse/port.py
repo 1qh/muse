@@ -17,6 +17,7 @@ from muse import bravura, musicxml, pdfcheck, symbolfont
 from muse.model import Bar, Score
 
 MAX_LAYOUT_ROUNDS = 40
+MAX_MERGE_ROUNDS = 12
 BARS_PER_LINE = 8
 TIE_REACH = 2  # extra bars a line may take to avoid breaking on a tie
 PICKUP_EVENTS = 2  # a first bar this thin shares the opening line as a pickup
@@ -208,6 +209,21 @@ def opening_lines(score: Score) -> list[int]:
     return starts
 
 
+def merge_candidates(lines: list[list[int]], fixed: set[int], refused: set[int]) -> set[int]:
+    """0-based line starts to try removing: shortest neighbours first, each line in at most 1 merge."""
+    pairs = sorted(range(len(lines) - 1), key=lambda n: len(lines[n]) + len(lines[n + 1]))
+    used: set[int] = set()
+    joins = set()
+    for n in pairs:
+        start = lines[n + 1][0] - 1
+        if n in used or n + 1 in used or start in fixed or start in refused:
+            continue
+        if len(lines[n]) + len(lines[n + 1]) <= BARS_PER_LINE:
+            joins.add(start)
+            used |= {n, n + 1}
+    return joins
+
+
 def split_at(first: int, end: int, tied: list[bool]) -> int:
     """Where to halve line [first, end): no stranded single bar, then off a tie, then nearest the middle."""
     middle = (first + end) // 2
@@ -348,7 +364,9 @@ def lay_out(src: pathlib.Path, work: pathlib.Path, spatium: float, distance: flo
     probe = work / f"{song}-layout.pdf"
     starts = set(opening_lines(score))
     tied = [tied_out(bar) for bar in score.bars]
-    for _ in range(MAX_LAYOUT_ROUNDS):
+    fixed = {block[0] for block in sections(score)}
+
+    def measure() -> tuple[list[list[int]], set[int]]:
         for index, bar in enumerate(score.bars):
             bar.new_system = index in starts and index != 0
             bar.new_page = False
@@ -361,7 +379,10 @@ def lay_out(src: pathlib.Path, work: pathlib.Path, spatium: float, distance: flo
         declared = rows(score)
         firsts = {row[0] for row in declared}
         wraps = [n for n in system_starts(probe) if n not in firsts]
-        bad = set(wraps) | crowded_rows(probe, [row[0] for row in declared])
+        return declared, set(wraps) | crowded_rows(probe, [row[0] for row in declared])
+
+    for _ in range(MAX_LAYOUT_ROUNDS):
+        declared, bad = measure()
         if not bad:
             break
         split = False
@@ -373,6 +394,17 @@ def lay_out(src: pathlib.Path, work: pathlib.Path, spatium: float, distance: flo
             raise DoesNotFit(f"{song}: bars {sorted(bad)} do not fit alone")
     else:
         raise DoesNotFit(f"{song}: lines {sorted(bad)} still do not fit")
+    refused: set[int] = set()
+    for _ in range(MAX_MERGE_ROUNDS):
+        joins = merge_candidates(rows(score), fixed, refused)
+        if not joins:
+            break
+        starts -= joins
+        declared, bad = measure()
+        undone = {at for row in declared if any(n in row for n in bad) for at in joins if row[0] - 1 < at <= row[-1] - 1}
+        refused |= undone
+        starts |= undone
+    measure()
     found = len(pymupdf.open(probe))
     if pages is not None and found > pages:
         raise DoesNotFit(f"{song}: {found} pages, over {pages}")
