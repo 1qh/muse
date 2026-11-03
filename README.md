@@ -23,7 +23,7 @@ Name the PDF `<Name>-<Key>`, such as `Song-Cm.pdf`, and put it in the source fol
 CI runs lint, types and the unit tests. The sheets are private, so source tests, mutation controls and the gate run locally:
 
 ```sh
-export MUSE_SOURCES=<source-dir> MUSE_PINS=<sheets-repo>/pins.json
+export MUSE_SOURCES=<source-dir> MUSE_PINS=<private-folder>/pins.json MUSE_PRIVATE=<private-folder>
 .venv/bin/python -m pytest
 .venv/bin/python tests/mutate.py
 ```

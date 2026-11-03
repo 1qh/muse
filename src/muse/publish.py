@@ -26,6 +26,11 @@ def visibility(out: pathlib.Path, run: Runner) -> str:
     return run("gh", "repo", "view", "--json", "visibility", "-q", ".visibility", cwd=out)
 
 
+def stray_files(tracked: str) -> list[str]:
+    """Anything tracked in the sheets repo but a PDF or a MuseScore file."""
+    return [name for name in tracked.split("\n") if name and not name.endswith((".pdf", ".mscz"))]
+
+
 def publish(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path, run: Runner = sh) -> None:
     if visibility(out, run) != "PRIVATE":
         raise Refused(f"{out} is not private; sheets may only go to a private repo")
@@ -35,6 +40,9 @@ def publish(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path, run: Runne
         raise Refused(f"gate failed, nothing published:\n{error}") from error
     files = sorted(p.name for p in out.iterdir() if p.suffix in (".pdf", ".mscz"))
     run("git", "add", *files, cwd=out)
+    extras = stray_files(run("git", "ls-files", cwd=out))
+    if extras:
+        raise SystemExit(f"the sheets repo holds only PDF and MuseScore files, refusing: {extras}")
     if run("git", "status", "--porcelain", cwd=out):
         run("git", "commit", "-m", "fix: re-export sheets", cwd=out)
     run("git", "push", cwd=out)

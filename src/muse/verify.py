@@ -1,6 +1,7 @@
 """Check a finished song against its source decode, through MuseScore's own export of the final file."""
 from __future__ import annotations
 
+import os
 import pathlib
 import re
 import subprocess
@@ -13,7 +14,7 @@ from muse.pdfcheck import title_problems
 from muse.song import decode, song_of
 
 BANNED = ["Copyright", "Contact", "Sáng tác", "Trình bày"]
-PRIVATE_BANNED = "banned.txt"  # names kept with the private outputs
+PRIVATE_BANNED = "banned.txt"  # names kept outside every repo, in the folder MUSE_PRIVATE names
 PC = {"C": 0, "D": 2, "E": 4, "F": 5, "G": 7, "A": 9, "B": 11}
 
 
@@ -96,7 +97,7 @@ def check(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> list[str]
             if F(t, div) != bar.length:
                 problems.append(f"bar {bar.number} voice {v}: {F(t, div)} quarters vs {bar.length}")
     text = subprocess.run(["pdftotext", str(final.with_suffix(".pdf")), "-"], capture_output=True, text=True, check=True).stdout
-    for word in [*BANNED, *(out / PRIVATE_BANNED).read_text(encoding="utf-8").split("\n")]:
+    for word in [*BANNED, *(pathlib.Path(os.environ["MUSE_PRIVATE"]) / PRIVATE_BANNED).read_text(encoding="utf-8").split("\n")]:
         if not word.strip():
             continue
         if word.lower() in text.lower():

@@ -153,3 +153,8 @@ def test_publish_refuses_a_failed_gate_and_touches_no_git(tmp_path):
     with pytest.raises(publish.Refused, match="nothing published"):
         publish.publish(tmp_path, tmp_path, tmp_path, run)
     assert not any(args[0] == "git" for args in calls)
+
+
+def test_sheets_repo_refuses_anything_but_sheets() -> None:
+    assert publish.stray_files("a.pdf\nb.mscz\n") == []
+    assert publish.stray_files("a.pdf\nnotes.md\n") == ["notes.md"]
