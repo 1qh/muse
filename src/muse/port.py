@@ -456,7 +456,7 @@ def port(src: pathlib.Path, out_dir: pathlib.Path, work: pathlib.Path) -> Score:
     if start is None:
         raise DoesNotFit(f"{song}: over {pages} pages even at the smallest size")
     spatium = largest_fit(MIN_SPATIUM, 0.05, MAX_SPATIUM, lambda value: fits(value, start))
-    distance = largest_fit(start, 1.0, MAX_DISTANCE, lambda value: fits(spatium, value))
+    distance = largest_fit(start, 1.0, MAX_DISTANCE, lambda value: fits(spatium, value, compact=False))
     score, base, _ = lay_out(src, work, spatium, distance, pages)
     print(song, "pages", pages, "spatium", spatium, "distance", distance, flush=True)
     final = out_dir / f"{song}-{tone}.mscz"
