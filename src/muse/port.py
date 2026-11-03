@@ -23,6 +23,7 @@ TIE_REACH = 2  # extra bars a line may take to avoid breaking on a tie
 PICKUP_EVENTS = 2  # a first bar this thin shares the opening line as a pickup
 MIN_SPATIUM = 1.2
 MAX_PAGES = 2
+MAX_SHORT_SHARE = 0.15  # readers find many 2-bar lines sparse; smaller notation is preferred
 CHORD_STRETCH = 0.45
 TIGHT_DISTANCE = 6.0  # line gap only for a song that fits its pages no other way
 BASE_DISTANCE = 11.0
@@ -207,6 +208,11 @@ def opening_lines(score: Score) -> list[int]:
         pickup = number == 0 and first_events <= PICKUP_EVENTS
         starts += [block[start] for start in grid(len(block), BARS_PER_LINE, tied, pickup)]
     return starts
+
+
+def short_line_share(lines: list[list[int]]) -> float:
+    """Share of lines with 2 bars or fewer."""
+    return sum(1 for line in lines if len(line) <= 2) / len(lines)
 
 
 def merge_candidates(lines: list[list[int]], fixed: set[int], refused: set[int]) -> set[int]:
@@ -439,14 +445,14 @@ def port(src: pathlib.Path, out_dir: pathlib.Path, work: pathlib.Path) -> Score:
     out_dir.mkdir(parents=True, exist_ok=True)
     pages = MAX_PAGES
 
-    def fits(spatium: float, distance: float) -> bool:
+    def fits(spatium: float, distance: float, compact: bool = True) -> bool:
         try:
-            lay_out(src, work, spatium, distance, pages)
+            laid, _, _ = lay_out(src, work, spatium, distance, pages)
         except DoesNotFit:
             return False
-        return True
+        return not compact or short_line_share(rows(laid)) <= MAX_SHORT_SHARE
 
-    start = next((gap for gap in (BASE_DISTANCE, TIGHT_DISTANCE) if fits(MIN_SPATIUM, gap)), None)
+    start = next((gap for gap in (BASE_DISTANCE, TIGHT_DISTANCE) if fits(MIN_SPATIUM, gap, compact=False)), None)
     if start is None:
         raise DoesNotFit(f"{song}: over {pages} pages even at the smallest size")
     spatium = largest_fit(MIN_SPATIUM, 0.05, MAX_SPATIUM, lambda value: fits(value, start))

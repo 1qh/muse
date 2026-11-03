@@ -227,3 +227,7 @@ def test_short_neighbours_merge_unless_fixed_or_refused() -> None:
     assert port.merge_candidates(lines, set(), set()) == {2, 10}
     assert port.merge_candidates(lines, {2}, set()) == {4}
     assert port.merge_candidates(lines, {2, 4}, {10}) == set()
+
+
+def test_short_line_share_counts_lines_of_2_bars_or_fewer() -> None:
+    assert port.short_line_share([[1, 2], [3, 4, 5, 6], [7], [8, 9, 10, 11]]) == 0.5
