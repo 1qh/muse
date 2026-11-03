@@ -28,6 +28,7 @@ MIN_SPATIUM = 1.2
 MAX_PAGES = 2
 MAX_WORKERS = 9
 SIGN_SIZE = 25  # a sign may exceed the chords: about 2.5 times the default sign
+MARKER_TYPES = {"segno": "segno", "coda": "codab"}
 LEGACY_SIGN_SIZE = 25  # MuseScore 3 sizes the sign as text
 LEGACY_ONLY_FONTS = ("staffFontFace", "systemFontFace", "beginFontFace", "continueFontFace", "endFontFace")  # its names for text styles
 JUMP_LIFT = -7  # clears the chord row it would otherwise touch
@@ -63,7 +64,7 @@ def run(*args: str) -> None:
 
 
 JUMPS = {
-    "To Coda": "<Marker><style>repeat_right</style><text>To Coda</text><label>coda</label></Marker>",
+    "To Coda": "<Marker><style>repeat_right</style><text>To Coda</text><label>coda</label><markerType>coda</markerType></Marker>",
     "D.S. al Coda": "<Jump><text>D.S. al Coda</text><jumpTo>segno</jumpTo><playUntil>coda</playUntil><continueAt>codab</continueAt></Jump>",
 }
 
@@ -91,7 +92,7 @@ def real_jumps(mscz: pathlib.Path) -> None:
             pattern = re.compile(r"\s*<StaffText>(?:(?!</StaffText>).)*?<text><sym>" + sym + r"</sym></text>\s*</StaffText>", re.S)
             for m in reversed(list(pattern.finditer(text))):
                 start = text.rfind("<voice>", 0, m.start())
-                element = f"<Marker><style>repeat_left</style><text><sym>{sym}</sym></text><label>{label}</label><centerOnSymbol>0</centerOnSymbol><musicSymbolSize>{SIGN_SIZE}</musicSymbolSize></Marker>"
+                element = f"<Marker><style>repeat_left</style><text><sym>{sym}</sym></text><label>{label}</label><markerType>{MARKER_TYPES[sym]}</markerType><markerCenterOnSymbol>0</markerCenterOnSymbol><musicSymbolSize>{SIGN_SIZE}</musicSymbolSize></Marker>"
                 text = text[:start] + element + text[start:m.start()] + text[m.end():]
         items[name] = text.encode("utf-8")
     with zipfile.ZipFile(mscz, "w", zipfile.ZIP_DEFLATED) as z:

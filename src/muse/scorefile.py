@@ -101,7 +101,8 @@ def difference(a: pathlib.Path, b: pathlib.Path) -> list[str]:
 def builtin_sign_problems(path: pathlib.Path) -> list[str]:
     """Segno and coda must be the application's own symbols, sized by its own size setting."""
     problems = []
-    for marker in root_of(path).iter("Marker"):
+    root = root_of(path)
+    for marker in root.iter("Marker"):
         label = marker.findtext("label")
         if label not in ("segno", "codab"):
             continue
@@ -110,6 +111,8 @@ def builtin_sign_problems(path: pathlib.Path) -> list[str]:
         wanted = "segno" if label == "segno" else "coda"
         if wanted not in symbols:
             problems.append(f"{label} is not the built-in sign")
+        if root.get("version", "").startswith("4") and marker.findtext("markerType") != label:
+            problems.append(f"{label} has no marker type, so it prints as an end-of-bar marker")
         if marker.find("family") is not None:
             problems.append(f"{label} forces a font")
     return problems

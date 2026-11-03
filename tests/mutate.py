@@ -8,6 +8,7 @@ import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 MUTATIONS = [
+    ("scorefile.py", 'and marker.findtext("markerType") != label:', "and False:", "marker type"),
     ("piano.py", "stop = min(end, first + sung[-1][1] - sung[-1][0])", "pass", "closing section"),
     ("scorefile.py", 'holder.findtext("base") or holder.findtext("bass")', 'holder.findtext("base")', "bass tag"),
     ("musicxml.py", "if event.onset * 2 >= bar.length and abs(event.x - chord.x) <= EXACT_OVER_NOTE:", "if False:", "exact late chord"),

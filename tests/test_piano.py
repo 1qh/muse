@@ -179,11 +179,13 @@ def test_two_files_that_disagree_are_named(tmp_path):
 
 
 def test_a_raw_character_is_not_a_built_in_sign(tmp_path):
-    good = write_score(tmp_path / "g.mscz", HARMONY_ON_1, extra="<Marker><size>25</size><text><sym>segno</sym></text><label>segno</label></Marker>")
+    good = write_score(tmp_path / "g.mscz", HARMONY_ON_1, extra="<Marker><size>25</size><text><sym>segno</sym></text><label>segno</label><markerType>segno</markerType></Marker>")
     assert scorefile.builtin_sign_problems(good) == []
     raw = write_score(tmp_path / "r.mscz", HARMONY_ON_1, extra="<Marker><text>x</text><label>segno</label></Marker>")
-    assert scorefile.builtin_sign_problems(raw) == ["segno is not the built-in sign"]
-    forced = write_score(tmp_path / "f.mscz", HARMONY_ON_1, extra="<Marker><family>Bravura Text</family><text><sym>coda</sym></text><label>codab</label></Marker>")
+    assert scorefile.builtin_sign_problems(raw)[0] == "segno is not the built-in sign"
+    untyped = write_score(tmp_path / "u.mscz", HARMONY_ON_1, extra="<Marker><text><sym>segno</sym></text><label>segno</label></Marker>")
+    assert "no marker type" in scorefile.builtin_sign_problems(untyped)[0]
+    forced = write_score(tmp_path / "f.mscz", HARMONY_ON_1, extra="<Marker><family>Bravura Text</family><text><sym>coda</sym></text><label>codab</label><markerType>codab</markerType></Marker>")
     assert scorefile.builtin_sign_problems(forced) == ["codab forces a font"]
 
 
