@@ -3,22 +3,22 @@
   <Style>
     <pageWidth>8.26772</pageWidth>
     <pageHeight>11.6929</pageHeight>
-    <pagePrintableWidth>7.86772</pagePrintableWidth>
-    <pageEvenLeftMargin>0.2</pageEvenLeftMargin>
-    <pageOddLeftMargin>0.2</pageOddLeftMargin>
+    <pagePrintableWidth>7.66772</pagePrintableWidth>
+    <pageEvenLeftMargin>0.3</pageEvenLeftMargin>
+    <pageOddLeftMargin>0.3</pageOddLeftMargin>
     <pageEvenTopMargin>0.4</pageEvenTopMargin>
     <pageEvenBottomMargin>0.2</pageEvenBottomMargin>
     <pageOddTopMargin>0.4</pageOddTopMargin>
     <pageOddBottomMargin>0.2</pageOddBottomMargin>
     <enableVerticalSpread>0</enableVerticalSpread>
-    <minSystemDistance>4.5</minSystemDistance>
-    <maxSystemDistance>4.5</maxSystemDistance>
-    <minStaffDistance>3.5</minStaffDistance>
+    <minSystemDistance>11</minSystemDistance>
+    <maxSystemDistance>11</maxSystemDistance>
+    <minStaffDistance>5</minStaffDistance>
     <staffUpperBorder>2</staffUpperBorder>
     <staffLowerBorder>2</staffLowerBorder>
-    <Spatium>1.4</Spatium>
+    <Spatium>1.6</Spatium>
     <minMeasureWidth>3</minMeasureWidth>
-    <minNoteDistance>0.4</minNoteDistance>
+    <minNoteDistance>0.5</minNoteDistance>
     <measureSpacing>1.0</measureSpacing>
     <harmonyFretDist>0.8</harmonyFretDist>
     <showHeader>0</showHeader>
