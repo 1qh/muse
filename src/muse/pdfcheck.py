@@ -6,7 +6,8 @@ import sys
 
 import pymupdf
 
-BAND = 0.03  # the page margin: the style keeps all music inside it
+TOP_BAND = 0.015  # the style keeps text out of the page top, music above the first staff included
+BOTTOM_BAND = 0.992  # no word reaches the bottom edge region: printable music ends above it
 
 
 def margin_words(path: pathlib.Path) -> list[str]:
@@ -15,7 +16,9 @@ def margin_words(path: pathlib.Path) -> list[str]:
         height = page.rect.height
         for word in page.get_text("words"):
             y0, y1, text = word[1], word[3], word[4]
-            if y1 < height * BAND or y0 > height * (1 - BAND) or (text.isdigit() and text == str(number) and y0 > height * 0.9):
+            if all(0xE000 <= ord(c) <= 0xF8FF for c in text):
+                continue  # music font symbols report oversized boxes; only text can be a header or footer
+            if y0 < height * TOP_BAND or y1 > height * BOTTOM_BAND or (text.isdigit() and text == str(number) and y0 > height * 0.9):
                 found.append(f"p{number}:{text}")
     return found
 

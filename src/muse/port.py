@@ -71,6 +71,18 @@ def real_jumps(mscz: pathlib.Path) -> None:
             z.writestr(name, data)
 
 
+def strip_title_frame(mscz: pathlib.Path) -> None:
+    """Import adds an empty frame for a title the sheet does not carry; it only pushes the music down."""
+    with zipfile.ZipFile(mscz) as z:
+        items = {info.filename: z.read(info.filename) for info in z.infolist()}
+    for name, data in items.items():
+        if name.endswith(".mscx"):
+            items[name] = re.sub(r"\s*<VBox>(?:(?!</VBox>|<Text>).)*</VBox>", "", data.decode("utf-8"), flags=re.S).encode("utf-8")
+    with zipfile.ZipFile(mscz, "w", zipfile.ZIP_DEFLATED) as z:
+        for name, data in items.items():
+            z.writestr(name, data)
+
+
 def decode(path: pathlib.Path) -> Score:
     return bravura.decode(str(path)) if path.stem.startswith("SongG") else symbolfont.decode(str(path))
 
@@ -121,6 +133,9 @@ def port(src: pathlib.Path, out_dir: pathlib.Path, work: pathlib.Path) -> Score:
     song = src.stem.split("-")[0]
     tone, fifths, direction, _ = TONES[song]
     score = decode(src)
+    for bar in score.bars:  # lines stay; pages fill up
+        bar.new_system = bar.new_system or bar.new_page
+        bar.new_page = False
     work.mkdir(parents=True, exist_ok=True)
     out_dir.mkdir(parents=True, exist_ok=True)
     xml = work / f"{song}.musicxml"
@@ -129,6 +144,7 @@ def port(src: pathlib.Path, out_dir: pathlib.Path, work: pathlib.Path) -> Score:
     for _ in range(MAX_LAYOUT_ROUNDS):
         xml.write_text(musicxml.write(score), encoding="utf-8")
         run("-S", str(STYLE), "-o", str(base), str(xml))
+        strip_title_frame(base)
         run("-o", str(probe), str(base))
         declared = rows(score)
         firsts = {row[0] for row in declared}
