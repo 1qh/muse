@@ -44,6 +44,14 @@ def has_notes(bar: Bar) -> bool:
     return any(e.heads for voices in (bar.voices, bar.voices2) for v in voices for e in v)
 
 
+def by_number_of(bars: list[Bar], number: int) -> Bar:
+    return bars[number - 1]
+
+
+def piano_cued(bar: Bar) -> bool:
+    return any(PIANO_CUE.search("".join(run[0] for run in t.runs)) for t in [*bar.texts, *bar.texts2])
+
+
 def segments(score: Score) -> list[tuple[int, int]]:
     """1-based [first, end) stretches between section marks, lyric labels and jumps."""
     bars = score.bars
@@ -52,6 +60,8 @@ def segments(score: Score) -> list[tuple[int, int]]:
         if bar.rehearsal or label_of(bar) or bar.coda:
             cuts.add(bar.number)
         if bar.dal_segno or bar.final:
+            cuts.add(bar.number + 1)
+        if bar.repeat_end and bar.number < len(bars) and piano_cued(by_number_of(bars, bar.number + 1)):
             cuts.add(bar.number + 1)
     ordered = sorted(c for c in cuts if c <= len(bars) + 1)
     return list(zip(ordered, ordered[1:], strict=False))
@@ -129,6 +139,10 @@ def by_mark(score: Score, number: int) -> bool:
     return bool(score.bars[number - 1].rehearsal) or bool(score.bars[number - 1].coda)
 
 
+def voices_sound(voices: list[list[Event]]) -> bool:
+    return any(e.heads for v in voices for e in v)
+
+
 def staff_of(bars: list[Bar]) -> int:
     """The staff cued piano or keys, otherwise the top; a top staff with no notes gives way to the one that has them."""
     for bar in bars:
@@ -199,8 +213,11 @@ def reduce(score: Score) -> list[Part]:
         held = keep.get(bar.number)
         if held is None:
             empty_bar(bar)
-        elif held.staff == 2:
-            bar.voices = bar.voices2 or [[Event(bar.left, [], bar.length, bar_rest=True, hidden=True)]]
+        else:
+            first, second = (bar.voices2, bar.voices) if held.staff == 2 else (bar.voices, bar.voices2)
+            bar.voices = first if voices_sound(first) else second if voices_sound(second) else first
+            if not bar.voices:
+                bar.voices = [[Event(bar.left, [], bar.length, bar_rest=True, hidden=True)]]
         bar.voices2 = []
         bar.texts = [*bar.texts, *bar.texts2]
         bar.texts2 = []

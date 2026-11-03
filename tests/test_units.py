@@ -279,3 +279,18 @@ def test_an_unlabelled_coda_keeps_only_its_closing_run() -> None:
     found = {(p.name, p.first, p.last) for p in piano.parts(Score(bars, [], []))}
     assert ("outro", 6, 8) in found and ("intro", 1, 1) in found
     assert not any(first <= 4 <= last for _, first, last in found)
+
+
+def test_a_kept_bar_takes_notes_from_the_other_staff() -> None:
+    bar = _bar(1, True)
+    bar.voices2 = []
+    part_two = [_bar(2, False), bar]
+    part_two[0].voices2 = [[Event(0.0, [Head(0.0, 0.0, "D", 5)], F(4))]]
+    bars = [_bar(1, False), *part_two]
+    bars[1].number, bars[2].number = 2, 3
+    bars[0].texts = [Text(0.0, 0.0, [("Verse1: words", False, True)], False)]
+    bars[1].rehearsal = ["Interlude"]
+    bars[1].texts2 = [Text(0.0, 0.0, [("PIANO ONLY", True, False)], False)]
+    score = Score(bars, [], [], has_second_staff=True)
+    piano.reduce(score)
+    assert any(e.heads for v in score.bars[2].voices for e in v)

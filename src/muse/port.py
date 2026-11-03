@@ -438,6 +438,9 @@ def lay_out(src: pathlib.Path, work: pathlib.Path, spatium: float, distance: flo
         build()
         if len(pymupdf.open(probe)) != found:
             raise DoesNotFit(f"{song}: even pages need {len(pymupdf.open(probe))} pages, not {found}")
+    found_problems = pdfcheck.all_problems(probe, info.title)
+    if found_problems:
+        raise DoesNotFit(f"{song}: {found_problems[:3]}")
     return score, base, probe
 
 
