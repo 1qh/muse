@@ -215,3 +215,8 @@ def test_text_past_the_right_margin_is_found(tmp_path) -> None:
     page.insert_text((560, 200), "timpani", fontsize=10)
     doc.save(path)
     assert [w[2] for w in past_margin(path)] == ["timpani"]
+
+
+def test_bars_with_more_chords_get_more_width() -> None:
+    assert port.chord_stretch(1) == 1.0
+    assert port.chord_stretch(3) > port.chord_stretch(2) > 1.0

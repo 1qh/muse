@@ -20,7 +20,10 @@ MAX_LAYOUT_ROUNDS = 40
 BARS_PER_LINE = 8
 TIE_REACH = 2  # extra bars a line may take to avoid breaking on a tie
 PICKUP_EVENTS = 2  # a first bar this thin shares the opening line as a pickup
-BASE_SPATIUM = 1.6
+MIN_SPATIUM = 1.2
+MAX_PAGES = 2
+CHORD_STRETCH = 0.45
+TIGHT_DISTANCE = 6.0  # line gap only for a song that fits its pages no other way
 BASE_DISTANCE = 11.0
 MAX_SPATIUM = 3.0
 MAX_DISTANCE = 40.0
@@ -290,6 +293,35 @@ def styled(work: pathlib.Path, title: str, spatium: float, distance: float) -> p
     return path
 
 
+def chord_stretch(chords: int) -> float:
+    """Width share of a bar: every chord past the first asks for room inside the line."""
+    return 1.0 + CHORD_STRETCH * max(0, chords - 1)
+
+
+def widen_chord_bars(mscz: pathlib.Path, score: Score) -> None:
+    """Give bars with more chords more width, so a line rarely has to split for them."""
+    with zipfile.ZipFile(mscz) as z:
+        items = {info.filename: z.read(info.filename) for info in z.infolist()}
+    name = next(n for n in items if n.endswith(".mscx") and "/" not in n)
+    text = items[name].decode("utf-8")
+    first = text.index('<Staff id="1">', text.index("</Part>"))
+    end = text.find('<Staff id="2">', first)
+    end = end if end != -1 else text.index("</Score>", first)
+    body = text[first:end]
+    numbers = iter(score.bars)
+
+    def widen(match: re.Match[str]) -> str:
+        bar = next(numbers, None)
+        factor = chord_stretch(len(bar.chords)) if bar else 1.0
+        return match.group(0) + f"<stretch>{factor:.2f}</stretch>" if factor > 1.0 else match.group(0)
+
+    body = re.sub(r"<Measure[^>]*>", widen, body)
+    items[name] = (text[:first] + body + text[end:]).encode("utf-8")
+    with zipfile.ZipFile(mscz, "w", zipfile.ZIP_DEFLATED) as z:
+        for key, data in items.items():
+            z.writestr(key, data)
+
+
 def transpose_options(song: str) -> dict[str, object] | None:
     _, fifths, direction, _ = TONES[song]
     if not direction:
@@ -324,6 +356,7 @@ def lay_out(src: pathlib.Path, work: pathlib.Path, spatium: float, distance: flo
         run("-S", str(style), "-o", str(base), str(xml))
         strip_title_frame(base)
         real_jumps(base)
+        widen_chord_bars(base, score)
         export_probe(song, base, probe)
         declared = rows(score)
         firsts = {row[0] for row in declared}
@@ -341,13 +374,14 @@ def lay_out(src: pathlib.Path, work: pathlib.Path, spatium: float, distance: flo
     else:
         raise DoesNotFit(f"{song}: lines {sorted(bad)} still do not fit")
     found = len(pymupdf.open(probe))
-    if pages is not None and found != pages:
-        raise DoesNotFit(f"{song}: {found} pages, not {pages}")
+    if pages is not None and found > pages:
+        raise DoesNotFit(f"{song}: {found} pages, over {pages}")
     if balance(score, probe):
         xml.write_text(musicxml.write(score), encoding="utf-8")
         run("-S", str(style), "-o", str(base), str(xml))
         strip_title_frame(base)
         real_jumps(base)
+        widen_chord_bars(base, score)
         export_probe(song, base, probe)
         if len(pymupdf.open(probe)) != found:
             raise DoesNotFit(f"{song}: even pages need {len(pymupdf.open(probe))} pages, not {found}")
@@ -371,8 +405,7 @@ def port(src: pathlib.Path, out_dir: pathlib.Path, work: pathlib.Path) -> Score:
     tone = TONES[song][0]
     work.mkdir(parents=True, exist_ok=True)
     out_dir.mkdir(parents=True, exist_ok=True)
-    _, _, probe = lay_out(src, work, BASE_SPATIUM, BASE_DISTANCE, None)
-    pages = len(pymupdf.open(probe))
+    pages = MAX_PAGES
 
     def fits(spatium: float, distance: float) -> bool:
         try:
@@ -381,8 +414,11 @@ def port(src: pathlib.Path, out_dir: pathlib.Path, work: pathlib.Path) -> Score:
             return False
         return True
 
-    spatium = largest_fit(BASE_SPATIUM, 0.05, MAX_SPATIUM, lambda value: fits(value, BASE_DISTANCE))
-    distance = largest_fit(BASE_DISTANCE, 1.0, MAX_DISTANCE, lambda value: fits(spatium, value))
+    start = next((gap for gap in (BASE_DISTANCE, TIGHT_DISTANCE) if fits(MIN_SPATIUM, gap)), None)
+    if start is None:
+        raise DoesNotFit(f"{song}: over {pages} pages even at the smallest size")
+    spatium = largest_fit(MIN_SPATIUM, 0.05, MAX_SPATIUM, lambda value: fits(value, start))
+    distance = largest_fit(start, 1.0, MAX_DISTANCE, lambda value: fits(spatium, value))
     score, base, _ = lay_out(src, work, spatium, distance, pages)
     print(song, "pages", pages, "spatium", spatium, "distance", distance, flush=True)
     final = out_dir / f"{song}-{tone}.mscz"
