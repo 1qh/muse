@@ -14,16 +14,12 @@ from collections.abc import Callable
 import pymupdf
 
 from muse import bravura, musicxml, pdfcheck, symbolfont
-from muse.model import Bar, Chord, Score
+from muse.model import Bar, Score
 
-MAX_LAYOUT_ROUNDS = 14
-POINTS_PER_MM = 72 / 25.4
-PRINTABLE_POINTS = 552.0
-CHORD_SIZE_PER_UNIT = 2.82  # chord font points per notation unit point
-HEADER_UNITS = 9.0  # clef and key at each line start
-OVERFULL_PENALTY = 6.0
-LONE_BAR_PENALTY = 4.0
-THIN_LINE = 0.5  # a lone bar needing under this share of the line is thin
+MAX_LAYOUT_ROUNDS = 40
+BARS_PER_LINE = 8
+TIE_REACH = 2  # extra bars a line may take to avoid breaking on a tie
+PICKUP_EVENTS = 2  # a first bar this thin shares the opening line as a pickup
 BASE_SPATIUM = 1.6
 BASE_DISTANCE = 11.0
 MAX_SPATIUM = 3.0
@@ -64,38 +60,6 @@ JUMPS = {
     "To Coda": "<Marker><style>repeat_right</style><text>To Coda</text><label>coda</label></Marker>",
     "D.S. al Coda": "<Jump><text>D.S. al Coda</text><jumpTo>segno</jumpTo><playUntil>coda</playUntil><continueAt>codab</continueAt></Jump>",
 }
-
-
-def pad_thin_lines(mscz: pathlib.Path, score: Score, spatium: float) -> None:
-    """Keep a thin bar alone on its line at natural width: a blank frame fills the rest of the line."""
-    unit = spatium * POINTS_PER_MM
-    with zipfile.ZipFile(mscz) as z:
-        items = {info.filename: z.read(info.filename) for info in z.infolist()}
-    name = next(n for n in items if n.endswith(".mscx") and "/" not in n)
-    text = items[name].decode("utf-8")
-    first = text.index("<Staff id=\"1\">", text.index("</Part>"))
-    last = text.find("<Staff id=\"2\">", first)
-    last = last if last != -1 else text.index("</Score>", first)
-    body = text[first:last]
-    ends = [m.end() for m in re.finditer(r"</Measure>", body)]
-    declared = rows(score)
-    for row in reversed(declared):
-        natural = bar_width(score.bars[row[0] - 1], unit) + HEADER_UNITS * unit
-        if len(row) != 1 or natural > PRINTABLE_POINTS * THIN_LINE or row[0] > len(ends):
-            continue
-        width = (PRINTABLE_POINTS - natural * 1.3) / unit
-        at = ends[row[0] - 1]
-        start = body.rfind("<Measure", 0, at)
-        measure = body[start:at]
-        found = re.search(r"\s*<LayoutBreak>.*?</LayoutBreak>", measure, re.S)
-        moved = found.group(0) if found else ""
-        if found:
-            measure = measure.replace(moved, "")
-        body = body[:start] + measure + f"<HBox><width>{width:.2f}</width>{moved}</HBox>" + body[at:]
-    items[name] = (text[:first] + body + text[last:]).encode("utf-8")
-    with zipfile.ZipFile(mscz, "w", zipfile.ZIP_DEFLATED) as z:
-        for key, data in items.items():
-            z.writestr(key, data)
 
 
 def real_jumps(mscz: pathlib.Path) -> None:
@@ -172,25 +136,6 @@ def tied_out(bar: Bar) -> bool:
     return any(head.tie_start for voice in [*bar.voices, *bar.voices2] if voice for head in voice[-1].heads)
 
 
-def chord_text(chord: Chord) -> str:
-    return f"{chord.root}{chord.kind or ''}{chord.bass or ''}"
-
-
-def split_point(row: list[int], score: Score) -> int:
-    """The bar nearest the row's middle that does not start with a note tied from the bar before; a lone-bar side loses."""
-    middle = len(row) // 2
-
-    def cost(number: int) -> tuple[bool, int]:
-        at = row.index(number)
-        return (len(row) > 2 and (at == 1 or at == len(row) - 1), abs(at - middle))
-
-    candidates = sorted(row[1:], key=cost)
-    for number in candidates:
-        if not tied_out(score.bars[number - 2]):
-            return number
-    return candidates[0]
-
-
 def crowded_rows(pdf: pathlib.Path, firsts: list[int]) -> set[int]:
     """First bar of every line holding chords that run together, matched by page and height."""
     where = []
@@ -209,77 +154,62 @@ def crowded_rows(pdf: pathlib.Path, firsts: list[int]) -> set[int]:
 
 
 def must_start_line(bar: Bar, previous: Bar | None) -> bool:
-    """Section marks keep their own line start, and so does anything after a section end."""
-    if previous is None:
-        return True
-    return bool(bar.rehearsal or bar.segno or bar.coda or previous.final)
+    """Only a section mark starts a new block of lines."""
+    return previous is None or bool(bar.rehearsal or bar.segno or bar.coda or previous.final)
 
 
-def may_end_line(bar: Bar) -> bool:
-    """A note tied past this bar would look like 1 bar broken over 2 lines."""
-    return not tied_out(bar)
+def sections(score: Score) -> list[list[int]]:
+    """Bar indexes of each block; a tie into a section mark keeps the bars together."""
+    blocks: list[list[int]] = []
+    for index, bar in enumerate(score.bars):
+        previous = score.bars[index - 1] if index else None
+        if must_start_line(bar, previous) and (previous is None or not tied_out(previous)):
+            blocks.append([])
+        blocks[-1].append(index)
+    return blocks
 
 
-def bar_width(bar: Bar, unit: float) -> float:
-    """Natural width of a bar in points: whichever of its chords or notes needs more room."""
-    chord_size = CHORD_SIZE_PER_UNIT * unit
-    chords = sum((len(chord_text(chord)) * 0.58 + pdfcheck.MIN_CHORD_GAP) * chord_size for chord in bar.chords)
-    heads = max((sum(0.0 if ev.grace else 3.4 + (1.2 if any(h.accidental for h in ev.heads) else 0.0) for ev in voice) for voice in [*bar.voices, *bar.voices2] if voice), default=0.0)
-    return max(chords, heads * unit, 6.0 * unit)
-
-
-def best_lines(widths: list[float], capacity: float, can_end: list[bool]) -> list[int]:
-    """Indexes starting each line: the fullest even lines, never ending a line where can_end is False."""
-    count = len(widths)
-    cost: list[tuple[float, int]] = [(0.0, 0)] * (count + 1)
-    for start in range(count - 1, -1, -1):
-        options: list[tuple[float, int]] = []
-        total = 0.0
-        for end in range(start + 1, count + 1):
-            total += widths[end - 1]
-            if end < count and not can_end[end - 1]:
-                if total > capacity * 1.6:
-                    break
-                continue
-            slack = capacity - total
-            over = total > capacity
-            if over and end - start > 1 and options:
-                break
-            lone = LONE_BAR_PENALTY if end - start == 1 and total < capacity * 0.7 else 0.0
-            options.append((((slack / capacity) ** 2) * (OVERFULL_PENALTY if over else 1.0) + lone + cost[end][0], end))
-        cost[start] = min(options) if options else (1e9, count)
+def grid(count: int, per_line: int, tied: list[bool], pickup: bool = False) -> list[int]:
+    """Line starts at a steady bars-per-line: no single bar left over, and no break on a tie when 1 or 2 more bars avoid it."""
     starts = []
     at = 0
     while at < count:
         starts.append(at)
-        at = cost[at][1]
+        end = at + per_line + (1 if pickup and at == 0 else 0)
+        if count - end == 1 and per_line > 1:
+            end = count
+        limit = at + per_line + TIE_REACH
+        while end < count and tied[end - 1] and end < limit:
+            end += 1
+        if end < count and tied[end - 1]:
+            back = at + per_line
+            while back > at + 1 and tied[back - 1]:
+                back -= 1
+            end = back if not tied[back - 1] else at + per_line
+        at = end
     return starts
 
 
-def reflow(score: Score, spatium: float) -> None:
-    """Replace every line break: sections keep their starts and bars inside fill lines evenly."""
-    unit = spatium * POINTS_PER_MM
-    capacity = PRINTABLE_POINTS
-    bars = score.bars
-    section: list[int] = []
+def opening_lines(score: Score) -> list[int]:
+    """0-based bars that start a line before any line has been judged too crowded."""
+    starts = []
+    for number, block in enumerate(sections(score)):
+        tied = [tied_out(score.bars[i]) for i in block]
+        first_events = sum(len(voice) for voice in score.bars[block[0]].voices)
+        pickup = number == 0 and first_events <= PICKUP_EVENTS
+        starts += [block[start] for start in grid(len(block), BARS_PER_LINE, tied, pickup)]
+    return starts
 
-    def close() -> None:
-        if section:
-            widths = [bar_width(bars[i], unit) + (HEADER_UNITS * unit if at == 0 else 0.0) for at, i in enumerate(section)]
-            for start in best_lines(widths, capacity, [may_end_line(bars[i]) for i in section]):
-                bars[section[start]].new_system = True
 
-    for bar in bars:
-        bar.new_system = False
-        bar.new_page = False
-    for index, bar in enumerate(bars):
-        previous = bars[index - 1] if index else None
-        if must_start_line(bar, previous) and (previous is None or may_end_line(previous)):
-            close()
-            section = []
-        section.append(index)
-    close()
-    bars[0].new_system = False
+def split_at(first: int, end: int, tied: list[bool]) -> int:
+    """Where to halve line [first, end): no stranded single bar, then off a tie, then nearest the middle."""
+    middle = (first + end) // 2
+
+    def cost(at: int) -> tuple[bool, bool, int, int]:
+        lone = end - first > 2 and (at == first + 1 or at == end - 1)
+        return (lone, tied[at - 1], abs(at - middle), at)
+
+    return min(range(first + 1, end), key=cost)
 
 
 def balanced_pages(heights: list[float], pages: int) -> list[int]:
@@ -377,11 +307,15 @@ def lay_out(src: pathlib.Path, work: pathlib.Path, spatium: float, distance: flo
     song = src.stem.split("-")[0]
     style = styled(work, TITLES[song], spatium, distance)
     score = decode(src)
-    reflow(score, spatium)
     xml = work / f"{song}.musicxml"
     base = work / f"{song}.mscz"
     probe = work / f"{song}-layout.pdf"
+    starts = set(opening_lines(score))
+    tied = [tied_out(bar) for bar in score.bars]
     for _ in range(MAX_LAYOUT_ROUNDS):
+        for index, bar in enumerate(score.bars):
+            bar.new_system = index in starts and index != 0
+            bar.new_page = False
         xml.write_text(musicxml.write(score), encoding="utf-8")
         run("-S", str(style), "-o", str(base), str(xml))
         strip_title_frame(base)
@@ -389,16 +323,18 @@ def lay_out(src: pathlib.Path, work: pathlib.Path, spatium: float, distance: flo
         declared = rows(score)
         firsts = {row[0] for row in declared}
         wraps = [n for n in system_starts(probe) if n not in firsts]
-        crowded = crowded_rows(probe, [row[0] for row in declared]) if not wraps else set()
-        splittable = [row for row in declared if len(row) > 1 and (any(n in row for n in wraps) or row[0] in crowded)]
-        if not splittable:
-            if wraps or crowded:
-                raise DoesNotFit(f"{song}: lines {wraps or sorted(crowded)} do not fit")
+        bad = set(wraps) | crowded_rows(probe, [row[0] for row in declared])
+        if not bad:
             break
-        for row in splittable:
-            score.bars[split_point(row, score) - 1].new_system = True
+        split = False
+        for row in declared:
+            if any(n in row for n in bad) and len(row) > 1:
+                starts.add(split_at(row[0] - 1, row[-1], tied))
+                split = True
+        if not split:
+            raise DoesNotFit(f"{song}: bars {sorted(bad)} do not fit alone")
     else:
-        raise DoesNotFit(f"{song}: rows still wrap at {wraps}")
+        raise DoesNotFit(f"{song}: lines {sorted(bad)} still do not fit")
     found = len(pymupdf.open(probe))
     if pages is not None and found != pages:
         raise DoesNotFit(f"{song}: {found} pages, not {pages}")
@@ -443,7 +379,6 @@ def port(src: pathlib.Path, out_dir: pathlib.Path, work: pathlib.Path) -> Score:
     distance = largest_fit(BASE_DISTANCE, 1.0, MAX_DISTANCE, lambda value: fits(spatium, value))
     score, base, _ = lay_out(src, work, spatium, distance, pages)
     print(song, "pages", pages, "spatium", spatium, "distance", distance, flush=True)
-    pad_thin_lines(base, score, spatium)
     real_jumps(base)
     final = out_dir / f"{song}-{tone}.mscz"
     options = transpose_options(song)

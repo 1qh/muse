@@ -106,11 +106,6 @@ def _row_score(count: int, tied_after: set[int]) -> Score:
     return Score(bars, [], [])
 
 
-def test_split_prefers_middle_and_avoids_ties_and_lone_bars() -> None:
-    row = [1, 2, 3, 4, 5]
-    assert port.split_point(row, _row_score(5, set())) == 3
-    assert port.split_point(row, _row_score(5, {2})) == 4
-
 
 def test_tie_inside_a_bar_does_not_leave_it() -> None:
     first = Event(0.0, [Head(0.0, 0.0, "C", 5, tie_start=True)], F(2))
@@ -193,12 +188,20 @@ def test_title_must_print_once_at_the_top_right(tmp_path) -> None:
     assert title_problems(absent, "Song") == ["p1: title printed 0 times at the top right"]
 
 
-def test_lines_stay_even_and_never_end_on_a_tie() -> None:
-    assert port.best_lines([50.0] * 8, 200.0, [True] * 8) == [0, 4]
-    starts = port.best_lines([50.0] * 8, 200.0, [True, True, True, False, True, True, True, True])
-    assert 4 not in starts
-    assert port.best_lines([400.0, 50.0, 50.0], 200.0, [True, True, True])[0] == 0
+def test_grid_keeps_a_steady_line_length() -> None:
+    assert port.grid(8, 4, [False] * 8) == [0, 4]
+    assert port.grid(9, 4, [False] * 9) == [0, 4]
+    assert port.grid(9, 4, [False] * 9, pickup=True) == [0, 5]
 
 
-def test_a_thin_bar_does_not_get_its_own_line() -> None:
-    assert port.best_lines([30.0, 100.0, 100.0, 100.0, 100.0, 100.0], 300.0, [True] * 6)[1] != 1
+def test_grid_moves_a_break_off_a_tie() -> None:
+    tied = [False, False, False, True, False, False, False, False]
+    assert port.grid(8, 4, tied) == [0, 5]
+    assert port.grid(4, 1, [False, False, False, False]) == [0, 1, 2, 3]
+
+
+def test_only_the_crowded_line_splits_near_its_middle_off_a_tie() -> None:
+    assert port.split_at(0, 8, [False] * 8) == 4
+    assert port.split_at(0, 8, [False, False, False, True, False, False, False, False]) == 3
+    assert port.split_at(0, 2, [True, True]) == 1
+    assert port.split_at(0, 6, [False, True, True, True, True, True]) == 3
