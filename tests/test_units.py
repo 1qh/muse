@@ -191,3 +191,14 @@ def test_title_must_print_once_at_the_top_right(tmp_path) -> None:
     absent = tmp_path / "absent.pdf"
     missing.save(absent)
     assert title_problems(absent, "Song") == ["p1: title printed 0 times at the top right"]
+
+
+def test_lines_stay_even_and_never_end_on_a_tie() -> None:
+    assert port.best_lines([50.0] * 8, 200.0, [True] * 8) == [0, 4]
+    starts = port.best_lines([50.0] * 8, 200.0, [True, True, True, False, True, True, True, True])
+    assert 4 not in starts
+    assert port.best_lines([400.0, 50.0, 50.0], 200.0, [True, True, True])[0] == 0
+
+
+def test_a_thin_bar_does_not_get_its_own_line() -> None:
+    assert port.best_lines([30.0, 100.0, 100.0, 100.0, 100.0, 100.0], 300.0, [True] * 6)[1] != 1
