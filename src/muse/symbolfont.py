@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import dataclasses
+import itertools
 import re
 from fractions import Fraction as F
 from typing import Any
@@ -11,20 +12,30 @@ import pymupdf
 from muse.model import LETTERS, Bar, Chord, Event, Head, Issue, Score, Text, UnknownGlyph
 
 HEADS = {0xF0CF: ("black", "down"), 0xF0F6: ("black", "up"), 0xF0F3: ("black", "up"), 0xF0F5: ("half", "down"), 0xF0FA: ("half", "up"),
-         0xF077: ("whole", None), 0xF0C0: ("x", "up"), 0xF0E1: ("diamond", "up"), 0xF0EB: ("circlex", "up")}
+         0xF077: ("whole", None), 0xF0C0: ("x", "up"), 0xF0E1: ("diamond", "up"), 0xF0EB: ("circlex", "up"), 0xF0E2: ("filleddiamond", "down")}
+GRACE = 0xF0F7  # slashed grace note drawn as 1 smaller glyph
+DOUBLE_TOP = 0x6D  # zigzag cap of a double bar line, nothing heard
+TEMPO_EIGHTH = 0x65  # note of a second equivalent tempo mark, the quarter value is the one kept
 RESTS = {0xF0E4: F(1, 2), 0xF0C5: F(1, 4), 0xF0CE: F(1), 0xF0EE: F(2)}
+CLEF = 0xF026
 BAR_REST, SIMILE, STAFF, DOT = 0xF0B7, 0xF022, 0xF03D, 0xF02E
 BARS = {0xF06C, 0xF07B, 0xF0D2, 0xF0D3}
 FLAGS = {0xF06A: 1, 0xF06B: 2, 0xF04A: 1, 0xF04B: 2}
-KNOWN_GLYPHS = frozenset((0x20, 0x2E, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x61, 0x62, 0x69, 0x71, 0x74, 0x75, 0x76, 0xA3, 0xF022, 0xF023, 0xF025, 0xF026, 0xF02E, 0xF03D,
+KNOWN_GLYPHS = frozenset((0x20, 0x23, 0x65, 0x6D, 0xF0E2, 0xF0F7, 0x2E, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x61, 0x62, 0x69, 0x71, 0x74, 0x75, 0x76, 0xA3, 0xF022, 0xF023, 0xF025, 0xF026, 0xF02E, 0xF03D,
                           0xF03E, 0xF043, 0xF04A, 0xF04B, 0xF055, 0xF05F, 0xF062, 0xF06A, 0xF06B, 0xF06C, 0xF06E, 0xF077, 0xF07B, 0xF0B7, 
                           0xF0C0, 0xF0C5, 0xF0C7, 0xF0C8, 0xF0CE, 0xF0CF, 0xF0D2, 0xF0D3, 0xF0D9, 0xF0DE, 0xF0E1, 0xF0E4, 0xF0EB, 0xF0EE, 0xF0F3, 0xF0F5, 0xF0F6, 0xF0FA))
 FLATS, SHARPS, NATURALS = {0x62, 0xF062}, {0x23, 0xF023}, {0x6E, 0xF06E}
 STEP_PER_SIZE = 2.16 / 17.9
 CREDIT_CLEARANCE = 42.0  # points above the first staff line
 CREDIT_X = 300.0
+COINCIDENT_X = 2.0
+MAX_SPLIT_RESTS = 7
+BEAM_GAP = 0.9
+MAX_SPLIT_EVENTS = 14
+REPAIR_LENGTHS = (F(1, 4), F(1), F(3, 2), F(2), F(3), F(4), F(3, 4), F(1, 2))
+OPENING_BAR_MIN = 45.0  # a clef this far before the first bar line has music between them
 MARK_Y = 40.0
-NOISE = ("Sáng tác", "Trình bày", "Copyright", "Contact")  # credit labels; the engraver mark sits above the first staff
+NOISE = ("Sáng tác", "Trình bày", "Lời Việt", "Singer", "Copyright", "Contact")  # credit labels; the engraver mark sits above the first staff
 
 
 @dataclasses.dataclass
@@ -119,6 +130,57 @@ def parse_chord(text: str, previous: Chord | None, x: float) -> Chord | None:
     return Chord(x, m[1], alter[m[2]], m[3], m[4], alter[m[5] or ""])
 
 
+def voice_split(chords: list[Event], close: list[tuple[Event, Event]], length: F) -> tuple[list[Event], list[Event]] | None:
+    """2 voices keeping coincident events apart: 1 fills the bar and the other does not overflow."""
+    for mask in range(1, 2 ** len(chords) - 1):
+        a = [e for i, e in enumerate(chords) if mask >> i & 1]
+        b = [e for i, e in enumerate(chords) if not mask >> i & 1]
+        if any((x in a) == (y in a) for x, y in close):
+            continue
+        s_a, s_b = sum((e.length for e in a), F(0)), sum((e.length for e in b), F(0))
+        if s_a == length and s_b == length:
+            return a, b
+    for mask in range(1, 2 ** len(chords) - 1):
+        a = [e for i, e in enumerate(chords) if mask >> i & 1]
+        b = [e for i, e in enumerate(chords) if not mask >> i & 1]
+        if any((x in a) == (y in a) for x, y in close):
+            continue
+        s_a, s_b = sum((e.length for e in a), F(0)), sum((e.length for e in b), F(0))
+        if s_a == length and s_b <= length:
+            return a, b
+    return None
+
+
+def stem_split(chords: list[Event], length: F) -> tuple[list[Event], list[Event]] | None:
+    """2 voices by stem direction, each rest going to either voice or, if stamped under a note, to neither."""
+    up = [e for e in chords if e.heads and e.stem == "up"]
+    down = [e for e in chords if e.heads and e.stem == "down"]
+    rests = [e for e in chords if not e.heads]
+    if not up or not down or len(up) + len(down) + len(rests) != len(chords) or len(rests) > MAX_SPLIT_RESTS:
+        return None
+    best = None
+    for choice in itertools.product((0, 1, 2), repeat=len(rests)):
+        a = up + [r for r, c in zip(rests, choice, strict=True) if c == 0]
+        b = down + [r for r, c in zip(rests, choice, strict=True) if c == 1]
+        dropped = [r for r, c in zip(rests, choice, strict=True) if c == 2]
+        if any(not any(abs(r.x - e.x) < COINCIDENT_X for e in chords if e.heads) for r in dropped):
+            continue
+        if sum((e.length for e in a), F(0)) == length and sum((e.length for e in b), F(0)) == length and (best is None or len(dropped) < best[0]):
+            best = (len(dropped), sorted(a, key=lambda e: e.x), sorted(b, key=lambda e: e.x))
+    return (best[1], best[2]) if best else None
+
+
+def beam_levels(centres: list[float]) -> int:
+    """Beams drawn in pieces share a height; only a real gap makes another level."""
+    levels = 0
+    last = -100.0
+    for y in sorted(centres):
+        if y - last > BEAM_GAP:
+            levels += 1
+            last = y
+    return levels
+
+
 def nominal_dots(length: F) -> tuple[F, int]:
     for dots, factor in ((0, F(1)), (1, F(3, 2)), (2, F(7, 4))):
         if length / factor in (F(4), F(2), F(1), F(1, 2), F(1, 4), F(1, 8)):
@@ -176,7 +238,7 @@ class Decoder:
             return min(bases, key=lambda b: abs(y - (b - 8.6)))
         staff_glyphs: dict[float, list[G]] = {b: [] for b in bases}
         for g in glyphs:
-            if abs(g.size - size) < 0.5:
+            if abs(g.size - size) < 0.5 or g.code == GRACE:
                 staff_glyphs[owner(g.y)].append(g)
         drawings = page.get_drawings()
         beams: list[Any] = []
@@ -230,8 +292,11 @@ class Decoder:
                 col_list.append((x, x, {code}))
         def heard(lo: float, hi: float) -> bool:
             return any(lo <= g.x < hi and (g.code in HEADS or g.code in RESTS or g.code in (BAR_REST, SIMILE)) for b in sys for g in staff_glyphs[b])
+        clefs = [g.x for g in staff_glyphs[top] if g.code == CLEF]
+        if clefs and col_list and min(clefs) < col_list[0][0] - OPENING_BAR_MIN and heard(min(clefs), col_list[0][0]):
+            col_list.insert(0, (min(clefs), min(clefs), set()))  # an opening line printed without its left bar line
         if len(col_list) > 1 and not heard(col_list[0][1], col_list[1][0]):
-            col_list = col_list[1:] if len(col_list[1][2]) > 1 else col_list
+            col_list = col_list[1:] if len(col_list[1][2]) > 1 or col_list[1][0] - col_list[0][1] < OPENING_BAR_MIN else col_list
         {c[0]: c[2] for c in col_list}
         pairs = [(a, b) for a, b in zip(col_list, col_list[1:], strict=False)]
         # column region of this system
@@ -334,7 +399,7 @@ class Decoder:
                     own = [s for s in own if s.code == 0xF0C8 and s.y >= g.y - 0.6] or own
                 if stem is None or kind == "whole":
                     stem = None
-                nominal = {"black": F(1), "x": F(1), "circlex": F(1), "diamond": F(1), "half": F(2), "whole": F(4)}[kind]
+                nominal = {"black": F(1), "x": F(1), "circlex": F(1), "diamond": F(1), "filleddiamond": F(1), "half": F(2), "whole": F(4)}[kind]
                 stem_x = g.x + 0.31 * size if stem == "up" else g.x + 0.02 * size
                 if kind == "half" and not own:
                     nominal = bar.length
@@ -351,13 +416,13 @@ class Decoder:
                     hits = [b for b in beams if lo - 8 <= b.y0 and b.y1 <= hi + 8 and (
                         b.x0 - 1 <= stem_x <= b.x1 + 1
                         or (b.x1 <= stem_x <= b.x1 + 2.2 and not any(abs(o - b.x0) < 1.5 for o in stem_xs)))]
-                    level = len({round((b.y0 + b.y1) / 2) for b in hits})
+                    level = beam_levels([(b.y0 + b.y1) / 2 for b in hits])
                     if hits:
                         beam_id = id(max(hits, key=lambda b: b.width))  # the primary beam spans its whole group
                     for fl in near:
                         if fl.code in FLAGS and abs(fl.x - g.x) < 1.2:
                             level = max(level, FLAGS[fl.code])
-                    if level and kind in ("black", "x", "circlex", "diamond"):
+                    if level and kind in ("black", "x", "circlex", "diamond", "filleddiamond"):
                         nominal = nominal / (2**level)
                 dots = int(any(d.code == DOT and 2 < d.x - g.x < 12 and abs(d.y - g.y) < 3.2 for d in near))
                 if dots:
@@ -373,13 +438,16 @@ class Decoder:
                             accidental = "n"
                 steps = round((base - 0.2 - g.y) / step)
                 index = 2 + steps + 4 * 7
-                shape = kind if kind in ("x", "circlex", "diamond") else "normal"
+                shape = kind if kind in ("x", "circlex", "diamond", "filleddiamond") else "normal"
                 head = Head(g.x, g.y, LETTERS[index % 7], index // 7, accidental, shape)
                 ev = Event(g.x, [head], nominal, dots, stem, beam=beam_id)
                 ev.accent = any(a.code == 0xF03E and abs(a.x - g.x) < 7 for a in near)
                 ev.trill = any(t.code == 0xF0D9 and abs(t.x - g.x) < 7 for t in near)
                 ev.fermata = any(t.code == 0xF055 and abs(t.x - g.x) < 7 for t in near)
                 events.append(ev)
+            elif g.code == GRACE:
+                index = 2 + round((base - 0.2 - g.y) / step) + 4 * 7
+                events.append(Event(g.x, [Head(g.x, g.y, LETTERS[index % 7], index // 7)], F(1, 2), 0, "up", grace=True))
             elif g.code in RESTS:
                 length = RESTS[g.code]
                 dots = int(any(d.code == DOT and 1 < d.x - g.x < 12 and abs(d.y - g.y) < 6 for d in near))
@@ -439,7 +507,7 @@ class Decoder:
             b = sorted(layout[1], key=lambda e: e.x)
             if a and b:
                 s_a, s_b = sum((e.length for e in a), F(0)), sum((e.length for e in b), F(0))
-                if s_a == bar.length or s_b == bar.length:
+                if (s_a == bar.length and s_b <= bar.length) or (s_b == bar.length and s_a <= bar.length):
                     return self.two_voices(bar, a, b)
         if rests_only and all(e.nominal == chords[0].nominal for e in chords) and len(chords) > 1:
             each = bar.length / len(chords)
@@ -452,8 +520,42 @@ class Decoder:
             self.corrections.append(Issue(bar.number, f"bar printed {total} quarters of {bar.length}; closing rest {chords[-1].length} written as {new}"))
             chords[-1].nominal, chords[-1].dots = nominal_dots(new)
             return [self.timed(chords)]
+        repaired = self.repair(bar, chords, total)
+        if repaired:
+            return repaired
         self.flags.append(Issue(bar.number, f"bar reads {total} quarters against {bar.length}: " + " ".join(self.names(chords))))
         return [self.pad(bar, chords)]
+
+    def repair(self, bar: Bar, chords: list[Event], total: F) -> list[list[Event]] | None:
+        """Bars the printed values cannot fill; the bar length is the evidence, and each repair but a voice split is listed."""
+        by_stem = stem_split(chords, bar.length)
+        if by_stem:
+            return self.two_voices(bar, *by_stem)
+        close = [(a, b) for i, a in enumerate(chords) for b in chords[i + 1:] if abs(a.x - b.x) < COINCIDENT_X]
+        if close and len(chords) <= MAX_SPLIT_EVENTS:
+            split = voice_split(chords, close, bar.length)
+            if split:
+                if all(not e.heads for e in split[1]):
+                    return [self.timed(split[0])]  # a stray rest over a note that already fills the bar
+                return self.two_voices(bar, *split)
+        if all(e.nominal == F(1, 2) for e in chords) and len(chords) * F(1, 3) == bar.length:
+            for ev in chords:
+                ev.tuplet = True
+            return [self.timed(chords)]
+        shortest = min((e.length for e in chords if e.heads), default=F(0))
+        tiny = [e for e in chords if e.heads and e.length == shortest]
+        if total < bar.length and len(tiny) > 1 and sum((e.length for e in tiny), F(0)) == bar.length - total:
+            self.corrections.append(Issue(bar.number, f"bar printed {total} quarters of {bar.length}; notes of {shortest} written as {shortest * 2}"))
+            for ev in tiny:
+                ev.nominal = ev.nominal * 2
+            return [self.timed(chords)]
+        last = chords[-1]
+        new = last.length + bar.length - total
+        if last.heads and new in REPAIR_LENGTHS and not last.tuplet:
+            self.corrections.append(Issue(bar.number, f"bar printed {total} quarters of {bar.length}; last note {last.length} written as {new}"))
+            last.nominal, last.dots = nominal_dots(new)
+            return [self.timed(chords)]
+        return None
 
     def mark_short(self, bar: Bar, chords: list[Event]) -> None:
         """A circled x carries no length of its own; it fills what the bar leaves."""
@@ -496,6 +598,8 @@ class Decoder:
 
     def two_voices(self, bar: Bar, a: list[Event], b: list[Event]) -> list[list[Event]]:
         s_a = sum((e.length for e in a), F(0))
+        if s_a == bar.length and sum((e.length for e in b), F(0)) == bar.length:
+            return [self.timed(a), self.timed(b)]
         full, other = (a, b) if s_a == bar.length else (b, a)
         self.timed(full)
         anchors = [(e.x, e.onset) for e in full]
@@ -573,14 +677,15 @@ class Decoder:
                             q.alter = h.alter
 
     def chords_and_text(self, bars: list[Bar], sys: list[float], spans: list[Span], glyphs: list[G], size: float, s_i: int) -> None:
+        clef_x = min((g.x + 1 for g in glyphs if g.code == CLEF and abs(g.y - sys[0]) < 8), default=0.0)
         small_flats = [g for g in glyphs if g.code in FLATS | SHARPS and abs(g.size - size) > 0.5 and g.size > 10]
         items = []
         for s in spans:
-            if any(n in s.text for n in NOISE) or s.size > 16:
+            if any(n in s.text for n in NOISE) or s.size > 20:
                 continue
             if bars and bars[0].number == 1 and s.y < sys[0] - CREDIT_CLEARANCE and (s.x > CREDIT_X or s.y < MARK_Y):
                 continue  # credits sit in the top corners, well above the first staff's chords and cues
-            if abs(s.size - 8.0) < 0.3 and s.text.strip().isdigit() and not s.font.startswith("Times") and bars and s.y > sys[0] - 45 and s.x < bars[0].left + 40:
+            if abs(s.size - 8.0) < 0.3 and s.text.strip().isdigit() and (not s.font.startswith("Times") or s.x < clef_x) and bars and s.y > sys[0] - 45 and s.x < bars[0].left + 40:
                 self.printed.append((bars[0].number, int(s.text)))
                 continue  # printed bar number
             items.append(s)
@@ -656,7 +761,7 @@ class Decoder:
                 continue
             if re.fullmatch(r"[12]\.", text):
                 continue
-            if first.size > 13 and first.bold and first.italic and s_i == 0:
+            if first.size > 12 and first.bold and first.italic and s_i == 0:
                 bars[0].tempo = (re.sub(r"\s*=.*$", "", text), self.tempo_value(spans))
                 continue
             if re.fullmatch(r"=?\s*\d+", text.replace(" ", "")) or text.startswith("="):
@@ -669,21 +774,29 @@ class Decoder:
                 if i and s.x - group[i - 1].x1 > 1.5 and not piece.startswith(" ") and not runs[-1][0].endswith(" "):
                     piece = " " + piece
                 runs.append((piece, s.bold, s.italic))
+            label_at = next((i for i, run in enumerate(runs) if i and ":" in run[0] and run[1] and run[2]), 0)
+            if label_at and not any(":" in run[0] for run in runs[:label_at]):
+                # a source can print a cue on top of a lyric line; give the cue its own line
+                head = runs[label_at:]
+                runs = [(head[0][0].strip(), head[0][1], head[0][2]), *head[1:], ("\n" + runs[0][0], runs[0][1], runs[0][2]), *runs[1:label_at]]
             t = Text(first.x, first.y, runs, first.y < base - 8, size=first.size * 0.9)
             target = bar.texts if base == sys[0] else bar.texts2
-            lyric = [o for o in target if o.runs[0][1] and o.runs[0][2]]
-            if lyric and first.bold and first.italic and abs(lyric[0].y - first.y) < 20:
+            lyric = [o for o in target if o.runs[0][1] and o.runs[0][2] and ":" in o.runs[0][0]]
+            if lyric and first.bold and first.italic and ":" in runs[0][0] and abs(lyric[0].y - first.y) < 20:
                 lyric[0].runs += [("\n" + runs[0][0], runs[0][1], runs[0][2])] + runs[1:]
             else:
+                cue = [o for o in target if first.bold and first.italic and ":" in runs[0][0] and o.runs[0][1] and o.runs[0][2] and abs(o.y - first.y) < 20]
+                for o in cue:  # a cue printed over the lyric block gets its own line under it
+                    target.remove(o)
+                    t.runs += [("\n" + o.runs[0][0], o.runs[0][1], o.runs[0][2]), *o.runs[1:]]
                 target.append(t)
 
     @staticmethod
     def tempo_value(spans: list[Span]) -> int:
-        for s in spans:
-            m = re.search(r"=\s*(\d+)", s.text)
-            if m:
-                return int(m[1])
-        raise ValueError("no tempo printed")
+        values = [int(m[1]) for s in spans if (m := re.search(r"=\s*(\d+)", s.text))]
+        if not values:
+            raise ValueError("no tempo printed")
+        return min(values)  # a sheet may also print the eighth-note equivalent, twice the quarter value
 
     def signs(self, bars: list[Bar], top: list[G], glyphs: list[G], size: float, base: float, y_lo: float, y_hi: float) -> None:
         if not bars:

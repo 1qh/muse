@@ -5,7 +5,7 @@ from fractions import Fraction as F
 import pymupdf
 import pytest
 
-from muse import gate, port, publish, song, symbolfont
+from muse import gate, pdfcheck, port, publish, song, symbolfont
 from muse.model import Bar, Score, UnknownEncoding, UnknownGlyph
 
 
@@ -158,3 +158,35 @@ def test_publish_refuses_a_failed_gate_and_touches_no_git(tmp_path):
 def test_sheets_repo_refuses_anything_but_sheets() -> None:
     assert publish.stray_files("a.pdf\nb.mscz\n") == []
     assert publish.stray_files("a.pdf\nnotes.md\n") == ["notes.md"]
+
+
+def test_signs_must_stand_above_the_chords(tmp_path) -> None:
+    good = tmp_path / "good.pdf"
+    doc = pymupdf.open()
+    page = doc.new_page()
+    font = pymupdf.Font("helv")
+    page.insert_text((100, 100), "Am7", fontsize=10)
+    writer = pymupdf.TextWriter(page.rect)
+    writer.append((200, 100), "x", font=font, fontsize=20)
+    writer.write_text(page)
+    doc.save(good)
+    assert pdfcheck.sign_problems(good) == []
+
+
+def test_small_sign_is_refused(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(pdfcheck, "sign_sizes", lambda path: ([10.0], 14.0))
+    monkeypatch.setattr(pymupdf, "open", lambda path: [])
+    assert pdfcheck.sign_problems(tmp_path / "x.pdf") == ["sign of 10.0 under 1.6 times chords of 14.0"]
+    monkeypatch.setattr(pdfcheck, "sign_sizes", lambda path: ([25.0], 14.0))
+    assert pdfcheck.sign_problems(tmp_path / "x.pdf") == []
+
+
+def test_words_printed_on_each_other_are_found(tmp_path) -> None:
+    path = tmp_path / "overlap.pdf"
+    doc = pymupdf.open()
+    page = doc.new_page()
+    page.insert_text((100, 100), "BAND", fontsize=10)
+    page.insert_text((105, 100), "Chorus", fontsize=10)
+    page.insert_text((300, 100), "alone", fontsize=10)
+    doc.save(path)
+    assert [c[2] for c in pdfcheck.text_collisions(path)] == ["Chorus"]

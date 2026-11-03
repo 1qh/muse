@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import os
 import pathlib
 import re
 
@@ -34,6 +35,16 @@ class Song:
     direction: str
     semis: int
     title: str
+
+
+def sources(folders: pathlib.Path) -> list[pathlib.Path]:
+    """Every source PDF of 1 folder, or of several joined by the path separator; a song name appears once."""
+    found = sorted((pdf for folder in str(folders).split(os.pathsep) for pdf in pathlib.Path(folder).glob("*.pdf")), key=lambda p: p.name)
+    names = [pdf.stem.rsplit("-", 1)[0] for pdf in found]
+    repeated = {name for name in names if names.count(name) > 1}
+    if repeated:
+        raise SongRefused(f"song names repeat across folders: {sorted(repeated)}")
+    return found
 
 
 def encoding(path: pathlib.Path) -> str:

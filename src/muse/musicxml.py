@@ -8,7 +8,7 @@ from muse.model import Bar, Chord, Event, Score, Text
 
 DIV = 48
 TYPES = {F(4): "whole", F(2): "half", F(1): "quarter", F(1, 2): "eighth", F(1, 4): "16th", F(1, 8): "32nd"}
-SHAPES = {"x": "x", "diamond": "diamond", "circlex": "circle-x"}
+SHAPES = {"x": "x", "diamond": "diamond", "filleddiamond": "diamond", "circlex": "circle-x"}
 
 
 def kind_value(kind: str) -> str:

@@ -7,7 +7,7 @@ import sys
 import xml.etree.ElementTree as ET
 
 from muse.model import Bar, Score
-from muse.song import decode, song_of
+from muse.song import decode, song_of, sources
 from muse.verify import midi
 
 
@@ -84,7 +84,7 @@ def check(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> tuple[int
 def main() -> None:
     src_dir, out, work = map(pathlib.Path, sys.argv[1:4])
     bad = 0
-    for src in sorted(src_dir.glob("*.pdf")):
+    for src in sources(src_dir):
         implied, played, problems = check(src, out, work)
         print(f"{src.stem}: implied {implied} played {played} problems {len(problems)}")
         for p in problems:

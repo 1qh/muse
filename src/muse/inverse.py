@@ -7,7 +7,7 @@ import subprocess
 import sys
 import xml.etree.ElementTree as ET
 
-from muse.song import decode, song_of
+from muse.song import decode, song_of, sources
 from muse.verify import PC, bar_pitches, bar_roots, midi, stored_chord_names
 
 
@@ -49,7 +49,7 @@ def check(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> list[str]
 def main() -> None:
     src_dir, out, work = map(pathlib.Path, sys.argv[1:4])
     bad = 0
-    for src in sorted(src_dir.glob("*.pdf")):
+    for src in sources(src_dir):
         problems = check(src, out, work)
         print(src.stem, "problems", len(problems))
         for p in problems[:12]:

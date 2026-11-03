@@ -231,3 +231,28 @@ def test_short_neighbours_merge_unless_fixed_or_refused() -> None:
 
 def test_short_line_share_counts_lines_of_2_bars_or_fewer() -> None:
     assert port.short_line_share([[1, 2], [3, 4, 5, 6], [7], [8, 9, 10, 11]]) == 0.5
+
+
+def test_beam_pieces_at_1_height_are_1_level() -> None:
+    from muse.symbolfont import beam_levels
+    assert beam_levels([10.0, 10.2, 13.0]) == 2
+
+
+def test_voice_split_keeps_coincident_events_apart() -> None:
+    from muse.symbolfont import voice_split
+    a = Event(0.0, [Head(0.0, 0.0, "C", 5)], F(1))
+    b = Event(0.5, [Head(0.5, 0.0, "D", 5)], F(3), 1)
+    c = Event(5.0, [Head(5.0, 0.0, "E", 5)], F(3), 1)
+    d = Event(6.0, [Head(6.0, 0.0, "F", 5)], F(1))
+    split = voice_split([a, b, c, d], [(a, b)], F(4))
+    assert split is not None
+    assert (a in split[0]) != (b in split[0])
+
+
+def test_stem_split_drops_a_rest_stamped_under_a_note() -> None:
+    from muse.symbolfont import stem_split
+    up = Event(0.0, [Head(0.0, 0.0, "C", 5)], F(4), stem="up")
+    down = Event(1.0, [Head(1.0, 0.0, "D", 4)], F(4), stem="down")
+    stray = Event(1.5, [], F(1))
+    split = stem_split([up, down, stray], F(4))
+    assert split == ([up], [down])

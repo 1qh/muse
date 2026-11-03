@@ -15,7 +15,7 @@ import pymupdf
 
 from muse import inverse, navigate, pdfcheck, port, verify
 from muse.model import Score
-from muse.song import decode, song_of
+from muse.song import decode, song_of, sources
 
 A4 = (595.0, 842.0)
 A4_TOLERANCE = 1.5
@@ -152,6 +152,8 @@ def check_song(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> tupl
     guarded("inverse", lambda: inverse.check(src, out, work))
     guarded("pdf", lambda: pdfcheck.all_problems(final, song.title))
     guarded("pages", lambda: page_problems(final))
+    wanted = sum(bar.segno or bar.coda for bar in score.bars)
+    guarded("signs", lambda: [f"{wanted} signs in the score, {len(pdfcheck.sign_sizes(final)[0])} printed"] if len(pdfcheck.sign_sizes(final)[0]) < wanted else [])
     guarded("ink", lambda: ink_problems(final))
 
     def ties() -> list[str]:
@@ -179,7 +181,7 @@ def main() -> None:
     src_dir, out, work = map(pathlib.Path, sys.argv[1:4])
     work.mkdir(parents=True, exist_ok=True)
     total = 0
-    for src in sorted(src_dir.glob("*.pdf")):
+    for src in sources(src_dir):
         try:
             failures, notes = check_song(src, out, work)
         except Exception as error:  # a refused source is a failure of this song, never the end of the run

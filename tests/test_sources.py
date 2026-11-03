@@ -26,7 +26,11 @@ def source(name):
     root = os.environ.get("MUSE_SOURCES")
     if not root:
         pytest.fail("MUSE_SOURCES is not set")
-    return pathlib.Path(root) / f"{name}.pdf"
+    for folder in root.split(os.pathsep):
+        path = pathlib.Path(folder) / f"{name}.pdf"
+        if path.exists():
+            return path
+    pytest.fail(f"{name} is in no source folder")
 
 
 def reading(score):
@@ -79,5 +83,5 @@ def test_no_private_credit_reaches_the_decoded_text() -> None:
     names = (pathlib.Path(os.environ["MUSE_PINS"]).parent / "banned.txt").read_text(encoding="utf-8").split("\n")
     for name in sorted(pins()["songs"]):
         score = decode(source(name))
-        words = " ".join(run[0] for bar in score.bars for text in [*bar.texts, *bar.texts2] for run in text.runs).lower()
-        assert not [word for word in names if word.strip() and word.lower() in words], name
+        words = " ".join(run[0] for bar in score.bars for text in [*bar.texts, *bar.texts2] for run in text.runs)
+        assert not [word for word in names if word.strip() and word in words], name

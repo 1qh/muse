@@ -16,6 +16,7 @@ import pymupdf
 from muse import musicxml, pdfcheck
 from muse.model import Bar, Score
 from muse.song import Song, decode, song_of
+from muse.song import sources as song_sources
 
 MAX_LAYOUT_ROUNDS = 40
 MAX_MERGE_ROUNDS = 12
@@ -24,6 +25,11 @@ TIE_REACH = 2  # extra bars a line may take to avoid breaking on a tie
 PICKUP_EVENTS = 2  # a first bar this thin shares the opening line as a pickup
 MIN_SPATIUM = 1.2
 MAX_PAGES = 2
+MAX_WORKERS = 9
+SIGN_SIZE = 25  # a sign may exceed the chords: about 2.5 times the default sign
+SIGN_GLYPHS = {"segno": "\ue047", "coda": "\ue048"}
+JUMP_LIFT = -7  # clears the chord row it would otherwise touch
+JUMP_WORD_SIZE = 12  # below the chords
 MAX_SHORT_SHARE = 0.15  # readers find many 2-bar lines sparse; smaller notation is preferred
 CHORD_STRETCH = 0.45
 TIGHT_DISTANCE = 6.0  # line gap only for a song that fits its pages no other way
@@ -76,12 +82,13 @@ def real_jumps(mscz: pathlib.Path) -> None:
                 start = text.rfind("<voice>", 0, m.start())
                 text = text[:start] + element + text[start:m.start()] + text[m.end():]
         for sym, label in (("segno", "segno"), ("coda", "codab")):
-            # the printed sign stays as text at the bar start; a hidden marker carries the jump target
+            # a visible marker is both the printed sign and the jump target; the style sizes it
             pattern = re.compile(r"\s*<StaffText>(?:(?!</StaffText>).)*?<text><sym>" + sym + r"</sym></text>\s*</StaffText>", re.S)
             for m in reversed(list(pattern.finditer(text))):
                 start = text.rfind("<voice>", 0, m.start())
-                element = f"<Marker><visible>0</visible><text><sym>{sym}</sym></text><label>{label}</label></Marker>"
-                text = text[:start] + element + text[start:]
+                glyph = SIGN_GLYPHS[sym]
+                element = f'<Marker><style>repeat_left</style><text><font size="{SIGN_SIZE}"/><font face="Bravura Text"/>{glyph}</text><label>{label}</label></Marker>'
+                text = text[:start] + element + text[start:m.start()] + text[m.end():]
         items[name] = text.encode("utf-8")
     with zipfile.ZipFile(mscz, "w", zipfile.ZIP_DEFLATED) as z:
         for name, data in items.items():
@@ -141,7 +148,7 @@ def crowded_rows(pdf: pathlib.Path, firsts: list[int]) -> set[int]:
     for page_no, y, _ in pdfcheck.chord_collisions(pdf):
         same_page = [item for item in where if item[0] == page_no]
         crowded.add(min(same_page, key=lambda item: abs(item[1] - y))[2])
-    for page_no, y, _ in pdfcheck.past_margin(pdf):
+    for page_no, y, _ in [*pdfcheck.past_margin(pdf), *pdfcheck.text_collisions(pdf)]:
         above = [item for item in where if item[0] == page_no and item[1] <= y]
         same_page = above or [item for item in where if item[0] == page_no]
         crowded.add(max(same_page, key=lambda item: item[1])[2])
@@ -306,6 +313,21 @@ def chord_stretch(chords: int) -> float:
     return 1.0 + CHORD_STRETCH * max(0, chords - 1)
 
 
+def big_signs(mscz: pathlib.Path) -> None:
+    """The jump words must catch the eye in bold; the style sizes the signs."""
+    with zipfile.ZipFile(mscz) as z:
+        items = {info.filename: z.read(info.filename) for info in z.infolist()}
+    for name, data in items.items():
+        if name.endswith(".mscx"):
+            text = data.decode("utf-8")
+            for words in ("To Coda", "D.S. al Coda"):
+                text = text.replace(f"<text>{words}</text>", f'<offset x="0" y="{JUMP_LIFT}"/><text><font size="{JUMP_WORD_SIZE}"/><b>{words}</b></text>')
+            items[name] = text.encode("utf-8")
+    with zipfile.ZipFile(mscz, "w", zipfile.ZIP_DEFLATED) as z:
+        for key, data in items.items():
+            z.writestr(key, data)
+
+
 def widen_chord_bars(mscz: pathlib.Path, score: Score) -> None:
     """Give bars with more chords more width, so a line rarely has to split for them."""
     with zipfile.ZipFile(mscz) as z:
@@ -366,6 +388,7 @@ def lay_out(src: pathlib.Path, work: pathlib.Path, spatium: float, distance: flo
         run("-S", str(style), "-o", str(base), str(xml))
         strip_title_frame(base)
         real_jumps(base)
+        big_signs(base)
         widen_chord_bars(base, score)
         export_probe(info, base, probe)
         declared = rows(score)
@@ -405,6 +428,7 @@ def lay_out(src: pathlib.Path, work: pathlib.Path, spatium: float, distance: flo
         run("-S", str(style), "-o", str(base), str(xml))
         strip_title_frame(base)
         real_jumps(base)
+        big_signs(base)
         widen_chord_bars(base, score)
         export_probe(info, base, probe)
         if len(pymupdf.open(probe)) != found:
@@ -459,8 +483,8 @@ def main() -> None:
     require_font()
     src_dir, out_dir, work = map(pathlib.Path, sys.argv[1:4])
     wanted = sys.argv[4:]
-    sources = [src for src in sorted(src_dir.glob("*.pdf")) if not wanted or src.stem.split("-")[0] in wanted]
-    with concurrent.futures.ProcessPoolExecutor(max_workers=len(sources)) as pool:
+    sources = [src for src in song_sources(src_dir) if not wanted or src.stem.split("-")[0] in wanted]
+    with concurrent.futures.ProcessPoolExecutor(max_workers=min(len(sources), MAX_WORKERS)) as pool:
         results = pool.map(port, sources, itertools.repeat(out_dir), itertools.repeat(work))
         for src, score in zip(sources, results, strict=True):
             print(src.stem, "bars", len(score.bars), "flags", len(score.flags), "corrections", len(score.corrections))

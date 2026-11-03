@@ -11,6 +11,12 @@ CHORD = re.compile(r"(?:[A-G][#b♯♭]?)?(?:maj|min|dim|sus|add|aug|m|\d|[#b♯
 MIN_CHORD_GAP = 0.75  # clear space between 2 chords, in chord font sizes
 MAX_TEXT_BOX = 40.0  # taller word boxes are music font symbols, and no footer is this tall
 RIGHT_LIMIT = 0.975  # the 0.3 inch right margin, with 2 points of tolerance
+TOUCHING_HEIGHT = 0.5
+JUMP_WORDS = ("D.S.", "al", "To", "Coda")
+TEXT_OVERLAP = 2.0  # slanted words of 1 phrase overlap by less
+JUMP_GAP = 4.0
+SIGNS = "\ue047\ue048"
+SIGN_OVER_CHORD = 1.6
 MUSIC_FONTS = ("Leland", "Bravura", "MScore", "mscore")
 TOP_BAND = 0.015  # the style keeps text out of the page top, music above the first staff included
 BOTTOM_BAND = 0.992  # no word reaches the bottom edge region: printable music ends above it
@@ -97,8 +103,52 @@ def text_problems(path: pathlib.Path) -> list[str]:
     return margin_words(path) + foreign_fonts(path) + oversized_text(path) + [c[2] for c in chord_collisions(path)] + [w[2] for w in past_margin(path)]
 
 
+def sign_sizes(path: pathlib.Path) -> tuple[list[float], float]:
+    """Sizes of every printed segno and coda, and of the biggest chord text."""
+    signs = []
+    words = []
+    for page in pymupdf.open(path):
+        for block in page.get_text("rawdict")["blocks"]:
+            for line in block.get("lines", []):
+                for span in line["spans"]:
+                    text = "".join(c["c"] for c in span["chars"])
+                    if any(c in text for c in SIGNS):
+                        signs.append(span["size"])
+                    elif text.strip() and not all(0xE000 <= ord(c) <= 0xF8FF for c in text.strip()):
+                        words.append(span["size"])
+    return signs, max(words, default=0.0)
+
+
+def sign_problems(path: pathlib.Path) -> list[str]:
+    """Signs must catch the eye: well above the chords. Jump words must be bold and below the chords."""
+    signs, chords = sign_sizes(path)
+    problems = [f"sign of {size:.1f} under {SIGN_OVER_CHORD} times chords of {chords:.1f}" for size in signs if size < chords * SIGN_OVER_CHORD]
+    for page in pymupdf.open(path):
+        for block in page.get_text("dict")["blocks"]:
+            for line in block.get("lines", []):
+                for span in line["spans"]:
+                    if span["text"].strip() in ("To Coda", "D.S. al Coda") and "bold" not in span["font"].lower():
+                        problems.append(f"jump words not bold: {span['text'].strip()}")
+    return problems
+
+
+def text_collisions(path: pathlib.Path) -> list[tuple[int, float, str]]:
+    """Words printed on top of each other, or touching with no gap: page, height, the later word."""
+    found = []
+    for number, page in enumerate(pymupdf.open(path), 1):
+        words = [w for w in page.get_text("words") if w[3] - w[1] <= MAX_TEXT_BOX and not all(0xE000 <= ord(c) <= 0xF8FF for c in w[4])]
+        for i, a in enumerate(words):
+            for b in words[i + 1:]:
+                wide = min(a[2], b[2]) - max(a[0], b[0])
+                tall = min(a[3], b[3]) - max(a[1], b[1])
+                jump = (a[4] in JUMP_WORDS) != (b[4] in JUMP_WORDS)
+                if wide > (-JUMP_GAP if jump else TEXT_OVERLAP) and tall > min(a[3] - a[1], b[3] - b[1]) * TOUCHING_HEIGHT:
+                    found.append((number - 1, b[1], b[4]))
+    return found
+
+
 def all_problems(path: pathlib.Path, title: str) -> list[str]:
-    return text_problems(path) + title_problems(path, title)
+    return text_problems(path) + title_problems(path, title) + sign_problems(path) + [f"text on text: {c[2]}" for c in text_collisions(path)]
 
 
 def main() -> None:

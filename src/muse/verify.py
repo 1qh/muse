@@ -11,7 +11,7 @@ import zipfile
 from fractions import Fraction as F
 
 from muse.pdfcheck import title_problems
-from muse.song import decode, song_of
+from muse.song import decode, song_of, sources
 
 BANNED = ["Copyright", "Contact", "Sáng tác", "Trình bày"]
 PRIVATE_BANNED = "banned.txt"  # names kept in the private spike repo, in the folder MUSE_PRIVATE names
@@ -97,10 +97,12 @@ def check(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> list[str]
             if F(t, div) != bar.length:
                 problems.append(f"bar {bar.number} voice {v}: {F(t, div)} quarters vs {bar.length}")
     text = subprocess.run(["pdftotext", str(final.with_suffix(".pdf")), "-"], capture_output=True, text=True, check=True).stdout
-    for word in [*BANNED, *(pathlib.Path(os.environ["MUSE_PRIVATE"]) / PRIVATE_BANNED).read_text(encoding="utf-8").split("\n")]:
-        if not word.strip():
-            continue
+    for word in BANNED:
         if word.lower() in text.lower():
+            problems.append(f"banned text in PDF: {word}")
+    names = (pathlib.Path(os.environ["MUSE_PRIVATE"]) / PRIVATE_BANNED).read_text(encoding="utf-8").split("\n")
+    for word in names:  # proper names match by exact case: lyrics can hold the same words in lower case
+        if word.strip() and word in text:
             problems.append(f"banned text in PDF: {word}")
     if re.search(r"\d{9,}", text):
         problems.append("long digit run in PDF")
@@ -114,7 +116,7 @@ def check(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> list[str]
 def main() -> None:
     src_dir, out, work = map(pathlib.Path, sys.argv[1:4])
     total = 0
-    for src in sorted(src_dir.glob("*.pdf")):
+    for src in sources(src_dir):
         for p in check(src, out, work):
             print("  ", p)
             total += 1

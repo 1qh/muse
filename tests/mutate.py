@@ -8,11 +8,15 @@ import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 MUTATIONS = [
+    ("symbolfont.py", "if y - last > BEAM_GAP:", "if True:", "beam pieces"),
+    ("symbolfont.py", "if any((x in a) == (y in a) for x, y in close):", "if False:", "voice split apart"),
+    ("pdfcheck.py", "if size < chords * SIGN_OVER_CHORD", "if False", "sign size"),
+    ("pdfcheck.py", "if wide > (-JUMP_GAP if jump else TEXT_OVERLAP) and tall >", "if False and tall >", "text on text"),
     ("symbolfont.py", "steps = round((base - 0.2 - g.y) / step)", "steps = round((base - 0.2 - g.y) / step) + 1", "pitch"),
     ("symbolfont.py", "nominal = nominal * F(3, 2)", "nominal = nominal", "dot"),
     ("symbolfont.py", "0xF0EE: F(2)", "0xF0EE: F(4)", "half rest"),
-    ("symbolfont.py", "level = len({round((b.y0 + b.y1) / 2) for b in hits})", "level = 0", "beam"),
-    ("symbolfont.py", "(free, up + down)", "(up, down)", "voice split"),
+    ("symbolfont.py", "level = beam_levels(", "level = 0 * beam_levels(", "beam"),
+    ("symbolfont.py", "return (best[1], best[2]) if best else None", "return None", "voice split"),
     ("symbolfont.py", 'return Chord(x, m[1], alter[m[2]], m[3], m[4], alter[m[5] or ""])', "return Chord(x, m[1], 0, m[3], m[4], 0)", "chord accidental"),
     ("symbolfont.py", "x < b.right - 8", "x < b.right - 4", "chord bar"),
     ("symbolfont.py", "ev.heads = list({(h.step, h.octave): h for h in ev.heads}.values())", "pass", "doubled head"),
