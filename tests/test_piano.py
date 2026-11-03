@@ -230,3 +230,15 @@ def test_a_late_chord_in_a_saved_score_fails_the_beat_check(tmp_path, monkeypatc
 
 def test_port_module_names_the_3_sheets():
     assert {port.ORIGINAL, port.TONE, port.PIANO} == {"original", "tone", "piano"}
+
+
+def test_two_chords_in_a_silent_bar_land_on_beats_wherever_they_print():
+    silent = rest(1, chords=[chord(9.0), chord(21.0)])
+    assert [t for t, _ in musicxml.chord_onsets(silent, (4, 4))] == [F(0), F(2)]
+
+
+def test_a_hint_lyric_in_several_runs_still_stops_at_its_word_limit():
+    text = Text(0.0, 0.0, [("Verse1: ", True, True), ("one two three", False, True), (" four five six", False, False)], False)
+    piano.shorten(text)
+    whole = "".join(run[0] for run in text.runs)
+    assert "four" in whole and "five" not in whole
