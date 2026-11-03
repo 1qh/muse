@@ -7,15 +7,16 @@ from typing import Any
 
 import pymupdf
 
-from muse.model import LETTERS, Bar, Event, Head, Issue, Score, Text
+from muse.model import LETTERS, Bar, Event, Head, Issue, Score, Text, UnknownGlyph
 from muse.symbolfont import parse_chord
 
+CREDIT_ROW = 14.0  # points around the title line where credits sit
 BLACK, HALF = 0xF4BE, 0xF4BD
 RESTS = {0xE4E5: F(1), 0xE4E6: F(1, 2), 0xE4E7: F(1, 4), 0xE4E4: F(2)}
 BAR_REST = 0xE4E3
 FLAG_UP = {0xE240: 1, 0xE242: 2}
 FLAG_DOWN = {0xE241: 1, 0xE243: 2}
-NOISE = ("Song G", "credit")
+KNOWN_GLYPHS = frozenset((0xE003, 0xE004, 0xE005, 0xE006, 0xE044, 0xE047, 0xE048, 0xE052, 0xE082, 0xE084, 0xE240, 0xE241, 0xE242, 0xE243, 0xE262, 0xE4A1, 0xE4C0, 0xE4E3, 0xE4E4, 0xE4E5, 0xE4E6, 0xE4E7, 0xE873, 0xE87B, 0xE883, 0xECA5, 0xF4BD, 0xF4BE))
 
 
 def decode(path: str) -> Score:
@@ -27,11 +28,15 @@ def decode(path: str) -> Score:
             for s in line["spans"]:
                 if s["font"].startswith("Bravura"):
                     for ch in s["chars"]:
+                        if ord(ch["c"]) not in KNOWN_GLYPHS and not ch["c"].isspace():
+                            raise UnknownGlyph(f"music glyph {ord(ch['c']):#x} is not decoded")
                         chars.append((ord(ch["c"]), ch["origin"][0], ch["origin"][1], s["size"]))
                 else:
                     text = "".join(c["c"] for c in s["chars"])
                     if text.strip():
                         spans.append((text, s["chars"][0]["origin"][0], s["origin"][1], s["bbox"][2], s["size"], s["font"]))
+    title = max(spans, key=lambda t: t[4])
+    credits = {t for t in spans if t == title or (abs(t[2] - title[2]) < CREDIT_ROW and t[1] > title[3])}
     h_lines, v_thin, v_bar, fills = [], [], [], []
     ties = []
     for d in page.get_drawings():
@@ -115,7 +120,7 @@ def decode(path: str) -> Score:
             if t in items or not t[0].strip():
                 continue
             text = t[0].strip()
-            if text in NOISE or "=" in text or re.fullmatch(r"\d+", text) or text in ("A", "B"):
+            if t in credits or "=" in text or re.fullmatch(r"\d+", text) or text in ("A", "B"):
                 if text in ("A", "B"):
                     target = next((n for n in row_new if n.left - 2 <= t[1] < n.right), row_new[0])
                     target.rehearsal.append(text)

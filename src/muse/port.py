@@ -13,8 +13,9 @@ from collections.abc import Callable
 
 import pymupdf
 
-from muse import bravura, musicxml, pdfcheck, symbolfont
+from muse import musicxml, pdfcheck
 from muse.model import Bar, Score
+from muse.song import Song, decode, song_of
 
 MAX_LAYOUT_ROUNDS = 40
 MAX_MERGE_ROUNDS = 12
@@ -30,29 +31,18 @@ BASE_DISTANCE = 11.0
 MAX_SPATIUM = 3.0
 MAX_DISTANCE = 40.0
 STYLE = pathlib.Path(__file__).with_name("style.mss")
-# song -> (target key fifths, direction, semitones)
-TONES = {
-    "SongA": ("Am", 0, "down", -3),
-    "SongB": ("Em", 1, "", 0),
-    "SongC": ("Em", 1, "up", 2),
-    "SongD": ("Am", 0, "", 0),
-    "SongE": ("Em", 1, "up", 2),
-    "SongF": ("Em", 1, "down", -1),
-    "SongG": ("Em", 1, "", 0),
-    "SongH": ("Em", 1, "up", 2),
-}
+SF_PRO_FILES = tuple(f"SF-Pro-Display-{face}.otf" for face in ("Regular", "RegularItalic", "Bold", "BoldItalic"))
+FONT_DIRS = (pathlib.Path.home() / "Library" / "Fonts", pathlib.Path("/Library/Fonts"))
 
 
-TITLES = {
-    "SongA": "Song A",
-    "SongB": "Song B",
-    "SongC": "Song C",
-    "SongD": "Song D",
-    "SongE": "Song E",
-    "SongF": "Song F",
-    "SongG": "Song G",
-    "SongH": "Song H",
-}
+class MissingFont(RuntimeError):
+    """MuseScore would quietly fall back to another font."""
+
+
+def require_font(folders: tuple[pathlib.Path, ...] = FONT_DIRS) -> None:
+    missing = [name for name in SF_PRO_FILES if not any((folder / name).exists() for folder in folders)]
+    if missing:
+        raise MissingFont(f"SF Pro Display is missing {missing}; install it from Apple into {folders[0]}")
 
 
 def run(*args: str) -> None:
@@ -108,10 +98,6 @@ def strip_title_frame(mscz: pathlib.Path) -> None:
     with zipfile.ZipFile(mscz, "w", zipfile.ZIP_DEFLATED) as z:
         for name, data in items.items():
             z.writestr(name, data)
-
-
-def decode(path: pathlib.Path) -> Score:
-    return bravura.decode(str(path)) if path.stem.startswith("SongG") else symbolfont.decode(str(path))
 
 
 def system_starts(pdf: pathlib.Path) -> list[int]:
@@ -344,14 +330,13 @@ def widen_chord_bars(mscz: pathlib.Path, score: Score) -> None:
             z.writestr(key, data)
 
 
-def transpose_options(song: str) -> dict[str, object] | None:
-    _, fifths, direction, _ = TONES[song]
-    if not direction:
+def transpose_options(song: Song) -> dict[str, object] | None:
+    if not song.direction:
         return None
-    return {"mode": "to_key", "direction": direction, "targetKey": fifths, "transposeKeySignatures": True, "transposeChordNames": True, "useDoubleSharpsFlats": False, "transposeInterval": 0}
+    return {"mode": "to_key", "direction": song.direction, "targetKey": song.fifths, "transposeKeySignatures": True, "transposeChordNames": True, "useDoubleSharpsFlats": False, "transposeInterval": 0}
 
 
-def export_probe(song: str, base: pathlib.Path, probe: pathlib.Path) -> None:
+def export_probe(song: Song, base: pathlib.Path, probe: pathlib.Path) -> None:
     """Measure the transposed score: chord names, and so their widths, differ from the source's."""
     options = transpose_options(song)
     if options:
@@ -362,9 +347,10 @@ def export_probe(song: str, base: pathlib.Path, probe: pathlib.Path) -> None:
 
 def lay_out(src: pathlib.Path, work: pathlib.Path, spatium: float, distance: float, pages: int | None) -> tuple[Score, pathlib.Path, pathlib.Path]:
     """Build 1 song at 1 size: no line wraps on its own and lines spread evenly over its pages."""
-    song = src.stem.split("-")[0]
-    style = styled(work, TITLES[song], spatium, distance)
     score = decode(src)
+    info = song_of(src, score)
+    song = info.name
+    style = styled(work, info.title, spatium, distance)
     xml = work / f"{song}.musicxml"
     base = work / f"{song}.mscz"
     probe = work / f"{song}-layout.pdf"
@@ -381,7 +367,7 @@ def lay_out(src: pathlib.Path, work: pathlib.Path, spatium: float, distance: flo
         strip_title_frame(base)
         real_jumps(base)
         widen_chord_bars(base, score)
-        export_probe(song, base, probe)
+        export_probe(info, base, probe)
         declared = rows(score)
         firsts = {row[0] for row in declared}
         wraps = [n for n in system_starts(probe) if n not in firsts]
@@ -420,7 +406,7 @@ def lay_out(src: pathlib.Path, work: pathlib.Path, spatium: float, distance: flo
         strip_title_frame(base)
         real_jumps(base)
         widen_chord_bars(base, score)
-        export_probe(song, base, probe)
+        export_probe(info, base, probe)
         if len(pymupdf.open(probe)) != found:
             raise DoesNotFit(f"{song}: even pages need {len(pymupdf.open(probe))} pages, not {found}")
     return score, base, probe
@@ -439,8 +425,8 @@ def largest_fit(start: float, step: float, stop: float, fits: Callable[[float], 
 
 
 def port(src: pathlib.Path, out_dir: pathlib.Path, work: pathlib.Path) -> Score:
-    song = src.stem.split("-")[0]
-    tone = TONES[song][0]
+    info = song_of(src)
+    song, tone = info.name, info.tone
     work.mkdir(parents=True, exist_ok=True)
     out_dir.mkdir(parents=True, exist_ok=True)
     pages = MAX_PAGES
@@ -460,7 +446,7 @@ def port(src: pathlib.Path, out_dir: pathlib.Path, work: pathlib.Path) -> Score:
     score, base, _ = lay_out(src, work, spatium, distance, pages)
     print(song, "pages", pages, "spatium", spatium, "distance", distance, flush=True)
     final = out_dir / f"{song}-{tone}.mscz"
-    options = transpose_options(song)
+    options = transpose_options(info)
     if options:
         run("-o", str(final), "--transpose", json.dumps(options), str(base))
     else:
@@ -470,6 +456,7 @@ def port(src: pathlib.Path, out_dir: pathlib.Path, work: pathlib.Path) -> Score:
 
 
 def main() -> None:
+    require_font()
     src_dir, out_dir, work = map(pathlib.Path, sys.argv[1:4])
     wanted = sys.argv[4:]
     sources = [src for src in sorted(src_dir.glob("*.pdf")) if not wanted or src.stem.split("-")[0] in wanted]

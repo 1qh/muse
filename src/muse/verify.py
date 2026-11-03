@@ -10,7 +10,7 @@ import zipfile
 from fractions import Fraction as F
 
 from muse.pdfcheck import title_problems
-from muse.port import TITLES, TONES, decode
+from muse.song import decode, song_of
 
 BANNED = ["ENGRAVER", "Copyright", "Contact", "credit", "Sáng tác", "Trình bày", "credit", "credit"]
 PC = {"C": 0, "D": 2, "E": 4, "F": 5, "G": 7, "A": 9, "B": 11}
@@ -54,8 +54,8 @@ def stored_chord_names(final: pathlib.Path) -> list[str]:
 
 
 def check(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> list[str]:
-    song = src.stem.split("-")[0]
-    tone, fifths, _, semis = TONES[song]
+    info = song_of(src)
+    song, tone, fifths, semis = info.name, info.tone, info.fifths, info.semis
     final = out / f"{song}-{tone}.mscz"
     score = decode(src)
     xml = work / f"{song}-final.musicxml"
@@ -100,7 +100,7 @@ def check(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> list[str]
             problems.append(f"banned text in PDF: {word}")
     if re.search(r"\d{9,}", text):
         problems.append("long digit run in PDF")
-    problems += title_problems(final.with_suffix(".pdf"), TITLES[song])
+    problems += title_problems(final.with_suffix(".pdf"), info.title)
     if stored_chord_names(final) != sorted(c.kind for bar in score.bars for c in bar.chords if c.kind):
         problems.append("stored chord names differ from the source")
     print(f"{song}-{tone}: bars {len(score.bars)} notes {notes} chords {chords} corrections {len(score.corrections)} flags {len(score.flags)} problems {len(problems)}")

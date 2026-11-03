@@ -1,12 +1,13 @@
 """Print each bar's reading and every printed bar number check."""
 from __future__ import annotations
 
+import pathlib
 import sys
 from fractions import Fraction as F
 
-from muse.symbolfont import decode
+from muse.song import decode
 
-score = decode(sys.argv[1])
+score = decode(pathlib.Path(sys.argv[1]))
 for bar in score.bars:
     rows = []
     for name, voices in (("A", bar.voices), ("B", bar.voices2)):

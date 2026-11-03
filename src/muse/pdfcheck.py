@@ -93,10 +93,18 @@ def past_margin(path: pathlib.Path) -> list[tuple[int, float, str]]:
     return found
 
 
+def text_problems(path: pathlib.Path) -> list[str]:
+    return margin_words(path) + foreign_fonts(path) + oversized_text(path) + [c[2] for c in chord_collisions(path)] + [w[2] for w in past_margin(path)]
+
+
+def all_problems(path: pathlib.Path, title: str) -> list[str]:
+    return text_problems(path) + title_problems(path, title)
+
+
 def main() -> None:
     bad = 0
     for path in sorted(pathlib.Path(sys.argv[1]).glob("*.pdf")):
-        found = margin_words(path) + foreign_fonts(path) + oversized_text(path) + [c[2] for c in chord_collisions(path)] + [w[2] for w in past_margin(path)]
+        found = text_problems(path)
         print(path.name, "margin words", found)
         bad += len(found)
     raise SystemExit(1 if bad else 0)

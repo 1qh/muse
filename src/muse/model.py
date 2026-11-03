@@ -7,6 +7,14 @@ from fractions import Fraction as F
 LETTERS = "CDEFGAB"
 
 
+class UnknownEncoding(ValueError):
+    """A PDF no decoder can read."""
+
+
+class UnknownGlyph(ValueError):
+    """A music symbol nobody has decoded; reading past it would silently lose music."""
+
+
 @dataclasses.dataclass
 class Head:
     x: float

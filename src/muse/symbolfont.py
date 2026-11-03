@@ -8,7 +8,7 @@ from typing import Any
 
 import pymupdf
 
-from muse.model import LETTERS, Bar, Chord, Event, Head, Issue, Score, Text
+from muse.model import LETTERS, Bar, Chord, Event, Head, Issue, Score, Text, UnknownGlyph
 
 HEADS = {0xF0CF: ("black", "down"), 0xF0F6: ("black", "up"), 0xF0F3: ("black", "up"), 0xF0F5: ("half", "down"), 0xF0FA: ("half", "up"),
          0xF077: ("whole", None), 0xF0C0: ("x", "up"), 0xF0E1: ("diamond", "up"), 0xF0EB: ("circlex", "up")}
@@ -16,6 +16,9 @@ RESTS = {0xF0E4: F(1, 2), 0xF0C5: F(1, 4), 0xF0CE: F(1), 0xF0EE: F(2)}
 BAR_REST, SIMILE, STAFF, DOT = 0xF0B7, 0xF022, 0xF03D, 0xF02E
 BARS = {0xF06C, 0xF07B, 0xF0D2, 0xF0D3}
 FLAGS = {0xF06A: 1, 0xF06B: 2, 0xF04A: 1, 0xF04B: 2}
+KNOWN_GLYPHS = frozenset((0x20, 0x2E, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x61, 0x62, 0x69, 0x71, 0x74, 0x75, 0x76, 0xA3, 0xF022, 0xF023, 0xF025, 0xF026, 0xF02E, 0xF03D,
+                          0xF03E, 0xF043, 0xF04A, 0xF04B, 0xF055, 0xF05F, 0xF062, 0xF06A, 0xF06B, 0xF06C, 0xF06E, 0xF077, 0xF07B, 0xF0B7, 
+                          0xF0C0, 0xF0C5, 0xF0C7, 0xF0C8, 0xF0CE, 0xF0CF, 0xF0D2, 0xF0D3, 0xF0D9, 0xF0DE, 0xF0E1, 0xF0E4, 0xF0EB, 0xF0EE, 0xF0F3, 0xF0F5, 0xF0F6, 0xF0FA))
 FLATS, SHARPS, NATURALS = {0x62, 0xF062}, {0x23, 0xF023}, {0x6E, 0xF06E}
 STEP_PER_SIZE = 2.16 / 17.9
 NOISE = ("ENGRAVER", "Sáng tác", "Trình bày", "credit", "Copyright", "Contact")
@@ -62,6 +65,8 @@ def load(page: pymupdf.Page, music: dict[str, str]) -> tuple[list[G], list[Span]
             for s in line["spans"]:
                 if s["font"] in music:
                     for ch in s["chars"]:
+                        if ord(ch["c"]) not in KNOWN_GLYPHS:
+                            raise UnknownGlyph(f"music glyph {ord(ch['c']):#x} is not decoded")
                         glyphs.append(G(ord(ch["c"]), ch["origin"][0], ch["origin"][1], s["size"]))
                 else:
                     text = "".join(c["c"] for c in s["chars"])

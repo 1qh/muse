@@ -1,14 +1,25 @@
 """Decoders against the real sheets, kept outside the repo; MUSE_SOURCES must name them."""
 import hashlib
+import json
 import os
 import pathlib
 from fractions import Fraction as F
 
 import pytest
 
-from muse.port import decode
+from muse.song import decode, song_of
 
-BARS = {"SongA-Cm": 95, "SongB-Em": 102, "SongC-Dm": 122, "SongD-Am": 63, "SongE-Dm": 100, "SongF-Fm": 98, "SongG-Em": 75, "SongH-Dm": 56}
+
+def pins():
+    path = os.environ.get("MUSE_PINS")
+    if not path:
+        pytest.fail("MUSE_PINS is not set")
+    return json.loads(pathlib.Path(path).read_text(encoding="utf-8"))
+
+
+def names():
+    path = os.environ.get("MUSE_PINS")
+    return sorted(json.loads(pathlib.Path(path).read_text(encoding="utf-8"))["songs"]) if path else ["MUSE_PINS is not set"]
 
 
 def source(name):
@@ -30,14 +41,14 @@ def reading(score):
     return "\n".join(rows)
 
 
-@pytest.mark.parametrize("name", sorted(BARS))
+@pytest.mark.parametrize("name", names())
 def test_bar_count_and_no_flags(name):
     score = decode(source(name))
-    assert len(score.bars) == BARS[name]
+    assert len(score.bars) == pins()["songs"][name]["bars"]
     assert score.flags == []
 
 
-@pytest.mark.parametrize("name", sorted(BARS))
+@pytest.mark.parametrize("name", names())
 def test_every_voice_fills_its_bar(name):
     for b in decode(source(name)).bars:
         for voices in (b.voices, b.voices2):
@@ -46,24 +57,19 @@ def test_every_voice_fills_its_bar(name):
 
 
 def test_all_notes_of_a_beam_share_a_group():
-    groups = [e.beam for b in decode(source("SongH-Dm")).bars[34:35] for v in b.voices2 for e in v if e.heads and e.length == F(1, 4)]
+    groups = [e.beam for b in decode(source(pins()["beam_song"])).bars[34:35] for v in b.voices2 for e in v if e.heads and e.length == F(1, 4)]
     assert len(set(groups)) == 4 and len(groups) == 16
 
 
-@pytest.mark.parametrize("name", sorted(BARS))
+@pytest.mark.parametrize("name", names())
 def test_reading_is_pinned(name):
     """Digest of the reading proven against the sources; contains no sheet content."""
     digest = hashlib.sha256(reading(decode(source(name))).encode()).hexdigest()[:16]
-    assert digest == PINNED[name]
+    assert digest == pins()["songs"][name]["digest"]
 
 
-PINNED = {
-    'SongA-Cm': '89eed07708940683',
-    'SongB-Em': 'fb7e08f753da1140',
-    'SongC-Dm': '726310cf0747df8b',
-    'SongD-Am': 'c37c5b2fb18c3d6a',
-    'SongE-Dm': '2c500bc901b8de92',
-    'SongF-Fm': '5d6f5cc6e5f1f0e8',
-    'SongG-Em': '60060770bcc2a593',
-    'SongH-Dm': '5aedeb548a1c4274',
-}
+@pytest.mark.parametrize("name", names())
+def test_derivation_matches_the_confirmed_song_list(name):
+    pin = pins()["songs"][name]
+    song = song_of(source(name))
+    assert (song.tone, song.fifths, song.direction, song.semis, song.title) == (pin["tone"], pin["fifths"], pin["direction"], pin["semis"], pin["title"])

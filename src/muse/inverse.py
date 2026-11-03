@@ -7,20 +7,18 @@ import subprocess
 import sys
 import xml.etree.ElementTree as ET
 
-from muse.port import TONES, decode
+from muse.song import decode, song_of
 from muse.verify import PC, bar_pitches, bar_roots, midi, stored_chord_names
-
-SOURCE_KEY = {"Cm": -3, "Dm": -1, "Fm": -4, "Em": 1, "Am": 0}
 
 
 def check(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> list[str]:
-    song, key = src.stem.split("-")
-    tone, _, _, semis = TONES[song]
+    info = song_of(src)
+    song, tone, semis, source_fifths = info.name, info.tone, info.semis, info.source_fifths
     final = out / f"{song}-{tone}.mscz"
     back = work / f"{song}-back.mscz"
     direction = "up" if semis < 0 else "down"
     if semis:
-        options = {"mode": "to_key", "direction": direction, "targetKey": SOURCE_KEY[key], "transposeKeySignatures": True, "transposeChordNames": True, "useDoubleSharpsFlats": False, "transposeInterval": 0}
+        options = {"mode": "to_key", "direction": direction, "targetKey": source_fifths, "transposeKeySignatures": True, "transposeChordNames": True, "useDoubleSharpsFlats": False, "transposeInterval": 0}
         subprocess.run(["mscore", "-o", str(back), "--transpose", json.dumps(options), str(final)], capture_output=True, check=True, timeout=240)
     else:
         back.write_bytes(final.read_bytes())
@@ -30,7 +28,7 @@ def check(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> list[str]
     score = decode(src)
     problems = []
     keys = {k.text for k in root.iter("fifths")}
-    if keys != {str(SOURCE_KEY[key])}:
+    if keys != {str(source_fifths)}:
         problems.append(f"key {keys}")
     for p_i, part in enumerate(root.findall("part")):
         for m, bar in zip(part.findall("measure"), score.bars, strict=False):
