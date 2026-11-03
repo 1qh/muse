@@ -6,7 +6,7 @@ import pymupdf
 from muse import musicxml, port
 from muse.model import Bar, Chord, Event, Head, Score
 from muse.navigate import expected_order
-from muse.pdfcheck import chord_collisions, foreign_fonts, margin_words, oversized_text, title_problems
+from muse.pdfcheck import chord_collisions, foreign_fonts, margin_words, oversized_text, past_margin, title_problems
 from muse.symbolfont import Decoder, assemble_chords, nominal_dots, parse_chord
 from muse.verify import midi
 
@@ -205,3 +205,13 @@ def test_only_the_crowded_line_splits_near_its_middle_off_a_tie() -> None:
     assert port.split_at(0, 8, [False, False, False, True, False, False, False, False]) == 3
     assert port.split_at(0, 2, [True, True]) == 1
     assert port.split_at(0, 6, [False, True, True, True, True, True]) == 3
+
+
+def test_text_past_the_right_margin_is_found(tmp_path) -> None:
+    path = tmp_path / "margin.pdf"
+    doc = pymupdf.open()
+    page = doc.new_page(width=595, height=842)
+    page.insert_text((300, 100), "fits", fontsize=10)
+    page.insert_text((560, 200), "timpani", fontsize=10)
+    doc.save(path)
+    assert [w[2] for w in past_margin(path)] == ["timpani"]

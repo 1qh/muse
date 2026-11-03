@@ -150,6 +150,10 @@ def crowded_rows(pdf: pathlib.Path, firsts: list[int]) -> set[int]:
     for page_no, y, _ in pdfcheck.chord_collisions(pdf):
         same_page = [item for item in where if item[0] == page_no]
         crowded.add(min(same_page, key=lambda item: abs(item[1] - y))[2])
+    for page_no, y, _ in pdfcheck.past_margin(pdf):
+        above = [item for item in where if item[0] == page_no and item[1] <= y]
+        same_page = above or [item for item in where if item[0] == page_no]
+        crowded.add(max(same_page, key=lambda item: item[1])[2])
     return crowded
 
 
@@ -319,6 +323,7 @@ def lay_out(src: pathlib.Path, work: pathlib.Path, spatium: float, distance: flo
         xml.write_text(musicxml.write(score), encoding="utf-8")
         run("-S", str(style), "-o", str(base), str(xml))
         strip_title_frame(base)
+        real_jumps(base)
         export_probe(song, base, probe)
         declared = rows(score)
         firsts = {row[0] for row in declared}
@@ -342,6 +347,7 @@ def lay_out(src: pathlib.Path, work: pathlib.Path, spatium: float, distance: flo
         xml.write_text(musicxml.write(score), encoding="utf-8")
         run("-S", str(style), "-o", str(base), str(xml))
         strip_title_frame(base)
+        real_jumps(base)
         export_probe(song, base, probe)
         if len(pymupdf.open(probe)) != found:
             raise DoesNotFit(f"{song}: even pages need {len(pymupdf.open(probe))} pages, not {found}")
@@ -379,7 +385,6 @@ def port(src: pathlib.Path, out_dir: pathlib.Path, work: pathlib.Path) -> Score:
     distance = largest_fit(BASE_DISTANCE, 1.0, MAX_DISTANCE, lambda value: fits(spatium, value))
     score, base, _ = lay_out(src, work, spatium, distance, pages)
     print(song, "pages", pages, "spatium", spatium, "distance", distance, flush=True)
-    real_jumps(base)
     final = out_dir / f"{song}-{tone}.mscz"
     options = transpose_options(song)
     if options:

@@ -10,6 +10,7 @@ import pymupdf
 CHORD = re.compile(r"(?:[A-G][#b♯♭]?)?(?:maj|min|dim|sus|add|aug|m|\d|[#b♯♭()/ ]|[A-G][#b♯♭]?)*")
 MIN_CHORD_GAP = 1.0  # clear space between 2 chords, in chord font sizes
 MAX_TEXT_BOX = 40.0  # taller word boxes are music font symbols, and no footer is this tall
+RIGHT_LIMIT = 0.975  # the 0.3 inch right margin, with 2 points of tolerance
 MUSIC_FONTS = ("Leland", "Bravura", "MScore", "mscore")
 TOP_BAND = 0.015  # the style keeps text out of the page top, music above the first staff included
 BOTTOM_BAND = 0.992  # no word reaches the bottom edge region: printable music ends above it
@@ -82,10 +83,20 @@ def title_problems(path: pathlib.Path, title: str) -> list[str]:
     return problems
 
 
+def past_margin(path: pathlib.Path) -> list[tuple[int, float, str]]:
+    """Text running past the right margin: page, height, word."""
+    found = []
+    for number, page in enumerate(pymupdf.open(path), 1):
+        for word in page.get_text("words"):
+            if word[2] > page.rect.width * RIGHT_LIMIT and word[3] - word[1] <= MAX_TEXT_BOX:
+                found.append((number - 1, word[1], word[4]))
+    return found
+
+
 def main() -> None:
     bad = 0
     for path in sorted(pathlib.Path(sys.argv[1]).glob("*.pdf")):
-        found = margin_words(path) + foreign_fonts(path) + oversized_text(path) + [c[2] for c in chord_collisions(path)]
+        found = margin_words(path) + foreign_fonts(path) + oversized_text(path) + [c[2] for c in chord_collisions(path)] + [w[2] for w in past_margin(path)]
         print(path.name, "margin words", found)
         bad += len(found)
     raise SystemExit(1 if bad else 0)
