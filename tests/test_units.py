@@ -3,7 +3,7 @@ from fractions import Fraction as F
 
 import pymupdf
 
-from muse import musicxml
+from muse import musicxml, port
 from muse.model import Bar, Chord, Event, Head, Score
 from muse.navigate import expected_order
 from muse.pdfcheck import margin_words
@@ -96,3 +96,17 @@ def test_writer_durations_and_chord_offset():
     assert "<duration>192</duration>" in xml
     assert 'kind text="m(add2)">other' in xml
     assert "<offset>96</offset>" in xml
+
+
+def _row_score(count: int, tied_after: set[int]) -> Score:
+    bars = []
+    for number in range(1, count + 1):
+        head = Head(0.0, 0.0, "C", 5, tie_start=number in tied_after)
+        bars.append(Bar(number, 0, 0.0, 1.0, F(4), voices=[[Event(0.0, [head], F(4))]]))
+    return Score(bars, [], [])
+
+
+def test_split_prefers_middle_and_avoids_ties_and_lone_bars() -> None:
+    row = [1, 2, 3, 4, 5]
+    assert port.split_point(row, _row_score(5, set())) == 3
+    assert port.split_point(row, _row_score(5, {2})) == 4

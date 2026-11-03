@@ -8,9 +8,12 @@ import subprocess
 import sys
 import zipfile
 
-from muse import bravura, musicxml, symbolfont
-from muse.model import Score
+import pymupdf
 
+from muse import bravura, musicxml, symbolfont
+from muse.model import Bar, Score
+
+MAX_LAYOUT_ROUNDS = 6
 STYLE = pathlib.Path(__file__).with_name("style.mss")
 # song -> (target key fifths, direction, semitones)
 TONES = {
@@ -72,6 +75,47 @@ def decode(path: pathlib.Path) -> Score:
     return bravura.decode(str(path)) if path.stem.startswith("SongG") else symbolfont.decode(str(path))
 
 
+def system_starts(pdf: pathlib.Path) -> list[int]:
+    """The bar number printed at the start of every line, read from the exported PDF."""
+    found = []
+    for page in pymupdf.open(pdf):
+        for block in page.get_text("dict")["blocks"]:
+            for line in block.get("lines", []):
+                for span in line["spans"]:
+                    if span["text"].strip().isdigit() and span["bbox"][0] < 60 and "Italic" in span["font"]:
+                        found.append(int(span["text"]))
+    return found
+
+
+def rows(score: Score) -> list[list[int]]:
+    """1-based bar numbers of each declared row."""
+    out: list[list[int]] = []
+    for number, bar in enumerate(score.bars, 1):
+        if not out or bar.new_system or bar.new_page:
+            out.append([])
+        out[-1].append(number)
+    return out
+
+
+def tied_out(bar: Bar) -> bool:
+    return any(head.tie_start for voice in [*bar.voices, *bar.voices2] for ev in voice for head in ev.heads)
+
+
+def split_point(row: list[int], score: Score) -> int:
+    """The bar nearest the row's middle that does not start with a note tied from the bar before; a lone-bar side loses."""
+    middle = len(row) // 2
+
+    def cost(number: int) -> tuple[bool, int]:
+        at = row.index(number)
+        return (len(row) > 3 and (at == 1 or at == len(row) - 1), abs(at - middle))
+
+    candidates = sorted(row[1:], key=cost)
+    for number in candidates:
+        if not tied_out(score.bars[number - 2]):
+            return number
+    return candidates[0]
+
+
 def port(src: pathlib.Path, out_dir: pathlib.Path, work: pathlib.Path) -> Score:
     song = src.stem.split("-")[0]
     tone, fifths, direction, _ = TONES[song]
@@ -79,9 +123,22 @@ def port(src: pathlib.Path, out_dir: pathlib.Path, work: pathlib.Path) -> Score:
     work.mkdir(parents=True, exist_ok=True)
     out_dir.mkdir(parents=True, exist_ok=True)
     xml = work / f"{song}.musicxml"
-    xml.write_text(musicxml.write(score), encoding="utf-8")
     base = work / f"{song}.mscz"
-    run("-S", str(STYLE), "-o", str(base), str(xml))
+    probe = work / f"{song}-layout.pdf"
+    for _ in range(MAX_LAYOUT_ROUNDS):
+        xml.write_text(musicxml.write(score), encoding="utf-8")
+        run("-S", str(STYLE), "-o", str(base), str(xml))
+        run("-o", str(probe), str(base))
+        declared = rows(score)
+        firsts = {row[0] for row in declared}
+        wraps = [n for n in system_starts(probe) if n not in firsts]
+        if not wraps:
+            break
+        for row in declared:
+            if any(n in row for n in wraps):
+                score.bars[split_point(row, score) - 1].new_system = True
+    else:
+        raise RuntimeError(f"{song}: rows still wrap at {wraps}")
     real_jumps(base)
     final = out_dir / f"{song}-{tone}.mscz"
     if direction:
