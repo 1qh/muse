@@ -12,7 +12,7 @@ MUTATIONS = [
     ("symbolfont.py", '" ".join(s.text for s in spans)', "spans[0].text", "tempo decimal"),
     ("piano.py", "sung.append((first, end - run if run >= MIN_TAIL else end))", "sung.append((first, first))", "coda tail"),
     ("scorefile.py", 'and marker.findtext("markerType") != label:', "and False:", "marker type"),
-    ("piano.py", "stop = min(end, first + sung[-1][1] - sung[-1][0])", "pass", "closing section"),
+    ("piano.py", "stop = min(end, first + list(done.values())[-1]) if done else end", "stop = end", "closing section"),
     ("scorefile.py", 'holder.findtext("base") or holder.findtext("bass")', 'holder.findtext("base")', "bass tag"),
     ("musicxml.py", "if event.onset * 2 >= bar.length and abs(event.x - chord.x) <= EXACT_OVER_NOTE:", "if False:", "exact late chord"),
     ("musicxml.py", "if not has_heads(bar.voices) and not has_heads(bar.voices2):", "if False:", "silent bar rule"),
