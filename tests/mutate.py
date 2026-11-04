@@ -35,6 +35,7 @@ MUTATIONS = [
     ("piano.py", "if label in done else end", "if False else end", "sibling length"),
     ("piano.py", "if held is None:\n            empty_bar(bar)", "if False:\n            empty_bar(bar)", "piano empties"),
     ("piano.py", "left -= len(taken)", "left -= 0", "hint length"),
+    ("chordseat.py", 'held = "" if free_height is None else "<autoplace>0</autoplace>"', 'held = ""', "free chord"),
     ("chordseat.py", 'if len(line["bars"]) == len(row) + 1:', "if False:", "opening repeat"),
     ("chordseat.py", "if abs(width - mean) > EQUAL_TOLERANCE]", "if False]", "uneven bars"),
     ("port.py", "next((n for n in PIANO_LINE_CHOICES if room <= LINE_WIDTH / n), PIANO_LINE_CHOICES[-1])", "16", "line choice"),

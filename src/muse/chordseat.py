@@ -193,7 +193,16 @@ def spaces_of(rows: list[list[tuple[int, bool]]], lines: list[dict[str, Any]]) -
     return [line["space"] for row, line in zip([r for r in rows if r], lines, strict=True) for _ in row]
 
 
-def align(mscz: pathlib.Path, pdf: pathlib.Path) -> bool:
+def moved_chord(element: str, spaces: float, free_height: float | None = None) -> str:
+    """A chord moved sideways; given a height, it also leaves automatic placement, which holds a chord off a barline in MuseScore 3."""
+    old = re.search(r'<offset x="([-\d.e]+)" y="[-\d.e]+"/>', element)
+    was = float(old.group(1)) if old else 0.0
+    inner = re.sub(r'<offset x="[-\d.e]+" y="[-\d.e]+"/>|<autoplace>0</autoplace>', "", element[len("<Harmony>"):])
+    held = "" if free_height is None else "<autoplace>0</autoplace>"
+    return f'<Harmony>{held}<offset x="{was + spaces:.3f}" y="{0 if free_height is None else free_height}"/>{inner}'
+
+
+def align(mscz: pathlib.Path, pdf: pathlib.Path, free_height: float | None = None) -> bool:
     """Move each beat-1 chord to the fixed gap; True when anything moved."""
     name, text = score_text(mscz)
     rows = rows_of(text)
@@ -212,11 +221,7 @@ def align(mscz: pathlib.Path, pdf: pathlib.Path) -> bool:
         if gap is None or abs(gap - GAP) <= TOLERANCE / 2:
             return match.group(0)
         moved = True
-        old = re.search(r'<offset x="([-\d.e]+)" y="[-\d.e]+"/>', match.group(0))
-        was = float(old.group(1)) if old else 0.0
-        fresh = f'<offset x="{was + (GAP - gap) / space:.3f}" y="0"/>'
-        inner = re.sub(r'<offset x="[-\d.e]+" y="[-\d.e]+"/>', "", match.group(0)[len("<Harmony>"):])
-        return "<Harmony>" + fresh + inner
+        return moved_chord(match.group(0), (GAP - gap) / space, free_height)
 
     body = re.sub(r"<Harmony>.*?</Harmony>", seat, text[first:end], flags=re.S)
     with zipfile.ZipFile(mscz) as z:

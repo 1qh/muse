@@ -36,6 +36,7 @@ SIZE_FLOORS = (1.2, 1.15)  # below 1.2 only for a song that fits its pages no ot
 MAX_PAGES = 2
 MAX_WORKERS = 3  # another project shares this machine
 SEAT_PASSES = 5
+LEGACY_CHORD_HEIGHT = -3.0  # spaces, once MuseScore 3 no longer places the chord itself
 SIGN_CLEARANCE = 3.0  # spaces a chord moves right off a sign printed on its baseline
 SIGN_SIZE = 25  # a sign may exceed the chords: about 2.5 times the default sign
 MARKER_TYPES = {"segno": "segno", "coda": "codab"}
@@ -445,7 +446,7 @@ def clear_lone_bars(starts: set[int], fixed: set[int], total: int, fits: Callabl
     return starts
 
 
-def seat_chords(score_path: pathlib.Path, pdf: pathlib.Path, render: Callable[[], None], song: str, noted: set[int] | None = None) -> None:
+def seat_chords(score_path: pathlib.Path, pdf: pathlib.Path, render: Callable[[], None], song: str, noted: set[int] | None = None, free_height: float | None = None) -> None:
     """Even out empty bars where asked and move beat-1 chords to their barlines by measuring the render, until nothing is left to move."""
     try:
         for _ in range(SEAT_PASSES if noted is not None else 0):  # bars first: evening them moves every barline
@@ -453,7 +454,7 @@ def seat_chords(score_path: pathlib.Path, pdf: pathlib.Path, render: Callable[[]
                 break
             render()
         for _ in range(SEAT_PASSES):
-            if not chordseat.align(score_path, pdf):
+            if not chordseat.align(score_path, pdf, free_height):
                 break
             render()
     except ValueError:
@@ -695,7 +696,7 @@ def build_legacy(src: pathlib.Path, work: pathlib.Path, target: pathlib.Path, sp
         subprocess.run([legacy_command(), "-o", str(seen), str(raw)], capture_output=True, check=True, timeout=240, stdin=subprocess.DEVNULL)
 
     render()
-    seat_chords(raw, seen, render, f"{info.name}-legacy")
+    seat_chords(raw, seen, render, f"{info.name}-legacy", None, LEGACY_CHORD_HEIGHT)
     target.write_bytes(raw.read_bytes())
 
 

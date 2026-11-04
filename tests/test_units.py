@@ -386,3 +386,10 @@ def test_a_staff_is_5_equal_lines_and_a_stray_line_is_not():
     rule = lambda y: pymupdf.Rect(20, y, 300, y)  # noqa: E731
     shapes = [rule(y) for y in (0.0, 60.0, 64.0, 68.0, 72.0, 76.0, 90.0, 100.0, 104.0, 108.0, 112.0, 116.0)]
     assert [staff[0] for staff in chordseat.staves_of(shapes)] == [60.0, 100.0]
+
+
+def test_a_moved_chord_adds_to_its_offset_and_can_leave_automatic_placement():
+    element = '<Harmony><offset x="1.000" y="0"/><root>14</root></Harmony>'
+    assert chordseat.moved_chord(element, 0.5) == '<Harmony><offset x="1.500" y="0"/><root>14</root></Harmony>'
+    freed = chordseat.moved_chord(element, -1.0, -3.0)
+    assert freed == '<Harmony><autoplace>0</autoplace><offset x="0.000" y="-3.0"/><root>14</root></Harmony>'
