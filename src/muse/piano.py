@@ -160,6 +160,30 @@ def sparse_lines(starts: list[int], noted: set[int], section_starts: set[int], t
     return found
 
 
+def lone_lines(starts: list[int], total: int) -> list[int]:
+    """Lines holding 1 bar, by bar number."""
+    return [first for first, stop in zip(starts, [*starts[1:], total + 1], strict=True) if stop - first == 1]
+
+
+def lone_moves(starts: set[int], bar: int, total: int, fixed: set[int]) -> list[set[int]]:
+    """Line starts to try for a 0-based lone bar: join a neighbour inside its section, take a bar from one, then cross a section mark."""
+    later = min((s for s in starts if s > bar), default=None)
+    earlier = max((s for s in starts if s < bar), default=None)
+    join_before = starts - {bar} if earlier is not None else None
+    join_after = starts - {later} if later is not None else None
+    take_before = (starts - {bar}) | {bar - 1} if earlier is not None and bar - earlier >= 3 else None
+    take_after = (starts - {later}) | {later + 1} if later is not None and later + 1 < total and (min((s for s in starts if s > later), default=total) - later) >= 3 else None
+    ordered = [
+        join_before if bar not in fixed else None,
+        join_after if later not in fixed else None,
+        take_before,
+        take_after,
+        join_before,
+        join_after,
+    ]
+    return [move for move in ordered if move is not None]
+
+
 def voices_sound(voices: list[list[Event]]) -> bool:
     return any(e.heads for v in voices for e in v)
 

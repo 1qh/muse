@@ -417,6 +417,24 @@ def export_view(options: dict[str, Any] | None, base: pathlib.Path, target: path
         run("-o", str(target), str(base))
 
 
+def clear_lone_bars(starts: set[int], fixed: set[int], total: int, fits: Callable[[set[int]], bool]) -> set[int]:
+    """Give every lone bar a neighbour, keeping the first arrangement that fits and strands nothing new."""
+    for _ in range(total):
+        lone = [number - 1 for number in piano.lone_lines(sorted(s + 1 for s in starts), total)]
+        changed = False
+        for bar in lone:
+            for move in piano.lone_moves(starts, bar, total, fixed):
+                if len(piano.lone_lines(sorted(s + 1 for s in move), total)) < len(lone) and fits(move):
+                    starts = move
+                    changed = True
+                    break
+            if changed:
+                break
+        if not changed:
+            break
+    return starts
+
+
 def refuse_fixed(probe: pathlib.Path, title: str, song: str) -> None:
     """Stop the song on a check no size can change."""
     fixed_problems = pdfcheck.margin_words(probe) + pdfcheck.foreign_fonts(probe) + pdfcheck.title_problems(probe, title) + pdfcheck.sign_problems(probe)
@@ -467,6 +485,15 @@ def lay_out(src: pathlib.Path, work: pathlib.Path, spatium: float, distance: flo
         wraps = [n for n in system_starts(probe) if n not in firsts]
         return declared, set(wraps) | crowded_rows(probe, [row[0] for row in declared])
 
+    def trial_bad(trial: set[int]) -> bool:
+        nonlocal starts
+        kept = starts
+        starts = trial
+        try:
+            return bool(measure()[1])
+        finally:
+            starts = kept
+
     if lines is None:
         for _ in range(MAX_LAYOUT_ROUNDS):
             declared, bad = measure()
@@ -491,6 +518,8 @@ def lay_out(src: pathlib.Path, work: pathlib.Path, spatium: float, distance: flo
             undone = {at for row in declared if any(n in row for n in bad) for at in joins if row[0] - 1 < at <= row[-1] - 1}
             refused |= undone
             starts |= undone
+        if variant == PIANO:
+            starts = clear_lone_bars(starts, fixed, len(score.bars), lambda trial: not trial_bad(trial))
         measure()
     elif measure()[1]:
         raise DoesNotFit(f"{song}: saved lines no longer fit")
@@ -558,6 +587,8 @@ def prove(src: pathlib.Path, work: pathlib.Path, variant: str, saved: dict[str, 
 
 def acceptable(laid: Score, variant: str) -> bool:
     if variant == PIANO:
+        if piano.lone_lines([row[0] for row in rows(laid)], len(laid.bars)):
+            return False
         noted = {bar.number for bar in laid.bars if piano.has_notes(bar)}
         letters = {bar.number: piano.chord_letters(bar) for bar in laid.bars}
         return not piano.sparse_lines([row[0] for row in rows(laid)], noted, {block[0] + 1 for block in sections(laid)}, len(laid.bars), letters)

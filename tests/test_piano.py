@@ -278,3 +278,22 @@ def test_empty_bars_fill_a_piano_line_to_16_and_noted_bars_to_8():
     for full in noted.bars:
         full.voices = [[note()]]
     assert port.piano_grid(noted, list(range(10))) == [0, 8]
+
+
+def test_a_lone_line_is_found_and_only_it():
+    assert piano.lone_lines([1, 9, 10, 14], 17) == [9]
+    assert piano.lone_lines([1, 9], 9) == [9]
+    assert piano.lone_lines([1, 5], 8) == []
+
+
+def test_a_lone_bar_joins_inside_its_section_before_crossing_a_mark():
+    moves = piano.lone_moves({0, 8, 9}, 8, 20, {9})
+    assert moves[0] == {0, 9}
+    assert {0, 7, 9} in moves
+    crossing = piano.lone_moves({0, 8, 9}, 8, 20, {8})
+    assert crossing[0] == {0, 8}
+
+
+def test_clearing_lone_bars_keeps_what_fits_and_gives_up_cleanly():
+    assert port.clear_lone_bars({0, 8, 9}, {9}, 20, lambda _: True) == {0, 9}
+    assert port.clear_lone_bars({0, 8, 9}, {9}, 20, lambda _: False) == {0, 8, 9}
