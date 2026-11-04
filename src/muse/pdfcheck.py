@@ -19,6 +19,7 @@ TEXT_OVERLAP = 2.0  # slanted words of 1 phrase overlap by less
 JUMP_GAP = 4.0
 SIGNS = "\ue047\ue048"
 SIGN_OVER_CHORD = 1.6
+SIGN_TOUCH_SLACK = 1.0
 MAX_CHORD_SPACES = 2.0  # chord baseline above the staff top, on a line with no notes
 SIGN_INK_WIDTH = 0.75  # the printed part of a sign, in sign font sizes
 SIGN_BASELINE_SHARE = 0.3  # a sign higher than this share of the chord size clears the letters
@@ -163,7 +164,7 @@ def sign_on_chord(path: pathlib.Path) -> list[str]:
 
 def sign_touches(x: float, y: float, size: float, chord_size: float, chord_letters: list[tuple[float, float, float]]) -> bool:
     """Whether a sign's ink runs into a chord letter, given each letter's left, right and baseline."""
-    ink_end = x + size * SIGN_INK_WIDTH
+    ink_end = x + size * SIGN_INK_WIDTH - SIGN_TOUCH_SLACK  # a chord seated right after a sign meets it without touching
     return any(abs(base - y) < chord_size * SIGN_BASELINE_SHARE and x < right and left < ink_end for left, right, base in chord_letters)
 
 

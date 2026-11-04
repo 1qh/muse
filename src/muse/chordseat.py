@@ -11,12 +11,16 @@ import pymupdf
 GAP = 0.0  # a beat-1 chord's ink starts exactly at the barline's right edge, or after a line's clef and signatures
 TOLERANCE = 0.4
 INK_DPI = 720
+INK_REACH = 0.8  # points a letter's ink can start left of its text box; further left is a neighbour
+SIGN_INK_WIDTH = 0.75  # the printed part of a segno or coda, in sign font sizes
+SIGN_REACH = 0.5  # of the chord size: a sign this near the chord baseline shares its row
 EQUAL_TOLERANCE = 1.5  # points an empty bar may differ from its line's mean
 SAME_BARLINE = 6.0  # the 2 strokes of a repeat or a double bar are 1 barline
 MIN_STAFF_WIDTH = 200.0
 MIN_RULE_WIDTH = 10.0
 CHORD_REACH = 40.0
 FIRST_ELEMENT = re.compile(r"<Chord>|<Rest>|<location>")
+SIGN_CHARS = "\ue047\ue048"
 MEASURE = re.compile(r"<Measure[^>]*>.*?</Measure>", re.S)
 
 
@@ -61,7 +65,7 @@ def staves_of(shapes: list[pymupdf.Rect]) -> list[list[float]]:
 
 def ink_left(page: pymupdf.Page, left: float, base: float, size: float) -> float:
     """Where a letter's ink starts, side bearing excluded: rendered, since the text layer reports only its advance box."""
-    clip = pymupdf.Rect(left - size * 0.3, base - size * 0.75, left + size * 0.7, base - 0.2)
+    clip = pymupdf.Rect(left - INK_REACH, base - size * 0.75, left + size * 0.7, base - 0.2)
     shot = page.get_pixmap(dpi=INK_DPI, clip=clip, colorspace=pymupdf.csGRAY)
     samples = shot.samples
     for column in range(shot.width):
@@ -75,6 +79,7 @@ def page_lines(pdf: pathlib.Path) -> list[dict[str, Any]]:
     lines = []
     for page in pymupdf.open(pdf):
         words, glyphs = [], []
+        signs_here: list[tuple[float, float]] = []
         for block in page.get_text("rawdict")["blocks"]:
             for line in block.get("lines", []):
                 for span in line["spans"]:
@@ -83,6 +88,7 @@ def page_lines(pdf: pathlib.Path) -> list[dict[str, Any]]:
                         continue
                     if all(0xE000 <= ord(c) <= 0xF8FF for c in text):
                         glyphs += [(c["origin"][0], c["origin"][1], c["bbox"][2], ord(c["c"])) for c in span["chars"]]
+                        signs_here += [(c["origin"][0] + span["size"] * SIGN_INK_WIDTH, c["origin"][1]) for c in span["chars"] if c["c"] in SIGN_CHARS]
                     else:
                         words.append((span["size"], span["bbox"][0], span["bbox"][2], span["origin"][1], text))
         if not words:
@@ -107,7 +113,11 @@ def page_lines(pdf: pathlib.Path) -> list[dict[str, Any]]:
                 else:
                     bars.append(x)
             signs = [g[2] for g in glyphs if staff[0] - 8 <= g[1] <= staff[4] + 8 and g[0] < (bars[0] if bars else left_edge + 80) and is_signature(g[3])]
-            lines.append({"chords": joined, "bars": bars, "start": max(signs, default=left_edge), "space": (staff[4] - staff[0]) / 4})
+            start = max(signs, default=left_edge)
+            base = mine[0][3]
+            # a sign printed on the chord row takes the place right after the clef, so the chord follows it
+            start = max([start, *(end for end, y in signs_here if abs(y - base) < top * SIGN_REACH and end < start + top * 2)])
+            lines.append({"chords": joined, "bars": bars, "start": start, "space": (staff[4] - staff[0]) / 4})
     return lines
 
 
