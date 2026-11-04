@@ -110,6 +110,10 @@
     <user9FontFace>SF Pro Display</user9FontFace>
     <voltaFontFace>SF Pro Display</voltaFontFace>
     <whammyBarFontFace>SF Pro Display</whammyBarFontFace>
+    <chordSymbolAAlign>left,baseline</chordSymbolAAlign>
+    <chordSymbolBAlign>left,baseline</chordSymbolBAlign>
+    <chordSymbolAPosAbove x="0" y="-1"/>
+    <chordSymbolBPosAbove x="0" y="-1"/>
     <chordSymbolAFontSize>14</chordSymbolAFontSize>
     <chordSymbolBFontSize>14</chordSymbolBFontSize>
     <metronomeFontSize>11</metronomeFontSize>

@@ -1,0 +1,177 @@
+"""Seat every beat-1 chord a fixed gap after its barline: measured on the rendered PDF, written as MuseScore's own per-chord offset."""
+from __future__ import annotations
+
+import pathlib
+import re
+import zipfile
+
+import pymupdf
+
+GAP = 0.0  # a beat-1 chord's ink starts exactly at the barline's right edge, or after a line's clef and signatures
+TOLERANCE = 0.4
+INK_DPI = 720
+SAME_BARLINE = 6.0  # the 2 strokes of a repeat or a double bar are 1 barline
+MIN_STAFF_WIDTH = 200.0
+MIN_RULE_WIDTH = 10.0
+CHORD_REACH = 40.0
+FIRST_ELEMENT = re.compile(r"<Chord>|<Rest>|<location>")
+MEASURE = re.compile(r"<Measure[^>]*>.*?</Measure>", re.S)
+
+
+def score_text(mscz: pathlib.Path) -> tuple[str, str]:
+    with zipfile.ZipFile(mscz) as z:
+        name = next(n for n in z.namelist() if n.endswith(".mscx") and "/" not in n)
+        return name, z.read(name).decode("utf-8")
+
+
+def layout_of(text: str) -> list[list[bool]]:
+    """Per line, per chord in order, whether it opens its line's bar on beat 1, with the bar's place on the line: flags only."""
+    return [[beat for _, beat in row] for row in rows_of(text)]
+
+
+def rows_of(text: str) -> list[list[tuple[int, bool]]]:
+    """Per line: (bar index on the line, on beat 1) of each chord, in print order."""
+    first = text.index('<Staff id="1">', text.index("</Part>"))
+    end = text.find('<Staff id="2">', first)
+    body = text[first:end if end != -1 else text.index("</Score>", first)]
+    rows: list[list[tuple[int, bool]]] = [[]]
+    place = 0
+    for match in MEASURE.finditer(body):
+        measure = match.group(0)
+        for chord in re.finditer(r"<Harmony>", measure):
+            rows[-1].append((place, not FIRST_ELEMENT.search(measure[:chord.start()])))
+        place += 1
+        if "<LayoutBreak>" in measure:
+            rows.append([])
+            place = 0
+    return rows
+
+
+def staves_of(shapes: list[pymupdf.Rect]) -> list[list[float]]:
+    """The 5 line heights of each staff; a staff line may be drawn in 1 piece per bar, so widths add up per height."""
+    widths: dict[float, float] = {}
+    for rect in shapes:
+        if rect.width > MIN_RULE_WIDTH and rect.height < 1:
+            widths[round(rect.y0, 1)] = widths.get(round(rect.y0, 1), 0.0) + rect.width
+    rules = sorted(y for y, width in widths.items() if width > MIN_STAFF_WIDTH)
+    return [rules[at:at + 5] for at in range(0, len(rules) - 4, 5)]
+
+
+def ink_left(page: pymupdf.Page, left: float, base: float, size: float) -> float:
+    """Where a letter's ink starts, side bearing excluded: rendered, since the text layer reports only its advance box."""
+    clip = pymupdf.Rect(left - size * 0.3, base - size * 0.75, left + size * 0.7, base - 0.2)
+    shot = page.get_pixmap(dpi=INK_DPI, clip=clip, colorspace=pymupdf.csGRAY)
+    samples = shot.samples
+    for column in range(shot.width):
+        if any(samples[row * shot.stride + column] < 128 for row in range(shot.height)):
+            return clip.x0 + column * clip.width / shot.width
+    return left
+
+
+def page_lines(pdf: pathlib.Path) -> list[dict]:
+    """Every staff carrying chords, in print order: its chord left edges, its barlines, where its signatures end, and its staff space."""
+    lines = []
+    for page in pymupdf.open(pdf):
+        words, glyphs = [], []
+        for block in page.get_text("rawdict")["blocks"]:
+            for line in block.get("lines", []):
+                for span in line["spans"]:
+                    text = "".join(c["c"] for c in span["chars"]).strip()
+                    if not text:
+                        continue
+                    if all(0xE000 <= ord(c) <= 0xF8FF for c in text):
+                        glyphs += [(c["origin"][0], c["origin"][1], c["bbox"][2], ord(c["c"])) for c in span["chars"]]
+                    else:
+                        words.append((span["size"], span["bbox"][0], span["bbox"][2], span["origin"][1], text))
+        if not words:
+            continue
+        top = max(w[0] for w in words)
+        chords = sorted((w for w in words if abs(w[0] - top) < 0.05), key=lambda w: (w[3], w[1]))
+        shapes = [d["rect"] for d in page.get_drawings()]
+        staves = staves_of(shapes)
+        for staff in staves:
+            mine = [w for w in chords if staff[0] - CHORD_REACH <= w[3] <= staff[0] + 1 and not any(other[0] < staff[0] and other[0] > w[3] for other in staves)]
+            if not mine:
+                continue
+            joined: list[float] = []
+            for word in sorted(mine, key=lambda w: w[1]):
+                if word[4][0] in "ABCDEFG":  # a chord's later pieces, such as what follows a flat, name no root
+                    joined.append(ink_left(page, word[1], word[3], word[0]))
+            left_edge = min(r.x0 for r in shapes if r.width > MIN_RULE_WIDTH and r.height < 1 and abs(r.y0 - staff[0]) < 1)
+            bars: list[float] = []
+            for x in sorted(r.x1 for r in shapes if r.width < 3 and abs(r.y0 - staff[0]) < 1 and r.y1 >= staff[4] - 1 and r.x0 > left_edge + 2):
+                if bars and x - bars[-1] < SAME_BARLINE:
+                    bars[-1] = x
+                else:
+                    bars.append(x)
+            signs = [g[2] for g in glyphs if staff[0] - 8 <= g[1] <= staff[4] + 8 and g[0] < (bars[0] if bars else left_edge + 80) and is_signature(g[3])]
+            lines.append({"chords": joined, "bars": bars, "start": max(signs, default=left_edge), "space": (staff[4] - staff[0]) / 4})
+    return lines
+
+
+def is_signature(code: int) -> bool:
+    """Clefs, accidentals of a key signature and time signature digits."""
+    return 0xE050 <= code <= 0xE07F or 0xE080 <= code <= 0xE09F or 0xE260 <= code <= 0xE264
+
+
+def gaps(rows: list[list[tuple[int, bool]]], lines: list[dict]) -> list[float | None]:
+    """Each chord's gap after its bar's left edge; None for a chord past beat 1, which its own beat places."""
+    filled = [row for row in rows if row]
+    if len(filled) != len(lines):
+        raise ValueError(f"{len(filled)} lines with chords in the score, {len(lines)} in the PDF")
+    found: list[float | None] = []
+    for row, line in zip(filled, lines, strict=True):
+        if len(row) != len(line["chords"]):
+            raise ValueError(f"a line holds {len(row)} chords in the score, {len(line['chords'])} in the PDF")
+        for (place, beat), left in zip(row, line["chords"], strict=True):
+            if not beat:
+                found.append(None)
+                continue
+            edge = line["start"] if place == 0 else line["bars"][place - 1]
+            found.append(left - edge)
+    return found
+
+
+def spaces_of(rows: list[list[tuple[int, bool]]], lines: list[dict]) -> list[float]:
+    return [line["space"] for row, line in zip([r for r in rows if r], lines, strict=True) for _ in row]
+
+
+def align(mscz: pathlib.Path, pdf: pathlib.Path) -> bool:
+    """Move each beat-1 chord to the fixed gap; True when anything moved."""
+    name, text = score_text(mscz)
+    rows = rows_of(text)
+    lines = page_lines(pdf)
+    found = gaps(rows, lines)
+    room = spaces_of(rows, lines)
+    first = text.index('<Staff id="1">', text.index("</Part>"))
+    end = text.find('<Staff id="2">', first)
+    end = end if end != -1 else text.index("</Score>", first)
+    at = iter(zip(found, room, strict=True))
+    moved = False
+
+    def seat(match: re.Match[str]) -> str:
+        nonlocal moved
+        gap, space = next(at)
+        if gap is None or abs(gap - GAP) <= TOLERANCE / 2:
+            return match.group(0)
+        moved = True
+        old = re.search(r'<offset x="([-\d.e]+)" y="[-\d.e]+"/>', match.group(0))
+        was = float(old.group(1)) if old else 0.0
+        fresh = f'<offset x="{was + (GAP - gap) / space:.3f}" y="0"/>'
+        inner = re.sub(r'<offset x="[-\d.e]+" y="[-\d.e]+"/>', "", match.group(0)[len("<Harmony>"):])
+        return "<Harmony>" + fresh + inner
+
+    body = re.sub(r"<Harmony>.*?</Harmony>", seat, text[first:end], flags=re.S)
+    with zipfile.ZipFile(mscz) as z:
+        items = {info.filename: z.read(info.filename) for info in z.infolist()}
+    items[name] = (text[:first] + body + text[end:]).encode("utf-8")
+    with zipfile.ZipFile(mscz, "w", zipfile.ZIP_DEFLATED) as z:
+        for key, data in items.items():
+            z.writestr(key, data)
+    return moved
+
+
+def problems(mscz: pathlib.Path, pdf: pathlib.Path) -> list[str]:
+    """Beat-1 chords off the fixed gap on a final PDF."""
+    found = gaps(rows_of(score_text(mscz)[1]), page_lines(pdf))
+    return [f"chord {index + 1}: gap {gap:.1f} pt, wanted {GAP}" for index, gap in enumerate(found) if gap is not None and abs(gap - GAP) > TOLERANCE]

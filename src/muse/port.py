@@ -16,7 +16,7 @@ from typing import Any
 
 import pymupdf
 
-from muse import buildcache, musicxml, pdfcheck, piano, scorefile
+from muse import buildcache, chordseat, musicxml, pdfcheck, piano, scorefile
 from muse.model import Bar, Score
 from muse.song import Song, decode, song_of
 from muse.song import sources as song_sources
@@ -34,6 +34,7 @@ PICKUP_EVENTS = 2  # a first bar this thin shares the opening line as a pickup
 SIZE_FLOORS = (1.2, 1.15)  # below 1.2 only for a song that fits its pages no other way; under 1.15 the fixed title outgrows chords
 MAX_PAGES = 2
 MAX_WORKERS = 3  # another project shares this machine
+SEAT_PASSES = 3
 SIGN_CLEARANCE = 3.0  # spaces a chord moves right off a sign printed on its baseline
 SIGN_SIZE = 25  # a sign may exceed the chords: about 2.5 times the default sign
 MARKER_TYPES = {"segno": "segno", "coda": "codab"}
@@ -435,6 +436,17 @@ def clear_lone_bars(starts: set[int], fixed: set[int], total: int, fits: Callabl
     return starts
 
 
+def seat_chords(score_path: pathlib.Path, pdf: pathlib.Path, render: Callable[[], None], song: str) -> None:
+    """Move beat-1 chords to their barlines by measuring the render, until a render shows nothing left to move."""
+    for _ in range(SEAT_PASSES):
+        try:
+            if not chordseat.align(score_path, pdf):
+                return
+        except ValueError as error:
+            raise SheetRefused(f"{song}: {error}") from error
+        render()
+
+
 def refuse_fixed(probe: pathlib.Path, title: str, song: str) -> None:
     """Stop the song on a check no size can change."""
     fixed_problems = pdfcheck.margin_words(probe) + pdfcheck.foreign_fonts(probe) + pdfcheck.title_problems(probe, title) + pdfcheck.sign_problems(probe)
@@ -471,6 +483,7 @@ def lay_out(src: pathlib.Path, work: pathlib.Path, spatium: float, distance: flo
         big_signs(base)
         widen_chord_bars(base, score, variant == PIANO)
         export_view(options, base, probe)
+        seat_chords(base, probe, lambda: export_view(options, base, probe), song)
 
     def measure() -> tuple[list[list[int]], set[int]]:
         for index, bar in enumerate(score.bars):
@@ -655,6 +668,14 @@ def build_legacy(src: pathlib.Path, work: pathlib.Path, target: pathlib.Path, sp
     legacy_signs(raw)
     big_signs(raw)
     widen_chord_bars(raw, score)
+    seen = work / f"{info.name}-legacy-seat.pdf"
+
+    def render() -> None:
+        LAUNCHES["count"] += 1
+        subprocess.run([legacy_command(), "-o", str(seen), str(raw)], capture_output=True, check=True, timeout=240, stdin=subprocess.DEVNULL)
+
+    render()
+    seat_chords(raw, seen, render, f"{info.name}-legacy")
     target.write_bytes(raw.read_bytes())
 
 

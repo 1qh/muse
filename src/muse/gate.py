@@ -15,7 +15,7 @@ from collections.abc import Callable
 
 import pymupdf
 
-from muse import buildcache, inverse, navigate, pdfcheck, piano, port, scorefile, verify
+from muse import buildcache, chordseat, inverse, navigate, pdfcheck, piano, port, scorefile, verify
 from muse.model import Score
 from muse.song import Song, decode, song_of, sources
 
@@ -32,7 +32,7 @@ def legacy_staff_problems(legacy: pathlib.Path, work: pathlib.Path, title: str) 
     """Render the file in MuseScore 3 itself and refuse an empty staff on a shared line."""
     pdf = work / f"{legacy.stem}-staves.pdf"
     subprocess.run([port.legacy_command(), "-o", str(pdf), str(legacy)], capture_output=True, check=True, timeout=240, stdin=subprocess.DEVNULL)
-    return pdfcheck.empty_staves(pdf) + [f"text on text: {c[2]}" for c in pdfcheck.text_collisions(pdf)] + pdfcheck.title_problems(pdf, title)
+    return chordseat.problems(legacy, pdf) + pdfcheck.empty_staves(pdf) + [f"text on text: {c[2]}" for c in pdfcheck.text_collisions(pdf)] + pdfcheck.title_problems(pdf, title)
 
 
 def page_problems(path: pathlib.Path) -> list[str]:
@@ -244,6 +244,10 @@ def check_song(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> tupl
     guarded("lines", ties)
     sheet = work / f"{song.name}-piano-final.mscz"
     guarded("piano", lambda: piano_problems(src, sheet))
+    guarded("chord seat piano", lambda: chordseat.problems(sheet, out / song.piano_pdf))
+    guarded("chord seat original", lambda: chordseat.problems(out / song.score_file, out / song.original_pdf))
+    if song.direction:
+        guarded("chord seat tone", lambda: chordseat.problems(work / f"{song.name}-{port.TONE}.mscz", out / song.tone_pdf))
 
     def homr() -> list[str]:
         wrong, note = homr_findings(src, score, work)

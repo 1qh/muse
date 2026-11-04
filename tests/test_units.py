@@ -330,3 +330,27 @@ def test_the_page_check_includes_the_sign_guard(tmp_path, monkeypatch):
     doc.save(path)
     monkeypatch.setattr(pdfcheck, "sign_on_chord", lambda _: ["planted"])
     assert "planted" in pdfcheck.all_problems(path, "x")
+
+
+def test_beat_1_chords_measure_from_their_own_bar_and_later_chords_do_not_count():
+    rows = [[(0, True), (1, True), (1, False)]]
+    lines = [{"chords": [50.0, 100.0, 130.0], "bars": [100.0, 150.0], "start": 50.0, "space": 4.0}]
+    assert chordseat.gaps(rows, lines) == [0.0, 0.0, None]
+
+
+def test_a_chord_off_its_barline_is_a_problem(monkeypatch, tmp_path):
+    monkeypatch.setattr(chordseat, "score_text", lambda _: ("x", ""))
+    monkeypatch.setattr(chordseat, "rows_of", lambda _: [[(0, True), (1, True)]])
+    monkeypatch.setattr(chordseat, "page_lines", lambda _: [{"chords": [50.0, 103.0], "bars": [100.0], "start": 50.0, "space": 4.0}])
+    assert len(chordseat.problems(tmp_path, tmp_path)) == 1
+
+
+def test_a_chord_count_the_score_does_not_hold_refuses():
+    import pytest
+    with pytest.raises(ValueError, match="lines with chords"):
+        chordseat.gaps([[(0, True)]], [])
+
+
+def test_a_chord_high_above_an_empty_staff_is_a_problem(monkeypatch, tmp_path):
+    monkeypatch.setattr(pdfcheck, "chord_seating", lambda _: [(0, 0.0, 3.0, "Am"), (0, 0.0, 1.0, "G")])
+    assert len(pdfcheck.seating_problems(tmp_path)) == 1

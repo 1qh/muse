@@ -7,6 +7,8 @@ import sys
 
 import pymupdf
 
+from muse import chordseat
+
 CHORD = re.compile(r"(?:[A-G][#b♯♭]?)?(?:maj|min|dim|sus|add|aug|m|\d|[#b♯♭()/ ]|[A-G][#b♯♭]?)*")
 MIN_CHORD_GAP = 0.75  # clear space between 2 chords, in chord font sizes
 MAX_TEXT_BOX = 40.0  # taller word boxes are music font symbols, and no footer is this tall
@@ -17,6 +19,7 @@ TEXT_OVERLAP = 2.0  # slanted words of 1 phrase overlap by less
 JUMP_GAP = 4.0
 SIGNS = "\ue047\ue048"
 SIGN_OVER_CHORD = 1.6
+MAX_CHORD_SPACES = 2.0  # chord baseline above the staff top, on a line with no notes
 SIGN_INK_WIDTH = 0.75  # the printed part of a sign, in sign font sizes
 SIGN_BASELINE_SHARE = 0.3  # a sign higher than this share of the chord size clears the letters
 CLEFS = {0xE050, 0xE052, 0xE053}
@@ -164,6 +167,43 @@ def sign_touches(x: float, y: float, size: float, chord_size: float, chord_lette
     return any(abs(base - y) < chord_size * SIGN_BASELINE_SHARE and x < right and left < ink_end for left, right, base in chord_letters)
 
 
+def chord_seating(path: pathlib.Path) -> list[tuple[int, float, float, str]]:
+    """Each chord's overhang left of a barline it crosses, and its height above the staff in staff spaces where the line has no notes: page, overhang, spaces, chord."""
+    found = []
+    for number, page in enumerate(pymupdf.open(path), 1):
+        spans, heads = [], []
+        for block in page.get_text("rawdict")["blocks"]:
+            for line in block.get("lines", []):
+                for span in line["spans"]:
+                    text = "".join(c["c"] for c in span["chars"]).strip()
+                    if text and not all(0xE000 <= ord(c) <= 0xF8FF for c in text):
+                        spans.append((span["size"], span["bbox"][0], span["bbox"][2], span["origin"][1], text))
+                    heads += [c["origin"] for c in span["chars"] if HEAD_CODES[0] <= ord(c["c"]) <= HEAD_CODES[1]]
+        if not spans:
+            continue
+        top = max(item[0] for item in spans)
+        drawings = [d["rect"] for d in page.get_drawings()]
+        staves = chordseat.staves_of(drawings)
+        for size, left, right, base, text in spans:
+            if abs(size - top) >= 0.05 or not staves:
+                continue
+            below = [staff for staff in staves if staff[0] >= base - top]
+            if not below:
+                continue
+            staff = below[0]
+            gap = (staff[4] - staff[0]) / 4
+            bars = [r.x0 for r in drawings if r.width < 3 and abs(r.y0 - staff[0]) < 1 and abs(r.y1 - staff[4]) < 1]
+            overhang = max((bar - left for bar in bars if left < bar < right), default=0.0)
+            noted = any(staff[0] - STAFF_REACH <= y <= staff[4] + STAFF_REACH for _, y in heads)
+            found.append((number - 1, overhang, -1.0 if noted else (staff[0] - base) / gap, text))
+    return found
+
+
+def seating_problems(path: pathlib.Path) -> list[str]:
+    """On a line with no notes a chord sits close above the staff; `chordseat.problems` judges its barline."""
+    return [f"p{page + 1}: chord {text} {spaces:.1f} spaces above the staff" for page, _, spaces, text in chord_seating(path) if spaces > MAX_CHORD_SPACES]
+
+
 def text_collisions(path: pathlib.Path) -> list[tuple[int, float, str]]:
     """Words printed on top of each other, or touching with no gap: page, height, the later word."""
     found = []
@@ -220,7 +260,7 @@ def idle_staves(clefs: list[float], heads: list[float], starts: list[float]) -> 
 
 
 def all_problems(path: pathlib.Path, title: str) -> list[str]:
-    return empty_staves(path) + text_problems(path) + title_problems(path, title) + sign_problems(path) + sign_on_chord(path) + [f"text on text: {c[2]}" for c in text_collisions(path)]
+    return empty_staves(path) + text_problems(path) + title_problems(path, title) + sign_problems(path) + sign_on_chord(path) + seating_problems(path) + [f"text on text: {c[2]}" for c in text_collisions(path)]
 
 
 def main() -> None:
