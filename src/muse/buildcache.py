@@ -11,6 +11,7 @@ from typing import Any
 ROOT = pathlib.Path(__file__).parent
 STYLE = ROOT / "style.mss"
 PIANO_ONLY_CODE = {"piano.py"}
+CHECK_ONLY_CODE = {"gate.py", "verify.py", "inverse.py", "publish.py", "report.py"}
 STATE_DIR = "build-state"
 
 

@@ -34,7 +34,7 @@ TIE_REACH = 2  # extra bars a line may take to avoid breaking on a tie
 PICKUP_EVENTS = 2  # a first bar this thin shares the opening line as a pickup
 SIZE_FLOORS = (1.2, 1.15)  # below 1.2 only for a song that fits its pages no other way; under 1.15 the fixed title outgrows chords
 MAX_PAGES = 2
-MAX_WORKERS = 9
+MAX_WORKERS = 3  # another project shares this machine
 SIGN_SIZE = 25  # a sign may exceed the chords: about 2.5 times the default sign
 MARKER_TYPES = {"segno": "segno", "coda": "codab"}
 LEGACY_SIGN_SIZE = 25  # MuseScore 3 sizes the sign as text
@@ -649,8 +649,8 @@ def port(src: pathlib.Path, out_dir: pathlib.Path, work: pathlib.Path) -> dict[s
     (out_dir / info.name).mkdir(parents=True, exist_ok=True)
     report: dict[str, object] = {"song": info.name}
     state = buildcache.load(info.name)
-    shared = buildcache.code_files(skip=buildcache.PIANO_ONLY_CODE)
-    every = buildcache.code_files()
+    shared = buildcache.code_files(skip=buildcache.PIANO_ONLY_CODE | buildcache.CHECK_ONLY_CODE)
+    every = buildcache.code_files(skip=buildcache.CHECK_ONLY_CODE)
     built = []
 
     def current(variant: str, code: list[pathlib.Path], outputs: list[pathlib.Path]) -> tuple[str, bool]:
