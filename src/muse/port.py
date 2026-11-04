@@ -552,7 +552,17 @@ def lay_out(src: pathlib.Path, work: pathlib.Path, spatium: float, distance: flo
             starts |= undone
         if variant == PIANO:
             starts = clear_lone_bars(starts, fixed, len(score.bars), lambda trial: not trial_bad(trial))
-        measure()
+        for _ in range(MAX_LAYOUT_ROUNDS):  # the last word on the lines is a clean measure, never an ignored one
+            declared, bad = measure()
+            if not bad:
+                break
+            for row in declared:
+                if any(n in row for n in bad) and len(row) > 1:
+                    starts.add(split_at(row[0] - 1, row[-1], tied))
+                elif any(n in row for n in bad):
+                    raise DoesNotFit(f"{song}: bar {row[0]} does not fit alone")
+        else:
+            raise DoesNotFit(f"{song}: lines {sorted(bad)} still do not fit")
     elif measure()[1]:
         raise DoesNotFit(f"{song}: saved lines no longer fit")
     found = len(pymupdf.open(probe))
