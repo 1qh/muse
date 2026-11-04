@@ -34,7 +34,7 @@ PICKUP_EVENTS = 2  # a first bar this thin shares the opening line as a pickup
 SIZE_FLOORS = (1.2, 1.15)  # below 1.2 only for a song that fits its pages no other way; under 1.15 the fixed title outgrows chords
 MAX_PAGES = 2
 MAX_WORKERS = 3  # another project shares this machine
-SIGN_LIFT = -2.5  # clears the chord beside a sign printed on its baseline
+SIGN_CLEARANCE = 3.0  # spaces a chord moves right off a sign printed on its baseline
 SIGN_SIZE = 25  # a sign may exceed the chords: about 2.5 times the default sign
 MARKER_TYPES = {"segno": "segno", "coda": "codab"}
 LEGACY_SIGN_SIZE = 25  # MuseScore 3 sizes the sign as text
@@ -84,7 +84,7 @@ JUMPS = {
 }
 
 
-def real_jumps(mscz: pathlib.Path, lift: bool = False) -> None:
+def real_jumps(mscz: pathlib.Path, clear_chord: bool = False) -> None:
     """Import keeps jump words as staff text; replace them with MuseScore's own jump elements."""
     items = {}
     with zipfile.ZipFile(mscz) as z:
@@ -102,14 +102,18 @@ def real_jumps(mscz: pathlib.Path, lift: bool = False) -> None:
                     break
                 start = text.rfind("<voice>", 0, m.start())
                 text = text[:start] + element + text[start:m.start()] + text[m.end():]
-        raised = f'<offset x="0" y="{SIGN_LIFT}"/>' if lift else ""
         for sym, label in (("segno", "segno"), ("coda", "codab")):
             # a visible marker is both the printed sign and the jump target; the style sizes it
             pattern = re.compile(r"\s*<StaffText>(?:(?!</StaffText>).)*?<text><sym>" + sym + r"</sym></text>\s*</StaffText>", re.S)
             for m in reversed(list(pattern.finditer(text))):
                 start = text.rfind("<voice>", 0, m.start())
-                element = f"<Marker><style>repeat_left</style><text><sym>{sym}</sym></text><label>{label}</label><markerType>{MARKER_TYPES[sym]}</markerType><markerCenterOnSymbol>0</markerCenterOnSymbol><musicSymbolSize>{SIGN_SIZE}</musicSymbolSize>{raised}</Marker>"
+                element = f"<Marker><style>repeat_left</style><text><sym>{sym}</sym></text><label>{label}</label><markerType>{MARKER_TYPES[sym]}</markerType><markerCenterOnSymbol>0</markerCenterOnSymbol><musicSymbolSize>{SIGN_SIZE}</musicSymbolSize></Marker>"
                 text = text[:start] + element + text[start:m.start()] + text[m.end():]
+                chord = text.find("<Harmony>", start)
+                if clear_chord and chord != -1 and chord < text.find("</Measure>", start):
+                    # a marker ignores its own offset in layout, so the chord beside it makes the room
+                    at = chord + len("<Harmony>")
+                    text = text[:at] + f'<offset x="{SIGN_CLEARANCE}" y="0"/>' + text[at:]
         items[name] = text.encode("utf-8")
     with zipfile.ZipFile(mscz, "w", zipfile.ZIP_DEFLATED) as z:
         for name, data in items.items():
@@ -432,13 +436,13 @@ def lay_out(src: pathlib.Path, work: pathlib.Path, spatium: float, distance: flo
     tied = [tied_out(bar) for bar in score.bars]
     fixed = {block[0] for block in sections(score)}
 
-    lifted = {"signs": False}
+    clearing = {"signs": False}
 
     def build() -> None:
         xml.write_text(musicxml.write(score), encoding="utf-8")
         run("-S", str(style), "-o", str(base), str(xml))
         strip_title_frame(base)
-        real_jumps(base, lifted["signs"])
+        real_jumps(base, clearing["signs"])
         big_signs(base)
         widen_chord_bars(base, score, variant == PIANO)
         export_view(options, base, probe)
@@ -448,6 +452,9 @@ def lay_out(src: pathlib.Path, work: pathlib.Path, spatium: float, distance: flo
             bar.new_system = index in starts and index != 0
             bar.new_page = False
         build()
+        if not clearing["signs"] and pdfcheck.sign_on_chord(probe):
+            clearing["signs"] = True  # decided before line splits, so a crowded line can split for the room
+            build()
         declared = rows(score)
         firsts = {row[0] for row in declared}
         wraps = [n for n in system_starts(probe) if n not in firsts]
@@ -488,7 +495,7 @@ def lay_out(src: pathlib.Path, work: pathlib.Path, spatium: float, distance: flo
         if len(pymupdf.open(probe)) != found:
             raise DoesNotFit(f"{song}: even pages need {len(pymupdf.open(probe))} pages, not {found}")
     if pdfcheck.sign_on_chord(probe):
-        lifted["signs"] = True
+        clearing["signs"] = True
         build()
     fixed_problems = pdfcheck.margin_words(probe) + pdfcheck.foreign_fonts(probe) + pdfcheck.title_problems(probe, info.title) + pdfcheck.sign_problems(probe)
     if fixed_problems:
