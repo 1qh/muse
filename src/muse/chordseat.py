@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import pathlib
 import re
+import xml.etree.ElementTree as ET
 import zipfile
 from collections import Counter
 from typing import Any
@@ -13,6 +14,11 @@ GAP = 0.0  # a beat-1 chord's ink starts exactly at the barline's right edge, or
 TOLERANCE = 0.4
 LEGACY_REACH = 5.6  # points: MuseScore 3 holds a mid-line chord about 5 after the barline whatever its offset
 INK_DPI = 720
+MPOS_UNITS = 200.0  # position export units per point
+LEGACY_MPOS_UNITS = 60.0  # MuseScore 3 writes other units
+LEGACY_EXTENT = 50000.0  # a line reaches past this only in the larger units
+DEFAULT_SPACE = 3.4
+OPENING_REPEAT_REACH = 14.0
 INK_STROKE_SHARE = 0.1
 STEM_REACH = 1.0
 HEAD_CODES = (0xE0A0, 0xE0FF)
@@ -27,7 +33,6 @@ MIN_RULE_WIDTH = 10.0
 MIN_STAFF_SPACE = 2.0
 MAX_STAFF_SPACE = 9.0
 SPACE_SLACK = 0.3
-CHORD_REACH = 70.0
 FIRST_ELEMENT = re.compile(r"<Chord>|<Rest>|<location>")
 CHORD_SHAPE = re.compile(r"[A-G][#b♯♭]?(?:m|maj|sus|dim|add|aug|\d|\(|/|$)")
 SIGN_CHARS = "\ue047\ue048"
@@ -113,9 +118,21 @@ def ink_left(page: pymupdf.Page, left: float, base: float, size: float) -> float
     return left
 
 
+def measure_boxes(mpos: pathlib.Path) -> list[dict[str, float]]:
+    """Every measure's box in points, from the score program's own position export."""
+    elements = list(ET.parse(mpos).getroot().iter("element"))
+    extent = max((float(e.get("x", "0")) + float(e.get("sx", "0")) for e in elements), default=0.0)
+    units = MPOS_UNITS if extent > LEGACY_EXTENT else LEGACY_MPOS_UNITS
+    boxes = []
+    for element in elements:
+        boxes.append({key: float(element.get(tag, "0")) / units for key, tag in (("x", "x"), ("y", "y"), ("w", "sx"))} | {"page": float(element.get("page", "0"))})
+    return boxes
+
+
 def page_lines(pdf: pathlib.Path) -> list[dict[str, Any]]:
     """Every staff carrying chords, in print order: its chord left edges, its barlines, where its signatures end, and its staff space."""
     lines = []
+    measures = measure_boxes(pdf.with_suffix(".mpos"))
     for page in pymupdf.open(pdf):
         words, glyphs = [], []
         signs_here: list[tuple[float, float]] = []
@@ -138,9 +155,13 @@ def page_lines(pdf: pathlib.Path) -> list[dict[str, Any]]:
         top = shaped.most_common(1)[0][0]  # the title can print larger in 1 program, so the size chords use decides
         chords = sorted((w for w in words if abs(w[0] - top) < 0.1), key=lambda w: (w[3], w[1]))
         shapes = segments(page)
-        staves = staves_of(shapes)
-        for staff in staves:
-            mine = [w for w in chords if staff[0] - CHORD_REACH <= w[3] <= staff[0] + 1 and not any(other[0] < staff[0] and other[0] > w[3] for other in staves)]
+        systems = [row for row in measures if row["page"] == page.number]
+        tops = sorted({row["y"] for row in systems})
+        steps = [staff[1] - staff[0] for staff in staves_of(shapes)]
+        space = steps[0] if steps else DEFAULT_SPACE
+        for at, staff_top in enumerate(tops):
+            above = tops[at - 1] if at else -1000.0
+            mine = [w for w in chords if above + space * 4 < w[3] <= staff_top + 1]
             if not mine:
                 continue
             joined: list[float] = []
@@ -151,20 +172,18 @@ def page_lines(pdf: pathlib.Path) -> list[dict[str, Any]]:
                     rights.append(word[2])
                 elif rights:
                     rights[-1] = word[2]
-            left_edge = min(r.x0 for r in shapes if r.width > MIN_RULE_WIDTH and r.height < 1 and abs(r.y0 - staff[0]) < 1)
-            bars: list[float] = []
-            heads = [(g[0], g[2]) for g in glyphs if staff[0] - 8 <= g[1] <= staff[4] + 8 and HEAD_CODES[0] <= g[3] <= HEAD_CODES[1]]
-            for x in sorted(r.x1 for r in shapes if r.width < 3 and abs(r.y0 - staff[0]) < 1 and r.y1 >= staff[4] - 1 and r.x0 > left_edge + 2 and not is_stem(r.x0, heads)):
-                if bars and x - bars[-1] < SAME_BARLINE:
-                    bars[-1] = x
-                else:
-                    bars.append(x)
-            signs = signature_ends(sorted((g for g in glyphs if staff[0] - 8 <= g[1] <= staff[4] + 8 and g[0] < (bars[0] if bars else left_edge + 80)), key=lambda g: g[0]))
-            start = max(signs, default=left_edge)
+            row = sorted((m for m in systems if m["y"] == staff_top), key=lambda m: m["x"])
+            bars = [m["x"] + m["w"] for m in row]
+            bottom = staff_top + space * 4
+            near = sorted((g for g in glyphs if staff_top - 8 <= g[1] <= bottom + 8 and g[0] < bars[0]), key=lambda g: g[0])
+            start = max(signature_ends(near), default=row[0]["x"])
+            heads = [(g[0], g[2]) for g in near if HEAD_CODES[0] <= g[3] <= HEAD_CODES[1]]
+            # a repeat sign opening the line stands right after the signatures
+            start = max([start, *(r.x1 for r in shapes if r.width < 3 and abs(r.y0 - staff_top) < 1 and r.y1 >= bottom - 1 and start <= r.x0 < start + OPENING_REPEAT_REACH and not is_stem(r.x0, heads))])
             base = mine[0][3]
             # a sign printed on the chord row takes the place right after the clef, so the chord follows it
             start = max([start, *(end for end, y in signs_here if abs(y - base) < top * SIGN_REACH and end < start + top * 2)])
-            lines.append({"chords": joined, "bars": bars, "start": start, "space": (staff[4] - staff[0]) / 4, "rights": rights, "size": top})
+            lines.append({"chords": joined, "bars": bars, "start": start, "space": space, "rights": rights, "size": top})
     return lines
 
 
@@ -184,13 +203,8 @@ def signature_ends(glyphs: list[tuple[float, float, float, int]]) -> list[float]
 
 
 def matched(text: str, pdf: pathlib.Path) -> list[dict[str, Any]]:
-    """The PDF's chord lines, with a repeat barline that opens a line taken as the line's start rather than as a bar."""
-    lines = page_lines(pdf)
-    chorded = [row for row, chords in zip(bar_rows(text), rows_of(text), strict=True) if chords]
-    for row, line in zip(chorded, lines, strict=False):
-        if len(line["bars"]) == len(row) + 1:
-            line["start"] = line["bars"].pop(0)
-    return lines
+    """The PDF's chord lines."""
+    return page_lines(pdf)
 
 
 def is_signature(code: int) -> bool:

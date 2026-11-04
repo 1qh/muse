@@ -421,10 +421,11 @@ def transpose_options(song: Song) -> dict[str, Any] | None:
 
 def export_view(options: dict[str, Any] | None, base: pathlib.Path, target: pathlib.Path) -> None:
     """Export a score, in the sheet's tone when it has its own: chord names, and so their widths, differ by key."""
-    if options:
-        run("-o", str(target), "--transpose", json.dumps(options), str(base))
-    else:
-        run("-o", str(target), str(base))
+    for out in (target, target.with_suffix(".mpos")):  # the positions are the program's own record of this same layout
+        if options:
+            run("-o", str(out), "--transpose", json.dumps(options), str(base))
+        else:
+            run("-o", str(out), str(base))
 
 
 def clear_lone_bars(starts: set[int], fixed: set[int], total: int, fits: Callable[[set[int]], bool]) -> set[int]:
@@ -705,7 +706,8 @@ def build_legacy(src: pathlib.Path, work: pathlib.Path, target: pathlib.Path, sp
 
     def render() -> None:
         LAUNCHES["count"] += 1
-        subprocess.run([legacy_command(), "-o", str(seen), str(raw)], capture_output=True, check=True, timeout=240, stdin=subprocess.DEVNULL)
+        for out in (seen, seen.with_suffix(".mpos")):
+            subprocess.run([legacy_command(), "-o", str(out), str(raw)], capture_output=True, check=True, timeout=240, stdin=subprocess.DEVNULL)
 
     render()
     seat_chords(raw, seen, render, f"{info.name}-legacy", None, chordseat.LEGACY_REACH)

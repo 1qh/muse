@@ -32,6 +32,7 @@ def legacy_staff_problems(legacy: pathlib.Path, work: pathlib.Path, title: str) 
     """Render the file in MuseScore 3 itself and refuse an empty staff on a shared line."""
     pdf = work / f"{legacy.stem}-staves.pdf"
     subprocess.run([port.legacy_command(), "-o", str(pdf), str(legacy)], capture_output=True, check=True, timeout=240, stdin=subprocess.DEVNULL)
+    subprocess.run([port.legacy_command(), "-o", str(pdf.with_suffix(".mpos")), str(legacy)], capture_output=True, check=True, timeout=240, stdin=subprocess.DEVNULL)
     return chordseat.problems(legacy, pdf, chordseat.LEGACY_REACH) + pdfcheck.empty_staves(pdf) + [f"text on text: {c[2]}" for c in pdfcheck.text_collisions(pdf)] + pdfcheck.title_problems(pdf, title)
 
 
@@ -245,10 +246,11 @@ def check_song(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> tupl
     sheet = work / f"{song.name}-piano-final.mscz"
     guarded("piano", lambda: piano_problems(src, sheet))
     guarded("even bars piano", lambda: even_piano_bars(src, sheet, out / song.piano_pdf))
-    guarded("chord seat piano", lambda: chordseat.problems(sheet, out / song.piano_pdf))
-    guarded("chord seat original", lambda: chordseat.problems(out / song.score_file, out / song.original_pdf))
+    options = port.transpose_options(song)
+    guarded("chord seat piano", lambda: chordseat.problems(sheet, measured(sheet, out / song.piano_pdf, work, options)))
+    guarded("chord seat original", lambda: chordseat.problems(out / song.score_file, measured(out / song.score_file, out / song.original_pdf, work, None)))
     if song.direction:
-        guarded("chord seat tone", lambda: chordseat.problems(work / f"{song.name}-{port.TONE}.mscz", out / song.tone_pdf))
+        guarded("chord seat tone", lambda: chordseat.problems(work / f"{song.name}-{port.TONE}.mscz", measured(work / f"{song.name}-{port.TONE}.mscz", out / song.tone_pdf, work, options)))
 
     def homr() -> list[str]:
         wrong, note = homr_findings(src, score, work)
@@ -260,10 +262,24 @@ def check_song(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> tupl
     return failures, notes
 
 
+def measured(score_path: pathlib.Path, pdf: pathlib.Path, work: pathlib.Path, options: dict[str, object] | None) -> pathlib.Path:
+    """A copy of a final PDF beside the program's measure positions for it, outside the sheets folder."""
+    folder = work / "measured"
+    folder.mkdir(parents=True, exist_ok=True)
+    copy = folder / pdf.name
+    shutil.copyfile(pdf, copy)
+    target = copy.with_suffix(".mpos")
+    if options:
+        port.run("-o", str(target), "--transpose", json.dumps(options), str(score_path))
+    else:
+        port.run("-o", str(target), str(score_path))
+    return copy
+
+
 def even_piano_bars(src: pathlib.Path, sheet: pathlib.Path, pdf: pathlib.Path) -> list[str]:
     reduced = decode(src)
     piano.reduce(reduced)
-    return chordseat.uneven(sheet, pdf, {bar.number for bar in reduced.bars if piano.has_notes(bar)})
+    return chordseat.uneven(sheet, measured(sheet, pdf, sheet.parent, port.transpose_options(song_of(src))), {bar.number for bar in reduced.bars if piano.has_notes(bar)})
 
 
 def cached_check(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> tuple[list[str], list[str], bool]:

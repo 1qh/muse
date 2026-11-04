@@ -374,12 +374,13 @@ def test_a_line_holds_the_most_bars_its_widest_chord_allows():
     assert port.bars_that_fit([30], 1.2) == 2
 
 
-def test_a_repeat_barline_opening_a_line_is_its_start_not_a_bar(monkeypatch, tmp_path):
-    monkeypatch.setattr(chordseat, "rows_of", lambda _: [[(0, True)]])
-    monkeypatch.setattr(chordseat, "bar_rows", lambda _: [[1, 2]])
-    monkeypatch.setattr(chordseat, "page_lines", lambda _: [{"chords": [60.0], "bars": [60.0, 100.0, 150.0], "start": 50.0, "space": 4.0}])
-    line = chordseat.matched("", tmp_path)[0]
-    assert line["start"] == 60.0 and line["bars"] == [100.0, 150.0]
+def test_measure_boxes_are_read_in_points(tmp_path):
+    mpos = tmp_path / "x.mpos"
+    mpos.write_text('<score><elements><element id="0" x="4320" y="11776" sx="2000" sy="2607" page="1"></element></elements></score>')
+    mpos.write_text('<score><elements><element id="0" x="4320" y="11776" sx="110000" sy="2607" page="1"></element></elements></score>')
+    assert chordseat.measure_boxes(mpos) == [{"x": 21.6, "y": 58.88, "w": 550.0, "page": 1.0}]
+    mpos.write_text('<score><elements><element id="0" x="1296" y="4014" sx="33000" sy="2836" page="0"/></elements></score>')
+    assert chordseat.measure_boxes(mpos) == [{"x": 21.6, "y": 66.9, "w": 550.0, "page": 0.0}]
 
 
 def test_a_staff_is_5_equal_lines_and_a_stray_line_is_not():
