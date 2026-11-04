@@ -4,6 +4,7 @@ from __future__ import annotations
 import pathlib
 import re
 import zipfile
+from typing import Any
 
 import pymupdf
 
@@ -65,11 +66,11 @@ def ink_left(page: pymupdf.Page, left: float, base: float, size: float) -> float
     samples = shot.samples
     for column in range(shot.width):
         if any(samples[row * shot.stride + column] < 128 for row in range(shot.height)):
-            return clip.x0 + column * clip.width / shot.width
+            return float(clip.x0 + column * clip.width / shot.width)
     return left
 
 
-def page_lines(pdf: pathlib.Path) -> list[dict]:
+def page_lines(pdf: pathlib.Path) -> list[dict[str, Any]]:
     """Every staff carrying chords, in print order: its chord left edges, its barlines, where its signatures end, and its staff space."""
     lines = []
     for page in pymupdf.open(pdf):
@@ -115,7 +116,7 @@ def is_signature(code: int) -> bool:
     return 0xE050 <= code <= 0xE07F or 0xE080 <= code <= 0xE09F or 0xE260 <= code <= 0xE264
 
 
-def gaps(rows: list[list[tuple[int, bool]]], lines: list[dict]) -> list[float | None]:
+def gaps(rows: list[list[tuple[int, bool]]], lines: list[dict[str, Any]]) -> list[float | None]:
     """Each chord's gap after its bar's left edge; None for a chord past beat 1, which its own beat places."""
     filled = [row for row in rows if row]
     if len(filled) != len(lines):
@@ -133,7 +134,7 @@ def gaps(rows: list[list[tuple[int, bool]]], lines: list[dict]) -> list[float | 
     return found
 
 
-def spaces_of(rows: list[list[tuple[int, bool]]], lines: list[dict]) -> list[float]:
+def spaces_of(rows: list[list[tuple[int, bool]]], lines: list[dict[str, Any]]) -> list[float]:
     return [line["space"] for row, line in zip([r for r in rows if r], lines, strict=True) for _ in row]
 
 
@@ -185,13 +186,13 @@ def bar_rows(text: str) -> list[list[int]]:
     return rows
 
 
-def widths_of(line: dict) -> list[float]:
+def widths_of(line: dict[str, Any]) -> list[float]:
     """Laid-out bar widths of a line; its first bar starts after the clef and signatures."""
     edges = [line["start"], *line["bars"]]
     return [right - left for left, right in zip(edges, edges[1:], strict=False)]
 
 
-def empty_widths(text: str, lines: list[dict], noted: set[int]) -> list[tuple[int, float, float]]:
+def empty_widths(text: str, lines: list[dict[str, Any]], noted: set[int]) -> list[tuple[int, float, float]]:
     """(bar, width, the line's mean empty width) for each bar with no notes, on lines whose barlines match the score."""
     found = []
     chorded = [row for row, chords in zip(bar_rows(text), rows_of(text), strict=True) if chords]
@@ -228,8 +229,8 @@ def equalize(mscz: pathlib.Path, pdf: pathlib.Path, noted: set[int]) -> bool:
         fresh = f"<stretch>{(float(held.group(1)) if held else 1.0) * off[number]:.3f}</stretch>"
         if held:
             return whole.replace(held.group(0), fresh, 1)
-        opened = re.match(r"<Measure[^>]*>", whole)
-        return opened.group(0) + fresh + whole[opened.end():]
+        tag_end = whole.index(">") + 1
+        return whole[:tag_end] + fresh + whole[tag_end:]
 
     body = MEASURE.sub(stretch, text[first:end])
     with zipfile.ZipFile(mscz) as z:

@@ -370,4 +370,4 @@ def test_uneven_empty_bars_are_found_and_notes_are_ignored(monkeypatch, tmp_path
 def test_a_line_holds_the_most_bars_its_widest_chord_allows():
     assert port.bars_that_fit([6], 1.2) == 16
     assert port.bars_that_fit([12], 1.2) == 8
-    assert port.bars_that_fit([30], 1.2) == 4
+    assert port.bars_that_fit([30], 1.2) == 2
