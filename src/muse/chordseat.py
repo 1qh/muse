@@ -13,6 +13,7 @@ GAP = 0.0  # a beat-1 chord's ink starts exactly at the barline's right edge, or
 TOLERANCE = 0.4
 LEGACY_REACH = 5.6  # points: MuseScore 3 holds a mid-line chord about 5 after the barline whatever its offset
 INK_DPI = 720
+INK_STROKE_SHARE = 0.1
 STEM_REACH = 1.0
 HEAD_CODES = (0xE0A0, 0xE0FF)
 INK_REACH = 0.8  # points a letter's ink can start left of its text box; further left is a neighbour
@@ -25,7 +26,7 @@ MIN_RULE_WIDTH = 10.0
 MIN_STAFF_SPACE = 2.0
 MAX_STAFF_SPACE = 9.0
 SPACE_SLACK = 0.3
-CHORD_REACH = 40.0
+CHORD_REACH = 70.0
 FIRST_ELEMENT = re.compile(r"<Chord>|<Rest>|<location>")
 CHORD_SHAPE = re.compile(r"[A-G][#b♯♭]?(?:m|maj|sus|dim|add|aug|\d|\(|/|$)")
 SIGN_CHARS = "\ue047\ue048"
@@ -104,8 +105,9 @@ def ink_left(page: pymupdf.Page, left: float, base: float, size: float) -> float
     clip = pymupdf.Rect(left - INK_REACH, base - size * 0.75, left + size * 0.7, base - 0.2)
     shot = page.get_pixmap(dpi=INK_DPI, clip=clip, colorspace=pymupdf.csGRAY)
     samples = shot.samples
+    tall = max(2, int(shot.height * INK_STROKE_SHARE))  # a slur or volta crossing the band is too thin to be a letter
     for column in range(shot.width):
-        if any(samples[row * shot.stride + column] < 128 for row in range(shot.height)):
+        if sum(samples[row * shot.stride + column] < 128 for row in range(shot.height)) >= tall:
             return float(clip.x0 + column * clip.width / shot.width)
     return left
 
