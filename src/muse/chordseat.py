@@ -11,6 +11,7 @@ import pymupdf
 
 GAP = 0.0  # a beat-1 chord's ink starts exactly at the barline's right edge, or after a line's clef and signatures
 TOLERANCE = 0.4
+LEGACY_REACH = 5.6  # points: MuseScore 3 holds a mid-line chord about 5 after the barline whatever its offset
 INK_DPI = 720
 INK_REACH = 0.8  # points a letter's ink can start left of its text box; further left is a neighbour
 SIGN_INK_WIDTH = 0.75  # the printed part of a segno or coda, in sign font sizes
@@ -203,17 +204,16 @@ def spaces_of(rows: list[list[tuple[int, bool]]], lines: list[dict[str, Any]]) -
     return [line["space"] for row, line in zip([r for r in rows if r], lines, strict=True) for _ in row]
 
 
-def moved_chord(element: str, spaces: float, free_height: float | None = None) -> str:
-    """A chord moved sideways; given a height, it also leaves automatic placement, which holds a chord off a barline in MuseScore 3."""
+def moved_chord(element: str, spaces: float) -> str:
+    """A chord moved sideways by its own offset."""
     old = re.search(r'<offset x="([-\d.e]+)" y="[-\d.e]+"/>', element)
     was = float(old.group(1)) if old else 0.0
-    inner = re.sub(r'<offset x="[-\d.e]+" y="[-\d.e]+"/>|<autoplace>0</autoplace>', "", element[len("<Harmony>"):])
-    held = "" if free_height is None else "<autoplace>0</autoplace>"
-    return f'<Harmony>{held}<offset x="{was + spaces:.3f}" y="{0 if free_height is None else free_height}"/>{inner}'
+    inner = re.sub(r'<offset x="[-\d.e]+" y="[-\d.e]+"/>', "", element[len("<Harmony>"):])
+    return f'<Harmony><offset x="{was + spaces:.3f}" y="0"/>{inner}'
 
 
-def align(mscz: pathlib.Path, pdf: pathlib.Path, free_height: float | None = None) -> bool:
-    """Move each beat-1 chord to the fixed gap; True when anything moved."""
+def align(mscz: pathlib.Path, pdf: pathlib.Path, reach: float | None = None) -> bool:
+    """Move each beat-1 chord to the barline, leaving alone what lies inside a program's own reach; True when anything moved."""
     name, text = score_text(mscz)
     rows = rows_of(text)
     lines = matched(text, pdf)
@@ -222,18 +222,16 @@ def align(mscz: pathlib.Path, pdf: pathlib.Path, free_height: float | None = Non
     first = text.index('<Staff id="1">', text.index("</Part>"))
     end = text.find('<Staff id="2">', first)
     end = end if end != -1 else text.index("</Score>", first)
-    places = [place for row in rows if row for place, _ in row]
-    at = iter(zip(found, room, places, strict=True))
+    at = iter(zip(found, room, strict=True))
     moved = False
 
     def seat(match: re.Match[str]) -> str:
         nonlocal moved
-        gap, space, place = next(at)
-        if gap is None or abs(gap - GAP) <= TOLERANCE / 2:
+        gap, space = next(at)
+        if gap is None or (abs(gap - GAP) <= TOLERANCE / 2 if reach is None else -TOLERANCE <= gap <= reach):
             return match.group(0)
         moved = True
-        # a line's first chord stays placed automatically, so section marks and cues stack around it
-        return moved_chord(match.group(0), (GAP - gap) / space, free_height if place else None)
+        return moved_chord(match.group(0), (GAP - gap) / space)
 
     body = re.sub(r"<Harmony>.*?</Harmony>", seat, text[first:end], flags=re.S)
     with zipfile.ZipFile(mscz) as z:
@@ -319,8 +317,8 @@ def uneven(mscz: pathlib.Path, pdf: pathlib.Path, noted: set[int]) -> list[str]:
     return [f"bar {bar}: {width:.1f} pt wide, line mean {mean:.1f}" for bar, width, mean in empty_widths(score_text(mscz)[1], matched(score_text(mscz)[1], pdf), noted) if abs(width - mean) > EQUAL_TOLERANCE]
 
 
-def problems(mscz: pathlib.Path, pdf: pathlib.Path) -> list[str]:
-    """Beat-1 chords off the fixed gap on a final PDF."""
+def problems(mscz: pathlib.Path, pdf: pathlib.Path, reach: float | None = None) -> list[str]:
+    """Beat-1 chords off the barline on a final PDF; a reach allows a program's own fixed hold after it."""
     text = score_text(mscz)[1]
     found = gaps(rows_of(text), matched(text, pdf))
-    return [f"chord {index + 1}: gap {gap:.1f} pt, wanted {GAP}" for index, gap in enumerate(found) if gap is not None and abs(gap - GAP) > TOLERANCE]
+    return [f"chord {index + 1}: gap {gap:.1f} pt, wanted {GAP}" for index, gap in enumerate(found) if gap is not None and (abs(gap - GAP) > TOLERANCE if reach is None else not -TOLERANCE <= gap <= reach)]

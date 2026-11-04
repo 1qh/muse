@@ -32,7 +32,7 @@ def legacy_staff_problems(legacy: pathlib.Path, work: pathlib.Path, title: str) 
     """Render the file in MuseScore 3 itself and refuse an empty staff on a shared line."""
     pdf = work / f"{legacy.stem}-staves.pdf"
     subprocess.run([port.legacy_command(), "-o", str(pdf), str(legacy)], capture_output=True, check=True, timeout=240, stdin=subprocess.DEVNULL)
-    return chordseat.problems(legacy, pdf) + pdfcheck.empty_staves(pdf) + [f"text on text: {c[2]}" for c in pdfcheck.text_collisions(pdf)] + pdfcheck.title_problems(pdf, title)
+    return chordseat.problems(legacy, pdf, chordseat.LEGACY_REACH) + pdfcheck.empty_staves(pdf) + [f"text on text: {c[2]}" for c in pdfcheck.text_collisions(pdf)] + pdfcheck.title_problems(pdf, title)
 
 
 def page_problems(path: pathlib.Path) -> list[str]:

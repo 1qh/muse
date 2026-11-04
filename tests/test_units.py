@@ -388,11 +388,18 @@ def test_a_staff_is_5_equal_lines_and_a_stray_line_is_not():
     assert [staff[0] for staff in chordseat.staves_of(shapes)] == [60.0, 100.0]
 
 
-def test_a_moved_chord_adds_to_its_offset_and_can_leave_automatic_placement():
+def test_a_moved_chord_adds_to_its_offset():
     element = '<Harmony><offset x="1.000" y="0"/><root>14</root></Harmony>'
     assert chordseat.moved_chord(element, 0.5) == '<Harmony><offset x="1.500" y="0"/><root>14</root></Harmony>'
-    freed = chordseat.moved_chord(element, -1.0, -3.0)
-    assert freed == '<Harmony><autoplace>0</autoplace><offset x="0.000" y="-3.0"/><root>14</root></Harmony>'
+
+
+def test_a_reach_allows_the_hold_and_nothing_past_it(monkeypatch, tmp_path):
+    monkeypatch.setattr(chordseat, "score_text", lambda _: ("x", ""))
+    monkeypatch.setattr(chordseat, "rows_of", lambda _: [[(0, True), (1, True)]])
+    monkeypatch.setattr(chordseat, "bar_rows", lambda _: [[1, 2]])
+    monkeypatch.setattr(chordseat, "page_lines", lambda _: [{"chords": [50.0, 105.0], "bars": [100.0, 150.0], "start": 50.0, "space": 4.0}])
+    assert chordseat.problems(tmp_path, tmp_path, 5.6) == []
+    assert len(chordseat.problems(tmp_path, tmp_path)) == 1
 
 
 def test_signatures_end_at_the_first_glyph_that_is_no_signature():
