@@ -35,6 +35,8 @@ MUTATIONS = [
     ("piano.py", "if label in done else end", "if False else end", "sibling length"),
     ("piano.py", "if held is None:\n            empty_bar(bar)", "if False:\n            empty_bar(bar)", "piano empties"),
     ("piano.py", "left -= len(taken)", "left -= 0", "hint length"),
+    ("chordseat.py", "if abs(width - mean) > EQUAL_TOLERANCE]", "if False]", "uneven bars"),
+    ("port.py", "next((n for n in PIANO_LINE_CHOICES if room <= LINE_WIDTH / n), PIANO_LINE_CHOICES[-1])", "16", "line choice"),
     ("chordseat.py", "if gap is not None and abs(gap - GAP) > TOLERANCE]", "if False]", "chord off its barline"),
     ("chordseat.py", 'edge = line["start"] if place == 0 else line["bars"][place - 1]', 'edge = line["start"]', "bar edge"),
     ("pdfcheck.py", "if spaces > MAX_CHORD_SPACES]", "if False]", "chord too high"),

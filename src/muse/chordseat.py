@@ -10,6 +10,7 @@ import pymupdf
 GAP = 0.0  # a beat-1 chord's ink starts exactly at the barline's right edge, or after a line's clef and signatures
 TOLERANCE = 0.4
 INK_DPI = 720
+EQUAL_TOLERANCE = 1.5  # points an empty bar may differ from its line's mean
 SAME_BARLINE = 6.0  # the 2 strokes of a repeat or a double bar are 1 barline
 MIN_STAFF_WIDTH = 200.0
 MIN_RULE_WIDTH = 10.0
@@ -169,6 +170,80 @@ def align(mscz: pathlib.Path, pdf: pathlib.Path) -> bool:
         for key, data in items.items():
             z.writestr(key, data)
     return moved
+
+
+def bar_rows(text: str) -> list[list[int]]:
+    """1-based bar numbers per line, from the score's own line breaks."""
+    first = text.index('<Staff id="1">', text.index("</Part>"))
+    end = text.find('<Staff id="2">', first)
+    body = text[first:end if end != -1 else text.index("</Score>", first)]
+    rows: list[list[int]] = [[]]
+    for number, match in enumerate(MEASURE.finditer(body), 1):
+        rows[-1].append(number)
+        if "<LayoutBreak>" in match.group(0):
+            rows.append([])
+    return rows
+
+
+def widths_of(line: dict) -> list[float]:
+    """Laid-out bar widths of a line; its first bar starts after the clef and signatures."""
+    edges = [line["start"], *line["bars"]]
+    return [right - left for left, right in zip(edges, edges[1:], strict=False)]
+
+
+def empty_widths(text: str, lines: list[dict], noted: set[int]) -> list[tuple[int, float, float]]:
+    """(bar, width, the line's mean empty width) for each bar with no notes, on lines whose barlines match the score."""
+    found = []
+    chorded = [row for row, chords in zip(bar_rows(text), rows_of(text), strict=True) if chords]
+    for row, line in zip(chorded, lines, strict=False):
+        widths = widths_of(line)
+        if len(widths) != len(row):
+            continue
+        empty = [(bar, width) for bar, width in zip(row, widths, strict=True) if bar not in noted]
+        if len(empty) < 2:
+            continue
+        mean = sum(width for _, width in empty) / len(empty)
+        found += [(bar, width, mean) for bar, width in empty]
+    return found
+
+
+def equalize(mscz: pathlib.Path, pdf: pathlib.Path, noted: set[int]) -> bool:
+    """Correct each empty bar's stretch by its measured width; True when anything moved."""
+    name, text = score_text(mscz)
+    off = {bar: mean / width for bar, width, mean in empty_widths(text, page_lines(pdf), noted) if abs(width - mean) > EQUAL_TOLERANCE / 2}
+    if not off:
+        return False
+    first = text.index('<Staff id="1">', text.index("</Part>"))
+    end = text.find('<Staff id="2">', first)
+    end = end if end != -1 else text.index("</Score>", first)
+    number = 0
+
+    def stretch(match: re.Match[str]) -> str:
+        nonlocal number
+        number += 1
+        if number not in off:
+            return match.group(0)
+        whole = match.group(0)
+        held = re.search(r"<stretch>([\d.]+)</stretch>", whole)
+        fresh = f"<stretch>{(float(held.group(1)) if held else 1.0) * off[number]:.3f}</stretch>"
+        if held:
+            return whole.replace(held.group(0), fresh, 1)
+        opened = re.match(r"<Measure[^>]*>", whole)
+        return opened.group(0) + fresh + whole[opened.end():]
+
+    body = MEASURE.sub(stretch, text[first:end])
+    with zipfile.ZipFile(mscz) as z:
+        items = {info.filename: z.read(info.filename) for info in z.infolist()}
+    items[name] = (text[:first] + body + text[end:]).encode("utf-8")
+    with zipfile.ZipFile(mscz, "w", zipfile.ZIP_DEFLATED) as z:
+        for key, data in items.items():
+            z.writestr(key, data)
+    return True
+
+
+def uneven(mscz: pathlib.Path, pdf: pathlib.Path, noted: set[int]) -> list[str]:
+    """Empty bars of 1 line that differ in width on a final PDF."""
+    return [f"bar {bar}: {width:.1f} pt wide, line mean {mean:.1f}" for bar, width, mean in empty_widths(score_text(mscz)[1], page_lines(pdf), noted) if abs(width - mean) > EQUAL_TOLERANCE]
 
 
 def problems(mscz: pathlib.Path, pdf: pathlib.Path) -> list[str]:

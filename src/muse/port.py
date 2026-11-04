@@ -26,15 +26,16 @@ MAX_MERGE_ROUNDS = 12
 BARS_PER_LINE = 8
 PIANO_LINE_LOAD = 16  # an empty bar costs 1 and a bar with notes 2, so notes keep 8 bars a line
 NOTED_LOAD = 2
-EMPTY_BASE = 0.25  # width of an empty bar beyond its chord names
-CHORD_LETTER = 0.1  # width per letter of a chord name, gap included
-MIN_EMPTY_STRETCH = 0.4
+PIANO_LINE_CHOICES = (16, 12, 8, 4, 2)  # bars on a line of empty bars, the most where every chord fits
+LETTER_WIDTH = 0.55  # of the chord size
+CHORD_SIZE_PER_SPACE = 8.0  # printed chord points per unit of the style's spatium
+LINE_WIDTH = 540.0  # points of a line after its clef
 TIE_REACH = 2  # extra bars a line may take to avoid breaking on a tie
 PICKUP_EVENTS = 2  # a first bar this thin shares the opening line as a pickup
 SIZE_FLOORS = (1.2, 1.15)  # below 1.2 only for a song that fits its pages no other way; under 1.15 the fixed title outgrows chords
 MAX_PAGES = 2
 MAX_WORKERS = 3  # another project shares this machine
-SEAT_PASSES = 3
+SEAT_PASSES = 5
 SIGN_CLEARANCE = 3.0  # spaces a chord moves right off a sign printed on its baseline
 SIGN_SIZE = 25  # a sign may exceed the chords: about 2.5 times the default sign
 MARKER_TYPES = {"segno": "segno", "coda": "codab"}
@@ -218,23 +219,36 @@ def grid(count: int, per_line: int, tied: list[bool], pickup: bool = False) -> l
     return starts
 
 
-def piano_grid(score: Score, block: list[int]) -> list[int]:
-    """Positions in a block that start a line, filling each line to its load; no break on a tie when the next bar avoids it."""
-    starts = [0]
-    load = 0
-    for at, index in enumerate(block):
-        cost = NOTED_LOAD if piano.has_notes(score.bars[index]) else 1
-        if at and load + cost > PIANO_LINE_LOAD and not tied_out(score.bars[block[at - 1]]):
-            starts.append(at)
-            load = 0
-        load += cost
+def bars_that_fit(letters: list[int], spatium: float) -> int:
+    """The most equal bars a line can hold when its widest bar needs the given chord letters."""
+    room = max(letters, default=0) * LETTER_WIDTH * CHORD_SIZE_PER_SPACE * spatium
+    return next((n for n in PIANO_LINE_CHOICES if room <= LINE_WIDTH / n), PIANO_LINE_CHOICES[-1])
+
+
+def piano_grid(score: Score, block: list[int], spatium: float = 1.2) -> list[int]:
+    """Positions in a block that start a line: the largest of 16, 12 or 8 where every chord fits on equal bars, by load where notes come in."""
+    starts = []
+    at = 0
+    while at < len(block):
+        starts.append(at)
+        take = 1
+        for choice in PIANO_LINE_CHOICES:
+            window = [score.bars[i] for i in block[at:at + choice]]
+            load = sum(NOTED_LOAD if piano.has_notes(bar) else 1 for bar in window)
+            if load <= PIANO_LINE_LOAD and bars_that_fit([piano.chord_letters(bar) for bar in window], spatium) >= len(window):
+                take = len(window)
+                break
+        end = at + take
+        while end < len(block) and tied_out(score.bars[block[end - 1]]) and end > at + 1:
+            end -= 1
+        at = end
     return starts
 
 
-def opening_lines(score: Score, variant: str = TONE) -> list[int]:
+def opening_lines(score: Score, variant: str = TONE, spatium: float = 1.2) -> list[int]:
     """0-based bars that start a line before any line has been judged too crowded."""
     if variant == PIANO:
-        return [block[at] for block in sections(score) for at in piano_grid(score, block)]
+        return [block[at] for block in sections(score) for at in piano_grid(score, block, spatium)]
     starts = []
     for number, block in enumerate(sections(score)):
         tied = [tied_out(score.bars[i]) for i in block]
@@ -373,13 +387,8 @@ def big_signs(mscz: pathlib.Path) -> None:
             z.writestr(key, data)
 
 
-def chord_room(bar: Bar) -> float:
-    """Width of an empty piano bar: only what its chord names need."""
-    return max(MIN_EMPTY_STRETCH, EMPTY_BASE + CHORD_LETTER * piano.chord_letters(bar))
-
-
-def widen_chord_bars(mscz: pathlib.Path, score: Score, shrink_empty: bool = False) -> None:
-    """Give bars with more chords more width, so a line rarely has to split for them; an empty piano bar takes only chord room."""
+def widen_chord_bars(mscz: pathlib.Path, score: Score, equal_empty: bool = False) -> None:
+    """Give bars with more chords more width, so a line rarely has to split for them; an empty piano bar takes no share of its own."""
     with zipfile.ZipFile(mscz) as z:
         items = {info.filename: z.read(info.filename) for info in z.infolist()}
     name = next(n for n in items if n.endswith(".mscx") and "/" not in n)
@@ -394,7 +403,7 @@ def widen_chord_bars(mscz: pathlib.Path, score: Score, shrink_empty: bool = Fals
         bar = next(numbers, None)
         if bar is None:
             return match.group(0)
-        factor = chord_room(bar) if shrink_empty and not piano.has_notes(bar) else chord_stretch(len(bar.chords))
+        factor = 1.0 if equal_empty and not piano.has_notes(bar) else chord_stretch(len(bar.chords))
         return match.group(0) + f"<stretch>{factor:.2f}</stretch>" if factor != 1.0 else match.group(0)
 
     body = re.sub(r"<Measure[^>]*>", widen, body)
@@ -436,11 +445,13 @@ def clear_lone_bars(starts: set[int], fixed: set[int], total: int, fits: Callabl
     return starts
 
 
-def seat_chords(score_path: pathlib.Path, pdf: pathlib.Path, render: Callable[[], None], song: str) -> None:
-    """Move beat-1 chords to their barlines by measuring the render, until a render shows nothing left to move."""
+def seat_chords(score_path: pathlib.Path, pdf: pathlib.Path, render: Callable[[], None], song: str, noted: set[int] | None = None) -> None:
+    """Even out empty bars where asked and move beat-1 chords to their barlines by measuring the render, until nothing is left to move."""
     for _ in range(SEAT_PASSES):
         try:
-            if not chordseat.align(score_path, pdf):
+            widened = noted is not None and chordseat.equalize(score_path, pdf, noted)
+            moved = chordseat.align(score_path, pdf)
+            if not widened and not moved:
                 return
         except ValueError as error:
             raise SheetRefused(f"{song}: {error}") from error
@@ -467,7 +478,7 @@ def lay_out(src: pathlib.Path, work: pathlib.Path, spatium: float, distance: flo
     xml = work / f"{song}.musicxml"
     base = work / f"{song}.mscz"
     probe = work / f"{song}-layout.pdf"
-    starts = set(opening_lines(score, variant)) if lines is None else set(lines)
+    starts = set(opening_lines(score, variant, spatium)) if lines is None else set(lines)
     load = (lambda line: sum(NOTED_LOAD if piano.has_notes(score.bars[n - 1]) else 1 for n in line)) if variant == PIANO else len
     cap = PIANO_LINE_LOAD if variant == PIANO else BARS_PER_LINE
     tied = [tied_out(bar) for bar in score.bars]
@@ -483,7 +494,8 @@ def lay_out(src: pathlib.Path, work: pathlib.Path, spatium: float, distance: flo
         big_signs(base)
         widen_chord_bars(base, score, variant == PIANO)
         export_view(options, base, probe)
-        seat_chords(base, probe, lambda: export_view(options, base, probe), song)
+        noted = {bar.number for bar in score.bars if piano.has_notes(bar)} if variant == PIANO else None
+        seat_chords(base, probe, lambda: export_view(options, base, probe), song, noted)
 
     def measure() -> tuple[list[list[int]], set[int]]:
         for index, bar in enumerate(score.bars):

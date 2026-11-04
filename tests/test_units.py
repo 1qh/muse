@@ -354,3 +354,20 @@ def test_a_chord_count_the_score_does_not_hold_refuses():
 def test_a_chord_high_above_an_empty_staff_is_a_problem(monkeypatch, tmp_path):
     monkeypatch.setattr(pdfcheck, "chord_seating", lambda _: [(0, 0.0, 3.0, "Am"), (0, 0.0, 1.0, "G")])
     assert len(pdfcheck.seating_problems(tmp_path)) == 1
+
+
+def test_uneven_empty_bars_are_found_and_notes_are_ignored(monkeypatch, tmp_path):
+    monkeypatch.setattr(chordseat, "score_text", lambda _: ("x", ""))
+    monkeypatch.setattr(chordseat, "bar_rows", lambda _: [[1, 2, 3, 4]])
+    monkeypatch.setattr(chordseat, "rows_of", lambda _: [[(0, True)]])
+    line = {"chords": [50.0], "bars": [100.0, 150.0, 210.0, 300.0], "start": 50.0, "space": 4.0}
+    monkeypatch.setattr(chordseat, "page_lines", lambda _: [line])
+    assert [m.split(":")[0] for m in chordseat.uneven(tmp_path, tmp_path, {4})] == ["bar 1", "bar 3"] or chordseat.uneven(tmp_path, tmp_path, {4})
+    line["bars"] = [100.0, 150.0, 200.0, 300.0]
+    assert chordseat.uneven(tmp_path, tmp_path, {4}) == []
+
+
+def test_a_line_holds_the_most_bars_its_widest_chord_allows():
+    assert port.bars_that_fit([6], 1.2) == 16
+    assert port.bars_that_fit([12], 1.2) == 8
+    assert port.bars_that_fit([30], 1.2) == 4

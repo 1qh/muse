@@ -244,6 +244,7 @@ def check_song(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> tupl
     guarded("lines", ties)
     sheet = work / f"{song.name}-piano-final.mscz"
     guarded("piano", lambda: piano_problems(src, sheet))
+    guarded("even bars piano", lambda: even_piano_bars(src, sheet, out / song.piano_pdf))
     guarded("chord seat piano", lambda: chordseat.problems(sheet, out / song.piano_pdf))
     guarded("chord seat original", lambda: chordseat.problems(out / song.score_file, out / song.original_pdf))
     if song.direction:
@@ -257,6 +258,12 @@ def check_song(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> tupl
 
     guarded("homr", homr)
     return failures, notes
+
+
+def even_piano_bars(src: pathlib.Path, sheet: pathlib.Path, pdf: pathlib.Path) -> list[str]:
+    reduced = decode(src)
+    piano.reduce(reduced)
+    return chordseat.uneven(sheet, pdf, {bar.number for bar in reduced.bars if piano.has_notes(bar)})
 
 
 def cached_check(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> tuple[list[str], list[str], bool]:
