@@ -229,8 +229,5 @@ def test_an_unpushed_commit_is_pushed_even_with_nothing_new(tmp_path):
             return "PRIVATE"
         return "abc" if "@{u}..HEAD" in args else ""
 
-    try:
-        publish.publish(tmp_path, tmp_path, tmp_path, run, lambda *_: {})
-    except publish.Refused:
-        pass
+    publish.publish(tmp_path, tmp_path, tmp_path, run, lambda *_: {})
     assert ("git", "push") in calls
