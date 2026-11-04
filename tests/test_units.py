@@ -399,6 +399,7 @@ def test_a_reach_allows_the_hold_and_nothing_past_it(monkeypatch, tmp_path):
     monkeypatch.setattr(chordseat, "bar_rows", lambda _: [[1, 2]])
     monkeypatch.setattr(chordseat, "page_lines", lambda _: [{"chords": [50.0, 105.0], "bars": [100.0, 150.0], "start": 50.0, "space": 4.0}])
     assert chordseat.problems(tmp_path, tmp_path, 5.6) == []
+    assert len(chordseat.problems(tmp_path, tmp_path, 4.0)) == 1
     assert len(chordseat.problems(tmp_path, tmp_path)) == 1
 
 
