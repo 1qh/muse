@@ -341,7 +341,8 @@ def test_beat_1_chords_measure_from_their_own_bar_and_later_chords_do_not_count(
 def test_a_chord_off_its_barline_is_a_problem(monkeypatch, tmp_path):
     monkeypatch.setattr(chordseat, "score_text", lambda _: ("x", ""))
     monkeypatch.setattr(chordseat, "rows_of", lambda _: [[(0, True), (1, True)]])
-    monkeypatch.setattr(chordseat, "page_lines", lambda _: [{"chords": [50.0, 103.0], "bars": [100.0], "start": 50.0, "space": 4.0}])
+    monkeypatch.setattr(chordseat, "bar_rows", lambda _: [[1, 2]])
+    monkeypatch.setattr(chordseat, "page_lines", lambda _: [{"chords": [50.0, 103.0], "bars": [100.0, 150.0], "start": 50.0, "space": 4.0}])
     assert len(chordseat.problems(tmp_path, tmp_path)) == 1
 
 
@@ -371,3 +372,11 @@ def test_a_line_holds_the_most_bars_its_widest_chord_allows():
     assert port.bars_that_fit([6], 1.2) == 16
     assert port.bars_that_fit([12], 1.2) == 8
     assert port.bars_that_fit([30], 1.2) == 2
+
+
+def test_a_repeat_barline_opening_a_line_is_its_start_not_a_bar(monkeypatch, tmp_path):
+    monkeypatch.setattr(chordseat, "rows_of", lambda _: [[(0, True)]])
+    monkeypatch.setattr(chordseat, "bar_rows", lambda _: [[1, 2]])
+    monkeypatch.setattr(chordseat, "page_lines", lambda _: [{"chords": [60.0], "bars": [60.0, 100.0, 150.0], "start": 50.0, "space": 4.0}])
+    line = chordseat.matched("", tmp_path)[0]
+    assert line["start"] == 60.0 and line["bars"] == [100.0, 150.0]

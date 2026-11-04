@@ -53,6 +53,21 @@ def rows_of(text: str) -> list[list[tuple[int, bool]]]:
     return rows
 
 
+def segments(page: pymupdf.Page) -> list[pymupdf.Rect]:
+    """Every drawn stroke on its own: 1 program draws a staff as 5 lines in 1 path, another as 1 path per line."""
+    found = []
+    for drawing in page.get_drawings():
+        half = (drawing.get("width") or 0.0) / 2
+        for item in drawing["items"]:
+            if item[0] == "l":
+                first, second = item[1], item[2]
+                vertical = abs(first.x - second.x) < abs(first.y - second.y)
+                found.append(pymupdf.Rect(min(first.x, second.x) - (half if vertical else 0), min(first.y, second.y), max(first.x, second.x) + (half if vertical else 0), max(first.y, second.y)))
+            elif item[0] == "re":
+                found.append(pymupdf.Rect(item[1]))
+    return found
+
+
 def staves_of(shapes: list[pymupdf.Rect]) -> list[list[float]]:
     """The 5 line heights of each staff; a staff line may be drawn in 1 piece per bar, so widths add up per height."""
     widths: dict[float, float] = {}
@@ -95,7 +110,7 @@ def page_lines(pdf: pathlib.Path) -> list[dict[str, Any]]:
             continue
         top = max(w[0] for w in words)
         chords = sorted((w for w in words if abs(w[0] - top) < 0.05), key=lambda w: (w[3], w[1]))
-        shapes = [d["rect"] for d in page.get_drawings()]
+        shapes = segments(page)
         staves = staves_of(shapes)
         for staff in staves:
             mine = [w for w in chords if staff[0] - CHORD_REACH <= w[3] <= staff[0] + 1 and not any(other[0] < staff[0] and other[0] > w[3] for other in staves)]
@@ -118,6 +133,16 @@ def page_lines(pdf: pathlib.Path) -> list[dict[str, Any]]:
             # a sign printed on the chord row takes the place right after the clef, so the chord follows it
             start = max([start, *(end for end, y in signs_here if abs(y - base) < top * SIGN_REACH and end < start + top * 2)])
             lines.append({"chords": joined, "bars": bars, "start": start, "space": (staff[4] - staff[0]) / 4})
+    return lines
+
+
+def matched(text: str, pdf: pathlib.Path) -> list[dict[str, Any]]:
+    """The PDF's chord lines, with a repeat barline that opens a line taken as the line's start rather than as a bar."""
+    lines = page_lines(pdf)
+    chorded = [row for row, chords in zip(bar_rows(text), rows_of(text), strict=True) if chords]
+    for row, line in zip(chorded, lines, strict=False):
+        if len(line["bars"]) == len(row) + 1:
+            line["start"] = line["bars"].pop(0)
     return lines
 
 
@@ -152,7 +177,7 @@ def align(mscz: pathlib.Path, pdf: pathlib.Path) -> bool:
     """Move each beat-1 chord to the fixed gap; True when anything moved."""
     name, text = score_text(mscz)
     rows = rows_of(text)
-    lines = page_lines(pdf)
+    lines = matched(text, pdf)
     found = gaps(rows, lines)
     room = spaces_of(rows, lines)
     first = text.index('<Staff id="1">', text.index("</Part>"))
@@ -221,7 +246,7 @@ def empty_widths(text: str, lines: list[dict[str, Any]], noted: set[int]) -> lis
 def equalize(mscz: pathlib.Path, pdf: pathlib.Path, noted: set[int]) -> bool:
     """Correct each empty bar's stretch by its measured width; True when anything moved."""
     name, text = score_text(mscz)
-    off = {bar: mean / width for bar, width, mean in empty_widths(text, page_lines(pdf), noted) if abs(width - mean) > EQUAL_TOLERANCE / 2}
+    off = {bar: mean / width for bar, width, mean in empty_widths(text, matched(text, pdf), noted) if abs(width - mean) > EQUAL_TOLERANCE / 2}
     if not off:
         return False
     first = text.index('<Staff id="1">', text.index("</Part>"))
@@ -254,10 +279,11 @@ def equalize(mscz: pathlib.Path, pdf: pathlib.Path, noted: set[int]) -> bool:
 
 def uneven(mscz: pathlib.Path, pdf: pathlib.Path, noted: set[int]) -> list[str]:
     """Empty bars of 1 line that differ in width on a final PDF."""
-    return [f"bar {bar}: {width:.1f} pt wide, line mean {mean:.1f}" for bar, width, mean in empty_widths(score_text(mscz)[1], page_lines(pdf), noted) if abs(width - mean) > EQUAL_TOLERANCE]
+    return [f"bar {bar}: {width:.1f} pt wide, line mean {mean:.1f}" for bar, width, mean in empty_widths(score_text(mscz)[1], matched(score_text(mscz)[1], pdf), noted) if abs(width - mean) > EQUAL_TOLERANCE]
 
 
 def problems(mscz: pathlib.Path, pdf: pathlib.Path) -> list[str]:
     """Beat-1 chords off the fixed gap on a final PDF."""
-    found = gaps(rows_of(score_text(mscz)[1]), page_lines(pdf))
+    text = score_text(mscz)[1]
+    found = gaps(rows_of(text), matched(text, pdf))
     return [f"chord {index + 1}: gap {gap:.1f} pt, wanted {GAP}" for index, gap in enumerate(found) if gap is not None and abs(gap - GAP) > TOLERANCE]

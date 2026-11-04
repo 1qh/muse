@@ -183,7 +183,7 @@ def chord_seating(path: pathlib.Path) -> list[tuple[int, float, float, str]]:
         if not spans:
             continue
         top = max(item[0] for item in spans)
-        drawings = [d["rect"] for d in page.get_drawings()]
+        drawings = chordseat.segments(page)
         staves = chordseat.staves_of(drawings)
         for size, left, right, base, text in spans:
             if abs(size - top) >= 0.05 or not staves:
