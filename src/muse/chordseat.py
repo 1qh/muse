@@ -19,6 +19,9 @@ EQUAL_TOLERANCE = 1.5  # points an empty bar may differ from its line's mean
 SAME_BARLINE = 6.0  # the 2 strokes of a repeat or a double bar are 1 barline
 MIN_STAFF_WIDTH = 200.0
 MIN_RULE_WIDTH = 10.0
+MIN_STAFF_SPACE = 2.0
+MAX_STAFF_SPACE = 9.0
+SPACE_SLACK = 0.3
 CHORD_REACH = 40.0
 FIRST_ELEMENT = re.compile(r"<Chord>|<Rest>|<location>")
 CHORD_SHAPE = re.compile(r"[A-G][#b♯♭]?(?:m|maj|sus|dim|add|aug|\d|\(|/|$)")
@@ -79,7 +82,17 @@ def staves_of(shapes: list[pymupdf.Rect]) -> list[list[float]]:
         if rect.width > MIN_RULE_WIDTH and rect.height < 1:
             widths[round(rect.y0, 1)] = widths.get(round(rect.y0, 1), 0.0) + rect.width
     rules = sorted(y for y, width in widths.items() if width > MIN_STAFF_WIDTH)
-    return [rules[at:at + 5] for at in range(0, len(rules) - 4, 5)]
+    staves = []
+    at = 0
+    while at + 4 < len(rules):
+        five = rules[at:at + 5]
+        steps = [below - above for above, below in zip(five, five[1:], strict=False)]
+        if MIN_STAFF_SPACE < steps[0] < MAX_STAFF_SPACE and all(abs(step - steps[0]) < SPACE_SLACK for step in steps):
+            staves.append(five)
+            at += 5
+        else:
+            at += 1  # a page frame or a long stray line is no staff line
+    return staves
 
 
 def ink_left(page: pymupdf.Page, left: float, base: float, size: float) -> float:

@@ -380,3 +380,9 @@ def test_a_repeat_barline_opening_a_line_is_its_start_not_a_bar(monkeypatch, tmp
     monkeypatch.setattr(chordseat, "page_lines", lambda _: [{"chords": [60.0], "bars": [60.0, 100.0, 150.0], "start": 50.0, "space": 4.0}])
     line = chordseat.matched("", tmp_path)[0]
     assert line["start"] == 60.0 and line["bars"] == [100.0, 150.0]
+
+
+def test_a_staff_is_5_equal_lines_and_a_stray_line_is_not():
+    rule = lambda y: pymupdf.Rect(20, y, 300, y)  # noqa: E731
+    shapes = [rule(y) for y in (0.0, 60.0, 64.0, 68.0, 72.0, 76.0, 90.0, 100.0, 104.0, 108.0, 112.0, 116.0)]
+    assert [staff[0] for staff in chordseat.staves_of(shapes)] == [60.0, 100.0]
