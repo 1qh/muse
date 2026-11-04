@@ -36,7 +36,8 @@ SIZE_FLOORS = (1.2, 1.15)  # below 1.2 only for a song that fits its pages no ot
 MAX_PAGES = 2
 MAX_WORKERS = 3  # another project shares this machine
 SEAT_PASSES = 5
-LEGACY_CHORD_HEIGHT = -3.0  # spaces, once MuseScore 3 no longer places the chord itself
+LEGACY_CHORD_HEIGHT = -4.0  # spaces, once MuseScore 3 no longer places the chord itself; clears ornaments on high notes
+LEGACY_VOLTA_HEIGHT = -6.5  # spaces, so a volta prints above those chords
 SIGN_CLEARANCE = 3.0  # spaces a chord moves right off a sign printed on its baseline
 SIGN_SIZE = 25  # a sign may exceed the chords: about 2.5 times the default sign
 MARKER_TYPES = {"segno": "segno", "coda": "codab"}
@@ -679,6 +680,7 @@ def build_legacy(src: pathlib.Path, work: pathlib.Path, target: pathlib.Path, sp
     style = styled(work, f"{info.name}-legacy.mss", info.title, spatium, distance)
     fonts = "".join(f"<{tag}>SF Pro Display</{tag}>" for tag in LEGACY_ONLY_FONTS)
     style.write_text(style.read_text(encoding="utf-8").replace('version="4.70"', 'version="3.02"').replace("</Style>", fonts + "</Style>"), encoding="utf-8")
+    style.write_text(re.sub(r"</Style>", f'<voltaPosAbove x="0" y="{LEGACY_VOLTA_HEIGHT}"/></Style>', style.read_text(encoding="utf-8"), count=1), encoding="utf-8")
     style.write_text(re.sub(r"<staffUpperBorder>[^<]*</staffUpperBorder>", f"<staffUpperBorder>{LEGACY_TOP_BORDER}</staffUpperBorder>", style.read_text(encoding="utf-8")), encoding="utf-8")
     xml = work / f"{info.name}-{ORIGINAL}.musicxml"
     raw = work / f"{info.name}-legacy.mscz"

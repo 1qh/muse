@@ -147,13 +147,23 @@ def page_lines(pdf: pathlib.Path) -> list[dict[str, Any]]:
                     bars[-1] = x
                 else:
                     bars.append(x)
-            signs = [g[2] for g in glyphs if staff[0] - 8 <= g[1] <= staff[4] + 8 and g[0] < (bars[0] if bars else left_edge + 80) and is_signature(g[3])]
+            signs = signature_ends(sorted((g for g in glyphs if staff[0] - 8 <= g[1] <= staff[4] + 8 and g[0] < (bars[0] if bars else left_edge + 80)), key=lambda g: g[0]))
             start = max(signs, default=left_edge)
             base = mine[0][3]
             # a sign printed on the chord row takes the place right after the clef, so the chord follows it
             start = max([start, *(end for end, y in signs_here if abs(y - base) < top * SIGN_REACH and end < start + top * 2)])
             lines.append({"chords": joined, "bars": bars, "start": start, "space": (staff[4] - staff[0]) / 4})
     return lines
+
+
+def signature_ends(glyphs: list[tuple[float, float, float, int]]) -> list[float]:
+    """Right edges of the unbroken run of clef, key and time from a line's start; an accidental on a note later in the bar is no part of it."""
+    ends: list[float] = []
+    for glyph in glyphs:
+        if not is_signature(glyph[3]):
+            break
+        ends.append(glyph[2])
+    return ends
 
 
 def matched(text: str, pdf: pathlib.Path) -> list[dict[str, Any]]:

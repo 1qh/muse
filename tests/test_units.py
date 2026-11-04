@@ -393,3 +393,9 @@ def test_a_moved_chord_adds_to_its_offset_and_can_leave_automatic_placement():
     assert chordseat.moved_chord(element, 0.5) == '<Harmony><offset x="1.500" y="0"/><root>14</root></Harmony>'
     freed = chordseat.moved_chord(element, -1.0, -3.0)
     assert freed == '<Harmony><autoplace>0</autoplace><offset x="0.000" y="-3.0"/><root>14</root></Harmony>'
+
+
+def test_signatures_end_at_the_first_glyph_that_is_no_signature():
+    clef, flat, time, head, accidental = 0xE050, 0xE260, 0xE084, 0xE0A4, 0xE260
+    glyphs = [(20.0, 0.0, 30.0, clef), (31.0, 0.0, 35.0, flat), (36.0, 0.0, 40.0, time), (60.0, 0.0, 65.0, head), (120.0, 0.0, 125.0, accidental)]
+    assert max(chordseat.signature_ends(glyphs)) == 40.0
