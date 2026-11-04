@@ -407,3 +407,10 @@ def test_signatures_end_at_the_first_glyph_that_is_no_signature():
     clef, flat, time, head, accidental = 0xE050, 0xE260, 0xE084, 0xE0A4, 0xE260
     glyphs = [(20.0, 0.0, 30.0, clef), (31.0, 0.0, 35.0, flat), (36.0, 0.0, 40.0, time), (60.0, 0.0, 65.0, head), (120.0, 0.0, 125.0, accidental)]
     assert max(chordseat.signature_ends(glyphs)) == 40.0
+
+
+def test_a_full_height_stem_is_no_barline():
+    heads = [(80.0, 89.0)]
+    assert chordseat.is_stem(89.3, heads)
+    assert chordseat.is_stem(80.2, heads)
+    assert not chordseat.is_stem(153.7, heads)

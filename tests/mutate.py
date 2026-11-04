@@ -35,6 +35,7 @@ MUTATIONS = [
     ("piano.py", "if label in done else end", "if False else end", "sibling length"),
     ("piano.py", "if held is None:\n            empty_bar(bar)", "if False:\n            empty_bar(bar)", "piano empties"),
     ("piano.py", "left -= len(taken)", "left -= 0", "hint length"),
+    ("chordseat.py", "return any(abs(x - left) < STEM_REACH or abs(x - right) < STEM_REACH for left, right in heads)", "return False", "stem as barline"),
     ("chordseat.py", "        if not is_signature(glyph[3]):\n            break\n", "        if not is_signature(glyph[3]):\n            continue\n", "signature run"),
     ("chordseat.py", 'if len(line["bars"]) == len(row) + 1:', "if False:", "opening repeat"),
     ("chordseat.py", "if abs(width - mean) > EQUAL_TOLERANCE]", "if False]", "uneven bars"),

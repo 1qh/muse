@@ -13,6 +13,8 @@ GAP = 0.0  # a beat-1 chord's ink starts exactly at the barline's right edge, or
 TOLERANCE = 0.4
 LEGACY_REACH = 5.6  # points: MuseScore 3 holds a mid-line chord about 5 after the barline whatever its offset
 INK_DPI = 720
+STEM_REACH = 1.0
+HEAD_CODES = (0xE0A0, 0xE0FF)
 INK_REACH = 0.8  # points a letter's ink can start left of its text box; further left is a neighbour
 SIGN_INK_WIDTH = 0.75  # the printed part of a segno or coda, in sign font sizes
 SIGN_REACH = 0.5  # of the chord size: a sign this near the chord baseline shares its row
@@ -143,7 +145,8 @@ def page_lines(pdf: pathlib.Path) -> list[dict[str, Any]]:
                     joined.append(ink_left(page, word[1], word[3], word[0]))
             left_edge = min(r.x0 for r in shapes if r.width > MIN_RULE_WIDTH and r.height < 1 and abs(r.y0 - staff[0]) < 1)
             bars: list[float] = []
-            for x in sorted(r.x1 for r in shapes if r.width < 3 and abs(r.y0 - staff[0]) < 1 and r.y1 >= staff[4] - 1 and r.x0 > left_edge + 2):
+            heads = [(g[0], g[2]) for g in glyphs if staff[0] - 8 <= g[1] <= staff[4] + 8 and HEAD_CODES[0] <= g[3] <= HEAD_CODES[1]]
+            for x in sorted(r.x1 for r in shapes if r.width < 3 and abs(r.y0 - staff[0]) < 1 and r.y1 >= staff[4] - 1 and r.x0 > left_edge + 2 and not is_stem(r.x0, heads)):
                 if bars and x - bars[-1] < SAME_BARLINE:
                     bars[-1] = x
                 else:
@@ -155,6 +158,11 @@ def page_lines(pdf: pathlib.Path) -> list[dict[str, Any]]:
             start = max([start, *(end for end, y in signs_here if abs(y - base) < top * SIGN_REACH and end < start + top * 2)])
             lines.append({"chords": joined, "bars": bars, "start": start, "space": (staff[4] - staff[0]) / 4})
     return lines
+
+
+def is_stem(x: float, heads: list[tuple[float, float]]) -> bool:
+    """A vertical touching a notehead's edge is its stem, however tall; a barline stands clear of the notes."""
+    return any(abs(x - left) < STEM_REACH or abs(x - right) < STEM_REACH for left, right in heads)
 
 
 def signature_ends(glyphs: list[tuple[float, float, float, int]]) -> list[float]:
