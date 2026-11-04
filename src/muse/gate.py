@@ -27,11 +27,11 @@ LOW_DPI = 72
 WITHHELD = "withheld.json"
 
 
-def legacy_staff_problems(legacy: pathlib.Path, work: pathlib.Path) -> list[str]:
+def legacy_staff_problems(legacy: pathlib.Path, work: pathlib.Path, title: str) -> list[str]:
     """Render the file in MuseScore 3 itself and refuse an empty staff on a shared line."""
     pdf = work / f"{legacy.stem}-staves.pdf"
     subprocess.run([port.legacy_command(), "-o", str(pdf), str(legacy)], capture_output=True, check=True, timeout=240, stdin=subprocess.DEVNULL)
-    return pdfcheck.empty_staves(pdf)
+    return pdfcheck.empty_staves(pdf) + [f"text on text: {c[2]}" for c in pdfcheck.text_collisions(pdf)] + pdfcheck.title_problems(pdf, title)
 
 
 def page_problems(path: pathlib.Path) -> list[str]:
@@ -201,7 +201,7 @@ def check_song(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> tupl
         guarded("ms3", lambda: scorefile.difference(out / song.score_file, legacy))
         guarded("ms3 chord beats", lambda: verify.chord_beat_problems(src, legacy))
         guarded("ms3 signs built in", lambda: scorefile.builtin_sign_problems(legacy))
-        guarded("ms3 staves", lambda: legacy_staff_problems(legacy, work))
+        guarded("ms3 staves", lambda: legacy_staff_problems(legacy, work, song.title))
     wanted = sum(bar.segno or bar.coda for bar in score.bars)
 
     def judge_pdf(final: pathlib.Path) -> None:

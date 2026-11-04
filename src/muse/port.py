@@ -37,6 +37,7 @@ MAX_SHORT_SHARE = 0.15  # readers find many 2-bar lines sparse; smaller notation
 CHORD_STRETCH = 0.45
 STRETCH_CHOICES = (0.45, 0.15, 0.0)
 MIDDLE_DISTANCE = 9.0
+LEGACY_TOP_BORDER = 15  # MuseScore 3 lifts jump words and voltas into the title otherwise
 TIGHT_DISTANCE = 6.0  # line gap only for a song that fits its pages no other way
 BASE_DISTANCE = 11.0
 MAX_SPATIUM = 3.0
@@ -507,6 +508,7 @@ def build_legacy(src: pathlib.Path, work: pathlib.Path, target: pathlib.Path, sp
     style = styled(work, f"{info.name}-legacy.mss", info.title, spatium, distance)
     fonts = "".join(f"<{tag}>SF Pro Display</{tag}>" for tag in LEGACY_ONLY_FONTS)
     style.write_text(style.read_text(encoding="utf-8").replace('version="4.70"', 'version="3.02"').replace("</Style>", fonts + "</Style>"), encoding="utf-8")
+    style.write_text(re.sub(r"<staffUpperBorder>[^<]*</staffUpperBorder>", f"<staffUpperBorder>{LEGACY_TOP_BORDER}</staffUpperBorder>", style.read_text(encoding="utf-8")), encoding="utf-8")
     xml = work / f"{info.name}-{ORIGINAL}.musicxml"
     raw = work / f"{info.name}-legacy.mscz"
     done = subprocess.run([legacy_command(), "-S", str(style), "-o", str(raw), str(xml)], capture_output=True, text=True, timeout=240, stdin=subprocess.DEVNULL)
