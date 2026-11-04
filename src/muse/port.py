@@ -417,6 +417,13 @@ def export_view(options: dict[str, Any] | None, base: pathlib.Path, target: path
         run("-o", str(target), str(base))
 
 
+def refuse_fixed(probe: pathlib.Path, title: str, song: str) -> None:
+    """Stop the song on a check no size can change."""
+    fixed_problems = pdfcheck.margin_words(probe) + pdfcheck.foreign_fonts(probe) + pdfcheck.title_problems(probe, title) + pdfcheck.sign_problems(probe)
+    if fixed_problems:
+        raise SheetRefused(f"{song}: {fixed_problems[:3]}")
+
+
 def lay_out(src: pathlib.Path, work: pathlib.Path, spatium: float, distance: float, pages: int | None, variant: str = TONE, lines: list[int] | None = None) -> tuple[Score, pathlib.Path, pathlib.Path]:
     """Build 1 sheet of a song at 1 size: no line wraps on its own and lines spread evenly over its pages; given lines are proved, never searched."""
     score = decode(src)
@@ -497,9 +504,7 @@ def lay_out(src: pathlib.Path, work: pathlib.Path, spatium: float, distance: flo
     if pdfcheck.sign_on_chord(probe):
         clearing["signs"] = True
         build()
-    fixed_problems = pdfcheck.margin_words(probe) + pdfcheck.foreign_fonts(probe) + pdfcheck.title_problems(probe, info.title) + pdfcheck.sign_problems(probe)
-    if fixed_problems:
-        raise SheetRefused(f"{song}: {fixed_problems[:3]}")
+    refuse_fixed(probe, info.title, song)
     found_problems = pdfcheck.all_problems(probe, info.title)
     if found_problems:
         raise DoesNotFit(f"{song}: {found_problems[:3]}")

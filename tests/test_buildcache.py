@@ -73,7 +73,12 @@ def test_a_song_with_no_piano_part_or_a_refused_source_is_named(monkeypatch, tmp
     assert "bad font" in preflight.song_problem(source)
 
 
-def test_a_check_no_size_can_change_refuses_instead_of_searching():
+def test_a_check_no_size_can_change_refuses_instead_of_searching(monkeypatch, tmp_path):
+    for name in ("margin_words", "foreign_fonts", "sign_problems"):
+        monkeypatch.setattr(port.pdfcheck, name, lambda _: [])
+    monkeypatch.setattr(port.pdfcheck, "title_problems", lambda *_: [])
+    port.refuse_fixed(tmp_path / "x.pdf", "t", "s")
+    monkeypatch.setattr(port.pdfcheck, "foreign_fonts", lambda _: ["Arial"])
+    with pytest.raises(port.SheetRefused):
+        port.refuse_fixed(tmp_path / "x.pdf", "t", "s")
     assert not issubclass(port.SheetRefused, port.DoesNotFit)
-    with pytest.raises(RuntimeError):
-        raise port.SheetRefused("x")
