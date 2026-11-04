@@ -67,6 +67,8 @@ def segments(page: pymupdf.Page) -> list[pymupdf.Rect]:
                 found.append(pymupdf.Rect(min(first.x, second.x) - (half if vertical else 0), min(first.y, second.y), max(first.x, second.x) + (half if vertical else 0), max(first.y, second.y)))
             elif item[0] == "re":
                 found.append(pymupdf.Rect(item[1]))
+            elif item[0] == "qu":
+                found.append(item[1].rect)
     return found
 
 
