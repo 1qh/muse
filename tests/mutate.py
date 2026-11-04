@@ -51,7 +51,7 @@ MUTATIONS = [
     ("port.py", "max(1, min(count, MAX_WORKERS, int(cores - load)))", "min(count, MAX_WORKERS)", "free workers"),
     ("piano.py", "if not noted & set(range(first, stop)) and", "if False and", "sparse piano lines"),
     ("piano.py", "<= MERGEABLE_LETTERS:", "<= 10**6:", "dense chords stay split"),
-    ("port.py", "if at and load + cost > PIANO_LINE_LOAD and", "if at and load + cost > BARS_PER_LINE and", "piano line load"),
+    ("port.py", "if load <= PIANO_LINE_LOAD and", "if load <= BARS_PER_LINE and", "piano line load"),
     ("piano.py", "if bold:  # a band cue", "if False:  # a band cue", "shared cue"),
     ("symbolfont.py", 'return bool(re.fullmatch(r"[.,;:…·\'`-]+", text))', "return False", "print dust"),
     ("pdfcheck.py", "+ sign_on_chord(path) +", "+", "sign on chord"),
