@@ -259,11 +259,13 @@ def test_a_band_cue_sharing_the_lyric_text_survives_the_word_limit():
     assert "BAND IN" in whole and "five" not in whole and "seven" in whole
 
 
-def test_short_empty_neighbours_are_sparse_unless_notes_or_a_section_part_them():
-    assert piano.sparse_lines([1, 3, 7], set(), set(), 14) == [1]
-    assert piano.sparse_lines([1, 3, 7], {2}, set(), 6) == [3]
-    assert piano.sparse_lines([1, 3], set(), {3}, 4) == []
-    assert piano.sparse_lines([1, 9], set(), set(), 12) == []
+def test_short_empty_neighbours_are_sparse_unless_notes_a_section_or_dense_chords_part_them():
+    light = {n: 6 for n in range(1, 15)}
+    assert piano.sparse_lines([1, 3, 7], set(), set(), 14, light) == [1]
+    assert piano.sparse_lines([1, 3, 7], {2}, set(), 6, light) == [3]
+    assert piano.sparse_lines([1, 3], set(), {3}, 4, light) == []
+    assert piano.sparse_lines([1, 9], set(), set(), 12, light) == []
+    assert piano.sparse_lines([1, 5], set(), set(), 8, {n: 20 for n in range(1, 9)}) == []
 
 
 def test_empty_bars_fill_a_piano_line_to_16_and_noted_bars_to_8():

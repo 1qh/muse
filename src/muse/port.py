@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import concurrent.futures
-import itertools
 import json
 import os
 import pathlib
@@ -35,6 +34,7 @@ PICKUP_EVENTS = 2  # a first bar this thin shares the opening line as a pickup
 SIZE_FLOORS = (1.2, 1.15)  # below 1.2 only for a song that fits its pages no other way; under 1.15 the fixed title outgrows chords
 MAX_PAGES = 2
 MAX_WORKERS = 3  # another project shares this machine
+SIGN_LIFT = -2.5  # clears the chord beside a sign printed on its baseline
 SIGN_SIZE = 25  # a sign may exceed the chords: about 2.5 times the default sign
 MARKER_TYPES = {"segno": "segno", "coda": "codab"}
 LEGACY_SIGN_SIZE = 25  # MuseScore 3 sizes the sign as text
@@ -84,7 +84,7 @@ JUMPS = {
 }
 
 
-def real_jumps(mscz: pathlib.Path) -> None:
+def real_jumps(mscz: pathlib.Path, lift: bool = False) -> None:
     """Import keeps jump words as staff text; replace them with MuseScore's own jump elements."""
     items = {}
     with zipfile.ZipFile(mscz) as z:
@@ -102,12 +102,13 @@ def real_jumps(mscz: pathlib.Path) -> None:
                     break
                 start = text.rfind("<voice>", 0, m.start())
                 text = text[:start] + element + text[start:m.start()] + text[m.end():]
+        raised = f'<offset x="0" y="{SIGN_LIFT}"/>' if lift else ""
         for sym, label in (("segno", "segno"), ("coda", "codab")):
             # a visible marker is both the printed sign and the jump target; the style sizes it
             pattern = re.compile(r"\s*<StaffText>(?:(?!</StaffText>).)*?<text><sym>" + sym + r"</sym></text>\s*</StaffText>", re.S)
             for m in reversed(list(pattern.finditer(text))):
                 start = text.rfind("<voice>", 0, m.start())
-                element = f"<Marker><style>repeat_left</style><text><sym>{sym}</sym></text><label>{label}</label><markerType>{MARKER_TYPES[sym]}</markerType><markerCenterOnSymbol>0</markerCenterOnSymbol><musicSymbolSize>{SIGN_SIZE}</musicSymbolSize></Marker>"
+                element = f"<Marker><style>repeat_left</style><text><sym>{sym}</sym></text><label>{label}</label><markerType>{MARKER_TYPES[sym]}</markerType><markerCenterOnSymbol>0</markerCenterOnSymbol><musicSymbolSize>{SIGN_SIZE}</musicSymbolSize>{raised}</Marker>"
                 text = text[:start] + element + text[start:m.start()] + text[m.end():]
         items[name] = text.encode("utf-8")
     with zipfile.ZipFile(mscz, "w", zipfile.ZIP_DEFLATED) as z:
@@ -365,8 +366,7 @@ def big_signs(mscz: pathlib.Path) -> None:
 
 def chord_room(bar: Bar) -> float:
     """Width of an empty piano bar: only what its chord names need."""
-    letters = sum(len(c.root) + bool(c.root_alter) + len(c.kind) + (len(c.bass) + 1 if c.bass else 0) + 2 for c in bar.chords)
-    return max(MIN_EMPTY_STRETCH, EMPTY_BASE + CHORD_LETTER * letters)
+    return max(MIN_EMPTY_STRETCH, EMPTY_BASE + CHORD_LETTER * piano.chord_letters(bar))
 
 
 def widen_chord_bars(mscz: pathlib.Path, score: Score, shrink_empty: bool = False) -> None:
@@ -428,11 +428,13 @@ def lay_out(src: pathlib.Path, work: pathlib.Path, spatium: float, distance: flo
     tied = [tied_out(bar) for bar in score.bars]
     fixed = {block[0] for block in sections(score)}
 
+    lifted = {"signs": False}
+
     def build() -> None:
         xml.write_text(musicxml.write(score), encoding="utf-8")
         run("-S", str(style), "-o", str(base), str(xml))
         strip_title_frame(base)
-        real_jumps(base)
+        real_jumps(base, lifted["signs"])
         big_signs(base)
         widen_chord_bars(base, score, variant == PIANO)
         export_view(options, base, probe)
@@ -481,6 +483,9 @@ def lay_out(src: pathlib.Path, work: pathlib.Path, spatium: float, distance: flo
         build()
         if len(pymupdf.open(probe)) != found:
             raise DoesNotFit(f"{song}: even pages need {len(pymupdf.open(probe))} pages, not {found}")
+    if pdfcheck.sign_on_chord(probe):
+        lifted["signs"] = True
+        build()
     found_problems = pdfcheck.all_problems(probe, info.title)
     if found_problems:
         raise DoesNotFit(f"{song}: {found_problems[:3]}")
@@ -535,7 +540,8 @@ def prove(src: pathlib.Path, work: pathlib.Path, variant: str, saved: dict[str, 
 def acceptable(laid: Score, variant: str) -> bool:
     if variant == PIANO:
         noted = {bar.number for bar in laid.bars if piano.has_notes(bar)}
-        return not piano.sparse_lines([row[0] for row in rows(laid)], noted, {block[0] + 1 for block in sections(laid)}, len(laid.bars))
+        letters = {bar.number: piano.chord_letters(bar) for bar in laid.bars}
+        return not piano.sparse_lines([row[0] for row in rows(laid)], noted, {block[0] + 1 for block in sections(laid)}, len(laid.bars), letters)
     return short_line_share(rows(laid)) <= MAX_SHORT_SHARE
 
 
@@ -719,16 +725,23 @@ def main() -> None:
     sources = [src for src in song_sources(src_dir) if not wanted or src.stem.split("-")[0] in wanted]
     began = time.monotonic()
     with concurrent.futures.ProcessPoolExecutor(max_workers=free_workers(len(sources))) as pool:
-        results = pool.map(port, sources, itertools.repeat(out_dir), itertools.repeat(work))
+        jobs = {pool.submit(port, src, out_dir, work): src for src in sources}
         reports = []
-        for report in results:
-            reports.append(report)
-            print(json.dumps(report, ensure_ascii=False), flush=True)
+        refused = []
+        for job in concurrent.futures.as_completed(jobs):
+            try:
+                reports.append(job.result())
+                print(json.dumps(reports[-1], ensure_ascii=False), flush=True)
+            except (DoesNotFit, RuntimeError, OSError, subprocess.SubprocessError) as error:  # 1 song's failure never stops the others
+                refused.append(jobs[job].stem)
+                print(f"refused {jobs[job].stem}: {error}", flush=True)
     previous = work / "build-report.json"
     earlier = json.loads(previous.read_text(encoding="utf-8")) if previous.exists() else {}
     earlier.update({str(r["song"]): r for r in reports})
     previous.write_text(json.dumps(earlier, ensure_ascii=False, indent=1), encoding="utf-8")
     print(f"songs {len(reports)} launches {sum(int(str(r['launches'])) for r in reports)} seconds {time.monotonic() - began:.1f}")
+    if refused:
+        raise SystemExit(f"refused: {refused}")
 
 
 if __name__ == "__main__":
