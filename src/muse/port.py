@@ -447,15 +447,17 @@ def clear_lone_bars(starts: set[int], fixed: set[int], total: int, fits: Callabl
 
 def seat_chords(score_path: pathlib.Path, pdf: pathlib.Path, render: Callable[[], None], song: str, noted: set[int] | None = None) -> None:
     """Even out empty bars where asked and move beat-1 chords to their barlines by measuring the render, until nothing is left to move."""
-    for _ in range(SEAT_PASSES):
-        try:
-            widened = noted is not None and chordseat.equalize(score_path, pdf, noted)
-            moved = chordseat.align(score_path, pdf)
-            if not widened and not moved:
-                return
-        except ValueError:
-            return  # chords run together, so the text layer merges them; the crowding check splits that line
-        render()
+    try:
+        for _ in range(SEAT_PASSES if noted is not None else 0):  # bars first: evening them moves every barline
+            if not chordseat.equalize(score_path, pdf, noted or set()):
+                break
+            render()
+        for _ in range(SEAT_PASSES):
+            if not chordseat.align(score_path, pdf):
+                break
+            render()
+    except ValueError:
+        return  # chords run together, so the text layer merges them; the crowding check splits that line
 
 
 def refuse_fixed(probe: pathlib.Path, title: str, song: str) -> None:
