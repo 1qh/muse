@@ -212,16 +212,18 @@ def align(mscz: pathlib.Path, pdf: pathlib.Path, free_height: float | None = Non
     first = text.index('<Staff id="1">', text.index("</Part>"))
     end = text.find('<Staff id="2">', first)
     end = end if end != -1 else text.index("</Score>", first)
-    at = iter(zip(found, room, strict=True))
+    places = [place for row in rows if row for place, _ in row]
+    at = iter(zip(found, room, places, strict=True))
     moved = False
 
     def seat(match: re.Match[str]) -> str:
         nonlocal moved
-        gap, space = next(at)
+        gap, space, place = next(at)
         if gap is None or abs(gap - GAP) <= TOLERANCE / 2:
             return match.group(0)
         moved = True
-        return moved_chord(match.group(0), (GAP - gap) / space, free_height)
+        # a line's first chord stays placed automatically, so section marks and cues stack around it
+        return moved_chord(match.group(0), (GAP - gap) / space, free_height if place else None)
 
     body = re.sub(r"<Harmony>.*?</Harmony>", seat, text[first:end], flags=re.S)
     with zipfile.ZipFile(mscz) as z:
