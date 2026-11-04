@@ -4,6 +4,7 @@ from __future__ import annotations
 import pathlib
 import re
 import zipfile
+from collections import Counter
 from typing import Any
 
 import pymupdf
@@ -20,6 +21,7 @@ MIN_STAFF_WIDTH = 200.0
 MIN_RULE_WIDTH = 10.0
 CHORD_REACH = 40.0
 FIRST_ELEMENT = re.compile(r"<Chord>|<Rest>|<location>")
+CHORD_SHAPE = re.compile(r"[A-G][#b♯♭]?(?:m|maj|sus|dim|add|aug|\d|\(|/|$)")
 SIGN_CHARS = "\ue047\ue048"
 MEASURE = re.compile(r"<Measure[^>]*>.*?</Measure>", re.S)
 
@@ -108,8 +110,11 @@ def page_lines(pdf: pathlib.Path) -> list[dict[str, Any]]:
                         words.append((span["size"], span["bbox"][0], span["bbox"][2], span["origin"][1], text))
         if not words:
             continue
-        top = max(w[0] for w in words)
-        chords = sorted((w for w in words if abs(w[0] - top) < 0.05), key=lambda w: (w[3], w[1]))
+        shaped = Counter(round(w[0], 1) for w in words if CHORD_SHAPE.match(w[4]))
+        if not shaped:
+            continue
+        top = shaped.most_common(1)[0][0]  # the title can print larger in 1 program, so the size chords use decides
+        chords = sorted((w for w in words if abs(w[0] - top) < 0.1), key=lambda w: (w[3], w[1]))
         shapes = segments(page)
         staves = staves_of(shapes)
         for staff in staves:
