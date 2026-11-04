@@ -24,7 +24,7 @@ MAX_MERGE_ROUNDS = 12
 BARS_PER_LINE = 8
 TIE_REACH = 2  # extra bars a line may take to avoid breaking on a tie
 PICKUP_EVENTS = 2  # a first bar this thin shares the opening line as a pickup
-SIZE_FLOORS = (1.2, 1.1, 1.0)  # below 1.2 only for a song that fits its pages no other way
+SIZE_FLOORS = (1.2, 1.15)  # below 1.2 only for a song that fits its pages no other way; under 1.15 the fixed title outgrows chords
 MAX_PAGES = 2
 MAX_WORKERS = 9
 SIGN_SIZE = 25  # a sign may exceed the chords: about 2.5 times the default sign
@@ -36,6 +36,7 @@ JUMP_WORD_SIZE = 12  # below the chords
 MAX_SHORT_SHARE = 0.15  # readers find many 2-bar lines sparse; smaller notation is preferred
 CHORD_STRETCH = 0.45
 STRETCH_CHOICES = (0.45, 0.15, 0.0)
+MIDDLE_DISTANCE = 9.0
 TIGHT_DISTANCE = 6.0  # line gap only for a song that fits its pages no other way
 BASE_DISTANCE = 11.0
 MAX_SPATIUM = 3.0
@@ -482,7 +483,7 @@ def fit(src: pathlib.Path, work: pathlib.Path, variant: str, limit: int) -> tupl
             return False
         return not compact or short_line_share(rows(laid)) <= MAX_SHORT_SHARE
 
-    floors = [(size, gap) for size in SIZE_FLOORS for gap in (BASE_DISTANCE, TIGHT_DISTANCE) if size == SIZE_FLOORS[0] or gap == TIGHT_DISTANCE]
+    floors = [(size, gap) for size in SIZE_FLOORS for gap in (BASE_DISTANCE, MIDDLE_DISTANCE, TIGHT_DISTANCE) if size == SIZE_FLOORS[0] or gap != BASE_DISTANCE]
     found = next((pair for pair in floors if fits(pair[0], pair[1], compact=False)), None)
     if found is None:
         return None
