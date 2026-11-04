@@ -31,7 +31,7 @@ MUTATIONS = [
     ("gate.py", 'problems = [f"{len(staves)} staves"] if len(staves) != 1 else []', "problems = []", "piano staves"),
     ("gate.py", 'if number not in kept and any(rest.findtext("visible") != "0"', 'if False and any(rest.findtext("visible") != "0"', "piano rests"),
     ("piano.py", "if label in done else end", "if False else end", "sibling length"),
-    ("piano.py", "empty_bar(bar)\n        elif held.staff == 2:", "pass\n        elif held.staff == 2:", "piano empties"),
+    ("piano.py", "if held is None:\n            empty_bar(bar)", "if False:\n            empty_bar(bar)", "piano empties"),
     ("piano.py", "left -= len(taken)", "left -= 0", "hint length"),
     ("piano.py", "bar.voices2 = []", "pass", "second staff"),
     ("song.py", 'return {self.score_file, self.legacy_file, self.original_pdf, self.tone_pdf, self.piano_pdf}', 'return {self.score_file, self.legacy_file, self.original_pdf, self.piano_pdf}', "folder set"),
