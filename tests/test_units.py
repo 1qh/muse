@@ -6,8 +6,9 @@ import pymupdf
 from muse import musicxml, piano, port
 from muse.model import Bar, Chord, Event, Head, Score, Text
 from muse.navigate import expected_order
+from muse import pdfcheck
 from muse.pdfcheck import chord_collisions, foreign_fonts, idle_staves, margin_words, oversized_text, past_margin, title_problems
-from muse.symbolfont import Decoder, assemble_chords, nominal_dots, parse_chord
+from muse.symbolfont import Decoder, assemble_chords, is_dust, nominal_dots, parse_chord
 from muse.verify import midi
 
 
@@ -309,3 +310,24 @@ def test_a_cue_leaves_a_staff_with_no_notes() -> None:
     bar.texts2 = [Text(0.0, 0.0, [("PIANO ONLY", True, False)], False)]
     port.lift_idle_cues(Score([bar], [], []))
     assert bar.texts2 == [] and bar.texts
+
+
+def test_a_lone_dot_is_dust_and_a_cue_is_not():
+    assert is_dust(".") and is_dust("..")
+    assert not is_dust("(Fill)") and not is_dust("N.C")
+
+
+def test_a_sign_touching_a_chord_is_found_only_on_its_baseline():
+    letter = [(30.0, 40.0, 100.0)]
+    assert pdfcheck.sign_touches(20.0, 100.0, 17.0, 13.0, letter)
+    assert not pdfcheck.sign_touches(20.0, 92.0, 17.0, 13.0, letter)  # raised above the letters
+    assert not pdfcheck.sign_touches(0.0, 100.0, 17.0, 13.0, letter)  # clear to the left
+
+
+def test_the_page_check_includes_the_sign_guard(tmp_path, monkeypatch):
+    path = tmp_path / "plain.pdf"
+    doc = pymupdf.open()
+    doc.new_page().insert_text((100, 100), "Am", fontsize=12)
+    doc.save(path)
+    monkeypatch.setattr(pdfcheck, "sign_on_chord", lambda _: ["planted"])
+    assert "planted" in pdfcheck.all_problems(path, "x")

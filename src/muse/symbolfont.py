@@ -188,6 +188,11 @@ def nominal_dots(length: F) -> tuple[F, int]:
     raise ValueError(f"no note value for {length}")
 
 
+def is_dust(text: str) -> bool:
+    """A text of only punctuation is print dust, such as a dot split off an ellipsis."""
+    return bool(re.fullmatch(r"[.,;:…·'`-]+", text))
+
+
 class Decoder:
     def __init__(self, path: str, key_hint: int | None = None) -> None:
         self.doc = pymupdf.open(path)
@@ -753,7 +758,7 @@ class Decoder:
         for group in sorted(groups, key=lambda g: g[0].y):
             first = group[0]
             text = "".join(s.text for s in group).strip()
-            if not text:
+            if not text or is_dust(text):
                 continue
             if first.bold and first.y < sys[0] - 10 and "(" not in text and (first.size < 9.5 and len(text) <= 10 or REHEARSAL.fullmatch(text)):
                 bar = next((b for b in bars if b.left - 15 <= first.x < b.right), bars[0])

@@ -242,3 +242,18 @@ def test_a_hint_lyric_in_several_runs_still_stops_at_its_word_limit():
     piano.shorten(text)
     whole = "".join(run[0] for run in text.runs)
     assert "four" in whole and "five" not in whole
+
+
+def test_a_cue_stacking_2_labels_keeps_words_for_each():
+    text = Text(0.0, 0.0, [("Verse1: ", True, True), ("one two three four five", False, True), ("Verse2: ", True, True), ("six seven eight nine ten", False, True)], False)
+    piano.shorten(text)
+    whole = "".join(run[0] for run in text.runs)
+    assert "four" in whole and "five" not in whole
+    assert "nine" in whole and "ten" not in whole
+
+
+def test_a_band_cue_sharing_the_lyric_text_survives_the_word_limit():
+    text = Text(0.0, 0.0, [("Chorus1: ", True, True), ("one two three four five", False, True), ("\nBAND IN", True, True), ("\nChorus2: ", True, True), ("six seven", False, True)], False)
+    piano.shorten(text)
+    whole = "".join(run[0] for run in text.runs)
+    assert "BAND IN" in whole and "five" not in whole and "seven" in whole

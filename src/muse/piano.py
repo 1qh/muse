@@ -165,7 +165,11 @@ def shorten(text: Text) -> None:
     left = HINT_WORDS
     runs: list[tuple[str, bool, bool]] = []
     for content, bold, italic in text.runs:
-        if ":" in content or (bold and not runs):
+        if ":" in content:
+            runs.append((content, bold, italic))
+            left = HINT_WORDS  # a cue can stack labels, and each keeps its own words
+            continue
+        if bold:  # a band cue sharing the text is no lyric
             runs.append((content, bold, italic))
             continue
         words = content.split()

@@ -17,6 +17,8 @@ TEXT_OVERLAP = 2.0  # slanted words of 1 phrase overlap by less
 JUMP_GAP = 4.0
 SIGNS = "\ue047\ue048"
 SIGN_OVER_CHORD = 1.6
+SIGN_INK_WIDTH = 0.75  # the printed part of a sign, in sign font sizes
+SIGN_BASELINE_SHARE = 0.3  # a sign higher than this share of the chord size clears the letters
 CLEFS = {0xE050, 0xE052, 0xE053}
 HEAD_CODES = (0xE0A0, 0xE0FF)
 MIN_CLEF_SIZE = 8.0
@@ -137,6 +139,31 @@ def sign_problems(path: pathlib.Path) -> list[str]:
     return problems
 
 
+def sign_on_chord(path: pathlib.Path) -> list[str]:
+    """A segno or coda on the baseline of the chord beside it, its ink running into the chord's first letter."""
+    found = []
+    for number, page in enumerate(pymupdf.open(path), 1):
+        signs, chars = [], []
+        for block in page.get_text("rawdict")["blocks"]:
+            for line in block.get("lines", []):
+                for span in line["spans"]:
+                    for ch in span["chars"]:
+                        if ch["c"] in SIGNS:
+                            signs.append((ch["origin"], span["size"]))
+                        elif not ch["c"].isspace() and not 0xE000 <= ord(ch["c"]) <= 0xF8FF:
+                            chars.append((ch, span["size"]))
+        top = max((size for _, size in chars), default=0.0)
+        boxes = [(ch["bbox"][0], ch["bbox"][2], ch["origin"][1]) for ch, size in chars if abs(size - top) < 0.05]
+        found += [f"p{number}: sign touches a chord" for (x, y), size in signs if sign_touches(x, y, size, top, boxes)]
+    return found
+
+
+def sign_touches(x: float, y: float, size: float, chord_size: float, chord_letters: list[tuple[float, float, float]]) -> bool:
+    """Whether a sign's ink runs into a chord letter, given each letter's left, right and baseline."""
+    ink_end = x + size * SIGN_INK_WIDTH
+    return any(abs(base - y) < chord_size * SIGN_BASELINE_SHARE and x < right and left < ink_end for left, right, base in chord_letters)
+
+
 def text_collisions(path: pathlib.Path) -> list[tuple[int, float, str]]:
     """Words printed on top of each other, or touching with no gap: page, height, the later word."""
     found = []
@@ -193,7 +220,7 @@ def idle_staves(clefs: list[float], heads: list[float], starts: list[float]) -> 
 
 
 def all_problems(path: pathlib.Path, title: str) -> list[str]:
-    return empty_staves(path) + text_problems(path) + title_problems(path, title) + sign_problems(path) + [f"text on text: {c[2]}" for c in text_collisions(path)]
+    return empty_staves(path) + text_problems(path) + title_problems(path, title) + sign_problems(path) + sign_on_chord(path) + [f"text on text: {c[2]}" for c in text_collisions(path)]
 
 
 def main() -> None:
