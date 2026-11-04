@@ -85,16 +85,17 @@ def staves_of(shapes: list[pymupdf.Rect]) -> list[list[float]]:
         if rect.width > MIN_RULE_WIDTH and rect.height < 1:
             widths[round(rect.y0, 1)] = widths.get(round(rect.y0, 1), 0.0) + rect.width
     rules = sorted(y for y, width in widths.items() if width > MIN_STAFF_WIDTH)
-    staves = []
-    at = 0
-    while at + 4 < len(rules):
-        five = rules[at:at + 5]
-        steps = [below - above for above, below in zip(five, five[1:], strict=False)]
-        if MIN_STAFF_SPACE < steps[0] < MAX_STAFF_SPACE and all(abs(step - steps[0]) < SPACE_SLACK for step in steps):
-            staves.append(five)
-            at += 5
-        else:
-            at += 1  # a page frame or a long stray line is no staff line
+    staves: list[list[float]] = []
+    used: set[float] = set()
+    for top in rules:
+        if top in used:
+            continue
+        for step in (y - top for y in rules if MIN_STAFF_SPACE < y - top < MAX_STAFF_SPACE):
+            five = [next((y for y in rules if abs(y - (top + step * k)) < SPACE_SLACK), None) for k in range(5)]
+            if None not in five:  # a stray long line among them is left out rather than breaking the staff
+                staves.append([float(y) for y in five if y is not None])
+                used.update(staves[-1])
+                break
     return staves
 
 

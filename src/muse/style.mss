@@ -114,6 +114,7 @@
     <chordSymbolBAlign>left,baseline</chordSymbolBAlign>
     <chordSymbolAPosAbove x="0" y="-1"/>
     <chordSymbolBPosAbove x="0" y="-1"/>
+    <minHarmonyDistance>0.2</minHarmonyDistance>
     <chordSymbolAFontSize>14</chordSymbolAFontSize>
     <chordSymbolBFontSize>14</chordSymbolBFontSize>
     <metronomeFontSize>11</metronomeFontSize>

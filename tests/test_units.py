@@ -414,3 +414,9 @@ def test_a_full_height_stem_is_no_barline():
     assert chordseat.is_stem(89.3, heads)
     assert chordseat.is_stem(80.2, heads)
     assert not chordseat.is_stem(153.7, heads)
+
+
+def test_a_stray_long_line_inside_a_staff_does_not_hide_it():
+    rule = lambda y: pymupdf.Rect(20, y, 300, y)  # noqa: E731
+    shapes = [rule(y) for y in (60.0, 64.0, 66.0, 68.0, 72.0, 76.0)]
+    assert chordseat.staves_of(shapes) == [[60.0, 64.0, 68.0, 72.0, 76.0]]

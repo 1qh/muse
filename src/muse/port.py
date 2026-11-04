@@ -553,8 +553,17 @@ def lay_out(src: pathlib.Path, work: pathlib.Path, spatium: float, distance: flo
     found = len(pymupdf.open(probe))
     if pages is not None and found > pages:
         raise DoesNotFit(f"{song}: {found} pages, over {pages}")
-    if balance(score, probe):
+    for _ in range(MAX_LAYOUT_ROUNDS if lines is None else 1):
+        if not balance(score, probe):
+            break
         build()
+        crowded = crowded_rows(probe, [row[0] for row in rows(score)])
+        if lines is not None or not crowded:
+            break
+        for row in rows(score):  # settling the pages can tip a line over; split it and settle again
+            if row[0] in crowded and len(row) > 1:
+                starts.add(split_at(row[0] - 1, row[-1], tied))
+        measure()
         if len(pymupdf.open(probe)) != found:
             raise DoesNotFit(f"{song}: even pages need {len(pymupdf.open(probe))} pages, not {found}")
     if pdfcheck.sign_on_chord(probe):
