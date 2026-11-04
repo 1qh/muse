@@ -379,6 +379,7 @@ def lay_out(src: pathlib.Path, work: pathlib.Path, spatium: float, distance: flo
     info = song_of(src, score)
     if variant == PIANO:
         piano.reduce(score)
+    lift_idle_cues(score)
     options = None if variant == ORIGINAL else transpose_options(info)
     song = f"{info.name}-{variant}"
     style = styled(work, f"{song}.mss", info.title, spatium, distance)
@@ -518,6 +519,14 @@ def build_legacy(src: pathlib.Path, work: pathlib.Path, target: pathlib.Path, sp
     target.write_bytes(raw.read_bytes())
 
 
+def lift_idle_cues(score: Score) -> None:
+    """A cue on a staff with no notes in its bar moves up, or that staff could never hide."""
+    for bar in score.bars:
+        if not any(e.heads for v in bar.voices2 for e in v):
+            bar.texts = [*bar.texts, *bar.texts2]
+            bar.texts2 = []
+
+
 def legacy_signs(mscz: pathlib.Path) -> None:
     """MuseScore 3's import already writes the built-in signs; only their size is ours."""
     with zipfile.ZipFile(mscz) as z:
@@ -525,6 +534,7 @@ def legacy_signs(mscz: pathlib.Path) -> None:
     for name, data in items.items():
         if name.endswith(".mscx"):
             text = data.decode("utf-8")
+            text = text.replace("<hideEmptyStaves>1</hideEmptyStaves>", "<hideEmptyStaves>1</hideEmptyStaves>\n    <dontHidStavesInFirstSystm>0</dontHidStavesInFirstSystm>", 1)  # MuseScore 3 spells it this way
             for sym in ("segno", "coda"):
                 text = text.replace(f"<text><sym>{sym}</sym></text>", f"<size>{LEGACY_SIGN_SIZE}</size><text><sym>{sym}</sym></text>")
             items[name] = text.encode("utf-8")

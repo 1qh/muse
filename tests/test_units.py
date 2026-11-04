@@ -6,7 +6,7 @@ import pymupdf
 from muse import musicxml, piano, port
 from muse.model import Bar, Chord, Event, Head, Score, Text
 from muse.navigate import expected_order
-from muse.pdfcheck import chord_collisions, foreign_fonts, margin_words, oversized_text, past_margin, title_problems
+from muse.pdfcheck import chord_collisions, foreign_fonts, idle_staves, margin_words, oversized_text, past_margin, title_problems
 from muse.symbolfont import Decoder, assemble_chords, nominal_dots, parse_chord
 from muse.verify import midi
 
@@ -294,3 +294,18 @@ def test_a_kept_bar_takes_notes_from_the_other_staff() -> None:
     score = Score(bars, [], [], has_second_staff=True)
     piano.reduce(score)
     assert any(e.heads for v in score.bars[2].voices for e in v)
+
+
+def test_a_line_of_2_staves_refuses_the_one_without_notes() -> None:
+    assert idle_staves([100.0, 150.0], [95.0, 148.0], []) == []
+    assert idle_staves([100.0, 150.0], [95.0], []) == [150.0]
+    assert idle_staves([100.0], [], []) == []
+    assert idle_staves([100.0, 300.0], [95.0], [200.0]) == []
+
+
+def test_a_cue_leaves_a_staff_with_no_notes() -> None:
+    bar = _bar(1, True)
+    bar.voices2 = [[Event(0.0, [], F(4))]]
+    bar.texts2 = [Text(0.0, 0.0, [("PIANO ONLY", True, False)], False)]
+    port.lift_idle_cues(Score([bar], [], []))
+    assert bar.texts2 == [] and bar.texts

@@ -17,6 +17,11 @@ TEXT_OVERLAP = 2.0  # slanted words of 1 phrase overlap by less
 JUMP_GAP = 4.0
 SIGNS = "\ue047\ue048"
 SIGN_OVER_CHORD = 1.6
+CLEFS = {0xE050, 0xE052, 0xE053}
+HEAD_CODES = (0xE0A0, 0xE0FF)
+MIN_CLEF_SIZE = 8.0
+BAR_NUMBER_X = 70.0
+STAFF_REACH = 40.0
 MUSIC_FONTS = ("Leland", "Bravura", "MScore", "mscore")
 TOP_BAND = 0.015  # the style keeps text out of the page top, music above the first staff included
 BOTTOM_BAND = 0.992  # no word reaches the bottom edge region: printable music ends above it
@@ -147,8 +152,48 @@ def text_collisions(path: pathlib.Path) -> list[tuple[int, float, str]]:
     return found
 
 
+def empty_staves(path: pathlib.Path) -> list[str]:
+    """A staff with no notehead sharing its line with another staff; a bar number starts each line after the first."""
+    found = []
+    for number, page in enumerate(pymupdf.open(path), 1):
+        clefs: list[float] = []
+        heads: list[float] = []
+        starts: list[float] = []
+        for block in page.get_text("rawdict")["blocks"]:
+            for line in block.get("lines", []):
+                for span in line["spans"]:
+                    for ch in span["chars"]:
+                        code = ord(ch["c"])
+                        if code in CLEFS and span["size"] > MIN_CLEF_SIZE:
+                            clefs.append(ch["origin"][1])
+                        elif HEAD_CODES[0] <= code <= HEAD_CODES[1]:
+                            heads.append(ch["origin"][1])
+                    text = "".join(ch["c"] for ch in span["chars"]).strip()
+                    if text.isdigit() and span["bbox"][0] < BAR_NUMBER_X and "Italic" in span["font"]:
+                        starts.append(span["bbox"][1])
+        found += [f"p{number}: empty staff at height {clef:.0f}" for clef in idle_staves(clefs, heads, starts)]
+    return found
+
+
+def idle_staves(clefs: list[float], heads: list[float], starts: list[float]) -> list[float]:
+    """Staff heights with no notehead on a line of several staves; duplicates of 1 clef height count once."""
+    lines: dict[int, list[float]] = {}
+    for clef in sorted(set(round(c, 1) for c in clefs)):
+        lines.setdefault(sum(1 for start in starts if start < clef), []).append(clef)
+    idle = []
+    for staves in lines.values():
+        if len(staves) < 2:
+            continue
+        for at, clef in enumerate(staves):
+            high = (clef + staves[at - 1]) / 2 if at else clef - STAFF_REACH
+            low = (clef + staves[at + 1]) / 2 if at + 1 < len(staves) else clef + STAFF_REACH
+            if not any(high <= head <= low for head in heads):
+                idle.append(clef)
+    return idle
+
+
 def all_problems(path: pathlib.Path, title: str) -> list[str]:
-    return text_problems(path) + title_problems(path, title) + sign_problems(path) + [f"text on text: {c[2]}" for c in text_collisions(path)]
+    return empty_staves(path) + text_problems(path) + title_problems(path, title) + sign_problems(path) + [f"text on text: {c[2]}" for c in text_collisions(path)]
 
 
 def main() -> None:
