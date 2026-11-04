@@ -90,6 +90,8 @@ MUTATIONS = [
     ("publish.py", 'if visibility(out, run) != "PRIVATE":\n        raise Refused(f"{out} is not private', 'if False:\n        raise Refused(f"{out} is not private', "private only"),
     ("publish.py", "        keep_last_good(out, song, run)\n", "        pass\n", "keep last good"),
     ("publish.py", "if song not in blocked:", "if True:", "failing song staged"),
+    ("publish.py", 'if attempt == tries or "Internal Server Error" not in str(error):', "if True:", "server error retry"),
+    ("publish.py", 'elif not run("git", "rev-list", "@{u}..HEAD", cwd=out):', "else:", "unpushed commit"),
     ("preflight.py", "if done.returncode:", "if False:", "code check ignored"),
     ("preflight.py", "if not piano.parts(score):", "if False:", "no piano parts"),
     ("port.py", "if fixed_problems:", "if False:", "fixed problem searched"),

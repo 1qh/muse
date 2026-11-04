@@ -6,10 +6,13 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from collections.abc import Callable
 
 from muse import gate
 
+PUSH_TRIES = 4
+PUSH_WAIT = 60.0
 Runner = Callable[..., str]
 Judge = Callable[[pathlib.Path, pathlib.Path, pathlib.Path, tuple[str, ...]], dict[str, list[str]]]
 
@@ -34,6 +37,18 @@ def stray_files(tracked: str) -> list[str]:
     return [name for name in tracked.split("\n") if name and not name.endswith((".pdf", ".mscz"))]
 
 
+def pushed(run: Runner, command: tuple[str, ...], where: pathlib.Path, tries: int = PUSH_TRIES, wait: float = PUSH_WAIT) -> None:
+    """A forge's server error passes; any other refusal, or the last try, stands."""
+    for attempt in range(1, tries + 1):
+        try:
+            run(*command, cwd=where)
+            return
+        except Refused as error:
+            if attempt == tries or "Internal Server Error" not in str(error):
+                raise
+            time.sleep(wait)
+
+
 def keep_last_good(out: pathlib.Path, song: str, run: Runner) -> None:
     """Put a failing song's folder back to what is published; a song never published leaves nothing."""
     if run("git", "ls-files", "--", song, cwd=out):
@@ -56,10 +71,11 @@ def publish(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path, run: Runne
     extras = stray_files(run("git", "ls-files", cwd=out))
     if extras:
         raise SystemExit(f"the sheets repo holds only PDF and MuseScore files, refusing: {extras}")
-    if not run("git", "diff", "--cached", "--name-only", cwd=out):
-        return blocked
-    run("git", "commit", "-m", "fix: re-export sheets", cwd=out)
-    run("git", "push", cwd=out)
+    if run("git", "diff", "--cached", "--name-only", cwd=out):
+        run("git", "commit", "-m", "fix: re-export sheets", cwd=out)
+    elif not run("git", "rev-list", "@{u}..HEAD", cwd=out):
+        return blocked  # nothing new and nothing left unpushed by an earlier run
+    pushed(run, ("git", "push"), out)
     tree = run("git", "rev-parse", "HEAD^{tree}", cwd=out)
     url = run("git", "remote", "get-url", "origin", cwd=out)
     with tempfile.TemporaryDirectory() as tmp:
@@ -70,7 +86,7 @@ def publish(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path, run: Runne
         run("git", "gc", "--prune=now", "--aggressive", cwd=mirror)
         if run("git", "rev-parse", "HEAD^{tree}", cwd=mirror) != tree:
             raise Refused("purge changed the current files; nothing force-pushed")
-        run("git", "push", "--force", cwd=mirror)
+        pushed(run, ("git", "push", "--force"), mirror)
     run("git", "fetch", "origin", cwd=out)
     run("git", "reset", "--hard", "origin/HEAD", cwd=out)
     run("git", "reflog", "expire", "--expire=now", "--all", cwd=out)

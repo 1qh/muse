@@ -197,3 +197,40 @@ def test_words_printed_on_each_other_are_found(tmp_path) -> None:
     page.insert_text((300, 100), "alone", fontsize=10)
     doc.save(path)
     assert [c[2] for c in pdfcheck.text_collisions(path)] == ["Chorus"]
+
+
+def test_a_server_error_retries_and_a_real_refusal_does_not(tmp_path):
+    seen = []
+
+    def run(*args, cwd=None):
+        seen.append(args)
+        if len(seen) == 1:
+            raise publish.Refused("remote rejected (Internal Server Error)")
+
+    publish.pushed(run, ("git", "push"), tmp_path, wait=0)
+    assert len(seen) == 2
+
+    def refuse(*args, cwd=None):
+        seen.append(args)
+        raise publish.Refused("non-fast-forward")
+
+    seen.clear()
+    with pytest.raises(publish.Refused):
+        publish.pushed(refuse, ("git", "push"), tmp_path, wait=0)
+    assert len(seen) == 1
+
+
+def test_an_unpushed_commit_is_pushed_even_with_nothing_new(tmp_path):
+    calls = []
+
+    def run(*args, cwd=None):
+        calls.append(args)
+        if "visibility" in args:
+            return "PRIVATE"
+        return "abc" if "@{u}..HEAD" in args else ""
+
+    try:
+        publish.publish(tmp_path, tmp_path, tmp_path, run, lambda *_: {})
+    except publish.Refused:
+        pass
+    assert ("git", "push") in calls
