@@ -420,3 +420,11 @@ def test_a_stray_long_line_inside_a_staff_does_not_hide_it():
     rule = lambda y: pymupdf.Rect(20, y, 300, y)  # noqa: E731
     shapes = [rule(y) for y in (60.0, 64.0, 66.0, 68.0, 72.0, 76.0)]
     assert chordseat.staves_of(shapes) == [[60.0, 64.0, 68.0, 72.0, 76.0]]
+
+
+def test_a_bar_too_narrow_for_its_last_chord_asks_for_width():
+    rows = [[(0, True), (1, True), (1, False)]]
+    line = {"start": 50.0, "bars": [100.0, 150.0], "rights": [70.0, 120.0, 148.0], "size": 8.0}
+    assert chordseat.short_bars(rows, [[1, 2]], [line]) == {2: (148.0 + 6.0 - 100.0) / 50.0}
+    line["rights"] = [70.0, 120.0, 130.0]
+    assert chordseat.short_bars(rows, [[1, 2]], [line]) == {}

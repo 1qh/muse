@@ -452,6 +452,10 @@ def seat_chords(score_path: pathlib.Path, pdf: pathlib.Path, render: Callable[[]
             if not chordseat.equalize(score_path, pdf, noted or set()):
                 break
             render()
+        for _ in range(SEAT_PASSES if noted is None and reach is None else 0):  # first the room each chord asks
+            if not chordseat.widen_short_bars(score_path, pdf):
+                break
+            render()
         for _ in range(SEAT_PASSES):
             if not chordseat.align(score_path, pdf, reach):
                 break

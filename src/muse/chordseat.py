@@ -21,7 +21,8 @@ SIGN_INK_WIDTH = 0.75  # the printed part of a segno or coda, in sign font sizes
 SIGN_REACH = 0.5  # of the chord size: a sign this near the chord baseline shares its row
 EQUAL_TOLERANCE = 1.5  # points an empty bar may differ from its line's mean
 SAME_BARLINE = 6.0  # the 2 strokes of a repeat or a double bar are 1 barline
-MIN_STAFF_WIDTH = 200.0
+MIN_STAFF_WIDTH = 60.0  # a short last line is left unfilled, and is still a staff
+CHORD_ROOM_GAP = 0.75  # of the chord size, between a chord and whatever follows it
 MIN_RULE_WIDTH = 10.0
 MIN_STAFF_SPACE = 2.0
 MAX_STAFF_SPACE = 9.0
@@ -143,9 +144,13 @@ def page_lines(pdf: pathlib.Path) -> list[dict[str, Any]]:
             if not mine:
                 continue
             joined: list[float] = []
+            rights: list[float] = []
             for word in sorted(mine, key=lambda w: w[1]):
                 if word[4][0] in "ABCDEFG":  # a chord's later pieces, such as what follows a flat, name no root
                     joined.append(ink_left(page, word[1], word[3], word[0]))
+                    rights.append(word[2])
+                elif rights:
+                    rights[-1] = word[2]
             left_edge = min(r.x0 for r in shapes if r.width > MIN_RULE_WIDTH and r.height < 1 and abs(r.y0 - staff[0]) < 1)
             bars: list[float] = []
             heads = [(g[0], g[2]) for g in glyphs if staff[0] - 8 <= g[1] <= staff[4] + 8 and HEAD_CODES[0] <= g[3] <= HEAD_CODES[1]]
@@ -159,7 +164,7 @@ def page_lines(pdf: pathlib.Path) -> list[dict[str, Any]]:
             base = mine[0][3]
             # a sign printed on the chord row takes the place right after the clef, so the chord follows it
             start = max([start, *(end for end, y in signs_here if abs(y - base) < top * SIGN_REACH and end < start + top * 2)])
-            lines.append({"chords": joined, "bars": bars, "start": start, "space": (staff[4] - staff[0]) / 4})
+            lines.append({"chords": joined, "bars": bars, "start": start, "space": (staff[4] - staff[0]) / 4, "rights": rights, "size": top})
     return lines
 
 
@@ -254,6 +259,63 @@ def align(mscz: pathlib.Path, pdf: pathlib.Path, reach: float | None = None) -> 
     return moved
 
 
+def short_bars(rows: list[list[tuple[int, bool]]], bars: list[list[int]], lines: list[dict[str, Any]]) -> dict[int, float]:
+    """Bars too narrow for their last chord and its gap, by bar number, with the width factor each needs."""
+    wanted: dict[int, float] = {}
+    filled = [(row, numbers) for row, numbers in zip(rows, bars, strict=True) if row]
+    for (row, numbers), line in zip(filled, lines, strict=False):
+        edges = [line["start"], *line["bars"]]
+        if len(edges) != len(numbers) + 1 or len(row) != len(line.get("rights", [])):
+            continue
+        for at, (place, _) in enumerate(row):
+            if at + 1 < len(row) and row[at + 1][0] == place:
+                continue  # only a bar's last chord runs up against its end
+            width = edges[place + 1] - edges[place]
+            need = line["rights"][at] + line["size"] * CHORD_ROOM_GAP - edges[place]
+            if need > width:
+                wanted[numbers[place]] = need / width
+    return wanted
+
+
+def set_stretch(mscz: pathlib.Path, factors: dict[int, float]) -> None:
+    """Multiply the given bars' stretch."""
+    name, text = score_text(mscz)
+    first = text.index('<Staff id="1">', text.index("</Part>"))
+    end = text.find('<Staff id="2">', first)
+    end = end if end != -1 else text.index("</Score>", first)
+    number = 0
+
+    def stretch(match: re.Match[str]) -> str:
+        nonlocal number
+        number += 1
+        if number not in factors:
+            return match.group(0)
+        whole = match.group(0)
+        held = re.search(r"<stretch>([\d.]+)</stretch>", whole)
+        fresh = f"<stretch>{(float(held.group(1)) if held else 1.0) * factors[number]:.3f}</stretch>"
+        if held:
+            return whole.replace(held.group(0), fresh, 1)
+        tag_end = whole.index(">") + 1
+        return whole[:tag_end] + fresh + whole[tag_end:]
+
+    body = MEASURE.sub(stretch, text[first:end])
+    with zipfile.ZipFile(mscz) as z:
+        items = {info.filename: z.read(info.filename) for info in z.infolist()}
+    items[name] = (text[:first] + body + text[end:]).encode("utf-8")
+    with zipfile.ZipFile(mscz, "w", zipfile.ZIP_DEFLATED) as z:
+        for key, data in items.items():
+            z.writestr(key, data)
+
+
+def widen_short_bars(mscz: pathlib.Path, pdf: pathlib.Path) -> bool:
+    """Give a bar the width its own chord asks; True when anything moved."""
+    text = score_text(mscz)[1]
+    found = short_bars(rows_of(text), bar_rows(text), matched(text, pdf))
+    if found:
+        set_stretch(mscz, found)
+    return bool(found)
+
+
 def bar_rows(text: str) -> list[list[int]]:
     """1-based bar numbers per line, from the score's own line breaks."""
     first = text.index('<Staff id="1">', text.index("</Part>"))
@@ -295,31 +357,7 @@ def equalize(mscz: pathlib.Path, pdf: pathlib.Path, noted: set[int]) -> bool:
     off = {bar: mean / width for bar, width, mean in empty_widths(text, matched(text, pdf), noted) if abs(width - mean) > EQUAL_TOLERANCE / 2}
     if not off:
         return False
-    first = text.index('<Staff id="1">', text.index("</Part>"))
-    end = text.find('<Staff id="2">', first)
-    end = end if end != -1 else text.index("</Score>", first)
-    number = 0
-
-    def stretch(match: re.Match[str]) -> str:
-        nonlocal number
-        number += 1
-        if number not in off:
-            return match.group(0)
-        whole = match.group(0)
-        held = re.search(r"<stretch>([\d.]+)</stretch>", whole)
-        fresh = f"<stretch>{(float(held.group(1)) if held else 1.0) * off[number]:.3f}</stretch>"
-        if held:
-            return whole.replace(held.group(0), fresh, 1)
-        tag_end = whole.index(">") + 1
-        return whole[:tag_end] + fresh + whole[tag_end:]
-
-    body = MEASURE.sub(stretch, text[first:end])
-    with zipfile.ZipFile(mscz) as z:
-        items = {info.filename: z.read(info.filename) for info in z.infolist()}
-    items[name] = (text[:first] + body + text[end:]).encode("utf-8")
-    with zipfile.ZipFile(mscz, "w", zipfile.ZIP_DEFLATED) as z:
-        for key, data in items.items():
-            z.writestr(key, data)
+    set_stretch(mscz, off)
     return True
 
 
