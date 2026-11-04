@@ -12,6 +12,7 @@ LETTER = re.compile(r"^[A-Z]\d?$")
 PIANO_CUE = re.compile(r"piano|keys?\b|key/|rhodes", re.I)
 MIN_TAIL = 3  # consecutive bars of notes closing an unlabelled section read as instrumental
 HINT_WORDS = 4
+SHORT_LINE = 4  # bars; 2 such empty neighbours read as sparse
 
 
 @dataclasses.dataclass
@@ -137,6 +138,19 @@ def parts(score: Score) -> list[Part]:
 
 def by_mark(score: Score, number: int) -> bool:
     return bool(score.bars[number - 1].rehearsal) or bool(score.bars[number - 1].coda)
+
+
+def sparse_lines(starts: list[int], noted: set[int], section_starts: set[int], total: int) -> list[int]:
+    """Line starts where 2 neighbouring note-free lines of a section hold at most SHORT_LINE bars each, and so could merge."""
+    ends = [*starts[1:], total + 1]
+    found = []
+    for at in range(len(starts) - 1):
+        first, second, stop = starts[at], starts[at + 1], ends[at + 1]
+        if second in section_starts or second - first > SHORT_LINE or stop - second > SHORT_LINE:
+            continue
+        if not noted & set(range(first, stop)):
+            found.append(first)
+    return found
 
 
 def voices_sound(voices: list[list[Event]]) -> bool:

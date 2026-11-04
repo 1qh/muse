@@ -7,14 +7,17 @@ import json
 import os
 import pathlib
 import re
+import shutil
 import subprocess
 import sys
+import time
 import zipfile
 from collections.abc import Callable
+from typing import Any
 
 import pymupdf
 
-from muse import musicxml, pdfcheck, piano, scorefile
+from muse import buildcache, musicxml, pdfcheck, piano, scorefile
 from muse.model import Bar, Score
 from muse.song import Song, decode, song_of
 from muse.song import sources as song_sources
@@ -22,6 +25,11 @@ from muse.song import sources as song_sources
 MAX_LAYOUT_ROUNDS = 40
 MAX_MERGE_ROUNDS = 12
 BARS_PER_LINE = 8
+PIANO_LINE_LOAD = 16  # an empty bar costs 1 and a bar with notes 2, so notes keep 8 bars a line
+NOTED_LOAD = 2
+EMPTY_BASE = 0.25  # width of an empty bar beyond its chord names
+CHORD_LETTER = 0.1  # width per letter of a chord name, gap included
+MIN_EMPTY_STRETCH = 0.4
 TIE_REACH = 2  # extra bars a line may take to avoid breaking on a tie
 PICKUP_EVENTS = 2  # a first bar this thin shares the opening line as a pickup
 SIZE_FLOORS = (1.2, 1.15)  # below 1.2 only for a song that fits its pages no other way; under 1.15 the fixed title outgrows chords
@@ -60,7 +68,11 @@ def require_font(folders: tuple[pathlib.Path, ...] = FONT_DIRS) -> None:
         raise MissingFont(f"SF Pro Display is missing {missing}; install it from Apple into {folders[0]}")
 
 
+LAUNCHES = {"count": 0}
+
+
 def run(*args: str) -> None:
+    LAUNCHES["count"] += 1
     done = subprocess.run(["mscore", *args], capture_output=True, text=True, timeout=240)
     if done.returncode:
         raise RuntimeError(f"mscore {args}: {done.stderr[-400:]}")
@@ -200,8 +212,23 @@ def grid(count: int, per_line: int, tied: list[bool], pickup: bool = False) -> l
     return starts
 
 
-def opening_lines(score: Score) -> list[int]:
+def piano_grid(score: Score, block: list[int]) -> list[int]:
+    """Positions in a block that start a line, filling each line to its load; no break on a tie when the next bar avoids it."""
+    starts = [0]
+    load = 0
+    for at, index in enumerate(block):
+        cost = NOTED_LOAD if piano.has_notes(score.bars[index]) else 1
+        if at and load + cost > PIANO_LINE_LOAD and not tied_out(score.bars[block[at - 1]]):
+            starts.append(at)
+            load = 0
+        load += cost
+    return starts
+
+
+def opening_lines(score: Score, variant: str = TONE) -> list[int]:
     """0-based bars that start a line before any line has been judged too crowded."""
+    if variant == PIANO:
+        return [block[at] for block in sections(score) for at in piano_grid(score, block)]
     starts = []
     for number, block in enumerate(sections(score)):
         tied = [tied_out(score.bars[i]) for i in block]
@@ -216,16 +243,16 @@ def short_line_share(lines: list[list[int]]) -> float:
     return sum(1 for line in lines if len(line) <= 2) / len(lines)
 
 
-def merge_candidates(lines: list[list[int]], fixed: set[int], refused: set[int]) -> set[int]:
+def merge_candidates(lines: list[list[int]], fixed: set[int], refused: set[int], weight: Callable[[list[int]], int] = len, cap: int = BARS_PER_LINE) -> set[int]:
     """0-based line starts to try removing: shortest neighbours first, each line in at most 1 merge."""
-    pairs = sorted(range(len(lines) - 1), key=lambda n: len(lines[n]) + len(lines[n + 1]))
+    pairs = sorted(range(len(lines) - 1), key=lambda n: weight(lines[n]) + weight(lines[n + 1]))
     used: set[int] = set()
     joins = set()
     for n in pairs:
         start = lines[n + 1][0] - 1
         if n in used or n + 1 in used or start in fixed or start in refused:
             continue
-        if len(lines[n]) + len(lines[n + 1]) <= BARS_PER_LINE:
+        if weight(lines[n]) + weight(lines[n + 1]) <= cap:
             joins.add(start)
             used |= {n, n + 1}
     return joins
@@ -336,8 +363,14 @@ def big_signs(mscz: pathlib.Path) -> None:
             z.writestr(key, data)
 
 
-def widen_chord_bars(mscz: pathlib.Path, score: Score) -> None:
-    """Give bars with more chords more width, so a line rarely has to split for them."""
+def chord_room(bar: Bar) -> float:
+    """Width of an empty piano bar: only what its chord names need."""
+    letters = sum(len(c.root) + bool(c.root_alter) + len(c.kind) + (len(c.bass) + 1 if c.bass else 0) + 2 for c in bar.chords)
+    return max(MIN_EMPTY_STRETCH, EMPTY_BASE + CHORD_LETTER * letters)
+
+
+def widen_chord_bars(mscz: pathlib.Path, score: Score, shrink_empty: bool = False) -> None:
+    """Give bars with more chords more width, so a line rarely has to split for them; an empty piano bar takes only chord room."""
     with zipfile.ZipFile(mscz) as z:
         items = {info.filename: z.read(info.filename) for info in z.infolist()}
     name = next(n for n in items if n.endswith(".mscx") and "/" not in n)
@@ -350,8 +383,10 @@ def widen_chord_bars(mscz: pathlib.Path, score: Score) -> None:
 
     def widen(match: re.Match[str]) -> str:
         bar = next(numbers, None)
-        factor = chord_stretch(len(bar.chords)) if bar else 1.0
-        return match.group(0) + f"<stretch>{factor:.2f}</stretch>" if factor > 1.0 else match.group(0)
+        if bar is None:
+            return match.group(0)
+        factor = chord_room(bar) if shrink_empty and not piano.has_notes(bar) else chord_stretch(len(bar.chords))
+        return match.group(0) + f"<stretch>{factor:.2f}</stretch>" if factor != 1.0 else match.group(0)
 
     body = re.sub(r"<Measure[^>]*>", widen, body)
     items[name] = (text[:first] + body + text[end:]).encode("utf-8")
@@ -360,13 +395,13 @@ def widen_chord_bars(mscz: pathlib.Path, score: Score) -> None:
             z.writestr(key, data)
 
 
-def transpose_options(song: Song) -> dict[str, object] | None:
+def transpose_options(song: Song) -> dict[str, Any] | None:
     if not song.direction:
         return None
     return {"mode": "to_key", "direction": song.direction, "targetKey": song.fifths, "transposeKeySignatures": True, "transposeChordNames": True, "useDoubleSharpsFlats": False, "transposeInterval": 0}
 
 
-def export_view(options: dict[str, object] | None, base: pathlib.Path, target: pathlib.Path) -> None:
+def export_view(options: dict[str, Any] | None, base: pathlib.Path, target: pathlib.Path) -> None:
     """Export a score, in the sheet's tone when it has its own: chord names, and so their widths, differ by key."""
     if options:
         run("-o", str(target), "--transpose", json.dumps(options), str(base))
@@ -374,8 +409,8 @@ def export_view(options: dict[str, object] | None, base: pathlib.Path, target: p
         run("-o", str(target), str(base))
 
 
-def lay_out(src: pathlib.Path, work: pathlib.Path, spatium: float, distance: float, pages: int | None, variant: str = TONE) -> tuple[Score, pathlib.Path, pathlib.Path]:
-    """Build 1 sheet of a song at 1 size: no line wraps on its own and lines spread evenly over its pages."""
+def lay_out(src: pathlib.Path, work: pathlib.Path, spatium: float, distance: float, pages: int | None, variant: str = TONE, lines: list[int] | None = None) -> tuple[Score, pathlib.Path, pathlib.Path]:
+    """Build 1 sheet of a song at 1 size: no line wraps on its own and lines spread evenly over its pages; given lines are proved, never searched."""
     score = decode(src)
     info = song_of(src, score)
     if variant == PIANO:
@@ -387,7 +422,9 @@ def lay_out(src: pathlib.Path, work: pathlib.Path, spatium: float, distance: flo
     xml = work / f"{song}.musicxml"
     base = work / f"{song}.mscz"
     probe = work / f"{song}-layout.pdf"
-    starts = set(opening_lines(score))
+    starts = set(opening_lines(score, variant)) if lines is None else set(lines)
+    load = (lambda line: sum(NOTED_LOAD if piano.has_notes(score.bars[n - 1]) else 1 for n in line)) if variant == PIANO else len
+    cap = PIANO_LINE_LOAD if variant == PIANO else BARS_PER_LINE
     tied = [tied_out(bar) for bar in score.bars]
     fixed = {block[0] for block in sections(score)}
 
@@ -397,7 +434,7 @@ def lay_out(src: pathlib.Path, work: pathlib.Path, spatium: float, distance: flo
         strip_title_frame(base)
         real_jumps(base)
         big_signs(base)
-        widen_chord_bars(base, score)
+        widen_chord_bars(base, score, variant == PIANO)
         export_view(options, base, probe)
 
     def measure() -> tuple[list[list[int]], set[int]]:
@@ -410,30 +447,33 @@ def lay_out(src: pathlib.Path, work: pathlib.Path, spatium: float, distance: flo
         wraps = [n for n in system_starts(probe) if n not in firsts]
         return declared, set(wraps) | crowded_rows(probe, [row[0] for row in declared])
 
-    for _ in range(MAX_LAYOUT_ROUNDS):
-        declared, bad = measure()
-        if not bad:
-            break
-        split = False
-        for row in declared:
-            if any(n in row for n in bad) and len(row) > 1:
-                starts.add(split_at(row[0] - 1, row[-1], tied))
-                split = True
-        if not split:
-            raise DoesNotFit(f"{song}: bars {sorted(bad)} do not fit alone")
-    else:
-        raise DoesNotFit(f"{song}: lines {sorted(bad)} still do not fit")
-    refused: set[int] = set()
-    for _ in range(MAX_MERGE_ROUNDS):
-        joins = merge_candidates(rows(score), fixed, refused)
-        if not joins:
-            break
-        starts -= joins
-        declared, bad = measure()
-        undone = {at for row in declared if any(n in row for n in bad) for at in joins if row[0] - 1 < at <= row[-1] - 1}
-        refused |= undone
-        starts |= undone
-    measure()
+    if lines is None:
+        for _ in range(MAX_LAYOUT_ROUNDS):
+            declared, bad = measure()
+            if not bad:
+                break
+            split = False
+            for row in declared:
+                if any(n in row for n in bad) and len(row) > 1:
+                    starts.add(split_at(row[0] - 1, row[-1], tied))
+                    split = True
+            if not split:
+                raise DoesNotFit(f"{song}: bars {sorted(bad)} do not fit alone")
+        else:
+            raise DoesNotFit(f"{song}: lines {sorted(bad)} still do not fit")
+        refused: set[int] = set()
+        for _ in range(MAX_MERGE_ROUNDS):
+            joins = merge_candidates(rows(score), fixed, refused, load, cap)
+            if not joins:
+                break
+            starts -= joins
+            declared, bad = measure()
+            undone = {at for row in declared if any(n in row for n in bad) for at in joins if row[0] - 1 < at <= row[-1] - 1}
+            refused |= undone
+            starts |= undone
+        measure()
+    elif measure()[1]:
+        raise DoesNotFit(f"{song}: saved lines no longer fit")
     found = len(pymupdf.open(probe))
     if pages is not None and found > pages:
         raise DoesNotFit(f"{song}: {found} pages, over {pages}")
@@ -475,15 +515,46 @@ def choose_stretch(src: pathlib.Path, work: pathlib.Path, spatium: float, distan
     CHORD_STRETCH = best[1] if best else STRETCH_CHOICES[0]
 
 
+def line_starts(score: Score) -> list[int]:
+    return [row[0] - 1 for row in rows(score)]
+
+
+def prove(src: pathlib.Path, work: pathlib.Path, variant: str, saved: dict[str, Any]) -> tuple[Score, pathlib.Path, float, float, int] | None:
+    """Rebuild a saved decision once; None sends the sheet back to the search."""
+    global CHORD_STRETCH  # noqa: PLW0603
+    CHORD_STRETCH = float(saved["stretch"])
+    try:
+        laid, base, probe = lay_out(src, work, float(saved["spatium"]), float(saved["distance"]), int(saved["pages"]), variant, list(saved["lines"]))
+    except DoesNotFit:
+        return None
+    if not acceptable(laid, variant):
+        return None
+    return laid, base, float(saved["spatium"]), float(saved["distance"]), len(pymupdf.open(probe))
+
+
+def acceptable(laid: Score, variant: str) -> bool:
+    if variant == PIANO:
+        noted = {bar.number for bar in laid.bars if piano.has_notes(bar)}
+        return not piano.sparse_lines([row[0] for row in rows(laid)], noted, {block[0] + 1 for block in sections(laid)}, len(laid.bars))
+    return short_line_share(rows(laid)) <= MAX_SHORT_SHARE
+
+
 def fit(src: pathlib.Path, work: pathlib.Path, variant: str, limit: int) -> tuple[Score, pathlib.Path, float, float, int] | None:
     """The largest notation of 1 sheet within a page limit, its lines then spread over the height left."""
+    tried: dict[tuple[float, float, float, bool], bool] = {}
 
     def fits(spatium: float, distance: float, compact: bool = True) -> bool:
+        memo = (spatium, distance, CHORD_STRETCH, compact)
+        if memo not in tried:
+            tried[memo] = attempt(spatium, distance, compact)
+        return tried[memo]
+
+    def attempt(spatium: float, distance: float, compact: bool) -> bool:
         try:
             laid, _, _ = lay_out(src, work, spatium, distance, limit, variant)
         except DoesNotFit:
             return False
-        return not compact or short_line_share(rows(laid)) <= MAX_SHORT_SHARE
+        return not compact or acceptable(laid, variant)
 
     floors = [(size, gap) for size in SIZE_FLOORS for gap in (BASE_DISTANCE, MIDDLE_DISTANCE, TIGHT_DISTANCE) if size == SIZE_FLOORS[0] or gap != BASE_DISTANCE]
     found = next((pair for pair in floors if fits(pair[0], pair[1], compact=False)), None)
@@ -492,8 +563,18 @@ def fit(src: pathlib.Path, work: pathlib.Path, variant: str, limit: int) -> tupl
     floor, start = found
     choose_stretch(src, work, floor, start, limit, variant)
     spatium = largest_fit(floor, 0.05, MAX_SPATIUM, lambda value: fits(value, start))
-    distance = largest_fit(start, 1.0, MAX_DISTANCE, lambda value: fits(spatium, value, compact=False))
-    score, base, probe = lay_out(src, work, spatium, distance, limit, variant)
+    settled, _, _ = lay_out(src, work, spatium, start, limit, variant)
+    lines = line_starts(settled)  # the line gap changes height alone, so its search keeps these lines
+
+    def gap_fits(value: float) -> bool:
+        try:
+            lay_out(src, work, spatium, value, limit, variant, lines)
+        except DoesNotFit:
+            return False
+        return True
+
+    distance = largest_fit(start, 1.0, MAX_DISTANCE, gap_fits)
+    score, base, probe = lay_out(src, work, spatium, distance, limit, variant, lines)
     return score, base, spatium, distance, len(pymupdf.open(probe))
 
 
@@ -545,45 +626,90 @@ def legacy_signs(mscz: pathlib.Path) -> None:
             z.writestr(key, data)
 
 
+def sheet(src: pathlib.Path, work: pathlib.Path, variant: str, limits: tuple[int, ...], saved: dict[str, Any] | None) -> tuple[Score, pathlib.Path, float, float, int]:
+    """A saved decision re-proved in 1 pass, or the search."""
+    found = prove(src, work, variant, saved) if saved else None
+    for limit in limits:
+        found = found or fit(src, work, variant, limit)
+    if found is None:
+        raise DoesNotFit(f"{src.stem}: the {variant} sheet is over {limits[-1]} pages at the smallest size")
+    return found
+
+
+def decision(found: tuple[Score, pathlib.Path, float, float, int]) -> dict[str, Any]:
+    return {"spatium": found[2], "distance": found[3], "pages": found[4], "stretch": CHORD_STRETCH, "lines": line_starts(found[0])}
+
+
 def port(src: pathlib.Path, out_dir: pathlib.Path, work: pathlib.Path) -> dict[str, object]:
-    """Every file of 1 song's folder; returns what was built for the report."""
+    """Every out-of-date file of 1 song's folder; returns what was built for the report."""
+    began = time.monotonic()
+    LAUNCHES["count"] = 0
     info = song_of(src)
     work.mkdir(parents=True, exist_ok=True)
     (out_dir / info.name).mkdir(parents=True, exist_ok=True)
     report: dict[str, object] = {"song": info.name}
-    original = fit(src, work, ORIGINAL, MAX_PAGES)
-    if original is None:
-        raise DoesNotFit(f"{info.name}: the original tone is over {MAX_PAGES} pages at the smallest size")
-    _, base, spatium, distance, pages = original
-    (out_dir / info.score_file).write_bytes(base.read_bytes())
-    run("-o", str(out_dir / info.original_pdf), str(base))
-    report["original"] = (spatium, distance, pages)
-    # the legacy file reads the original tone's MusicXML, so it is built before anything overwrites it
-    build_legacy(src, work, out_dir / info.legacy_file, spatium, distance, info)
-    legacy_gap = scorefile.difference(out_dir / info.score_file, out_dir / info.legacy_file)
-    report["legacy"] = legacy_gap[:6]
-    if legacy_gap:
-        (out_dir / info.legacy_file).unlink()
+    state = buildcache.load(info.name)
+    shared = buildcache.code_files(skip=buildcache.PIANO_ONLY_CODE)
+    every = buildcache.code_files()
+    built = []
+
+    def current(variant: str, code: list[pathlib.Path], outputs: list[pathlib.Path]) -> tuple[str, bool]:
+        key = buildcache.key_of(src, repr(info), code)
+        return key, buildcache.fresh(state.get(variant), key, outputs)
+
+    def keep(variant: str, key: str, outputs: list[pathlib.Path], found: tuple[Score, pathlib.Path, float, float, int]) -> None:
+        state[variant] = buildcache.record(key, outputs, decision=decision(found))
+        buildcache.save(info.name, state)
+        report[variant] = (found[2], found[3], found[4])
+        built.append(variant)
+
+    def old(variant: str) -> dict[str, Any] | None:
+        return state.get(variant, {}).get("decision")
+
+    outputs = [out_dir / info.score_file, out_dir / info.original_pdf, out_dir / info.legacy_file]
+    key, ready = current(ORIGINAL, shared, outputs)
+    if not ready:
+        found = sheet(src, work, ORIGINAL, (MAX_PAGES,), old(ORIGINAL))
+        (out_dir / info.score_file).write_bytes(found[1].read_bytes())
+        shutil.copyfile(work / f"{info.name}-{ORIGINAL}-layout.pdf", out_dir / info.original_pdf)
+        # the legacy file reads the original tone's MusicXML, so it is built before anything overwrites it
+        build_legacy(src, work, out_dir / info.legacy_file, found[2], found[3], info)
+        legacy_gap = scorefile.difference(out_dir / info.score_file, out_dir / info.legacy_file)
+        report["legacy"] = legacy_gap[:6]
+        if legacy_gap:
+            (out_dir / info.legacy_file).unlink()
+            outputs = outputs[:2]
+        keep(ORIGINAL, key, outputs, found)
     if info.direction:
-        tone = fit(src, work, TONE, MAX_PAGES)
-        if tone is None:
-            raise DoesNotFit(f"{info.name}: the favourite tone is over {MAX_PAGES} pages at the smallest size")
-        _, base, spatium, distance, pages = tone
-        export_view(transpose_options(info), base, out_dir / info.tone_pdf)
-        report["tone"] = (spatium, distance, pages)
-    sheet = fit(src, work, PIANO, 1) or fit(src, work, PIANO, MAX_PAGES)
-    if sheet is None:
-        raise DoesNotFit(f"{info.name}: the piano sheet is over {MAX_PAGES} pages at the smallest size")
-    _, base, spatium, distance, pages = sheet
-    export_view(transpose_options(info), base, out_dir / info.piano_pdf)
-    keep = work / f"{info.name}-piano-final.mscz"
-    keep.write_bytes(base.read_bytes())
-    report["piano"] = (spatium, distance, pages)
-    found = piano.parts(decode(src))
+        outputs = [out_dir / info.tone_pdf]
+        key, ready = current(TONE, shared, outputs)
+        if not ready:
+            found = sheet(src, work, TONE, (MAX_PAGES,), old(TONE))
+            shutil.copyfile(work / f"{info.name}-{TONE}-layout.pdf", out_dir / info.tone_pdf)
+            keep(TONE, key, outputs, found)
+    final = work / f"{info.name}-piano-final.mscz"
+    outputs = [out_dir / info.piano_pdf, final]
+    key, ready = current(PIANO, every, outputs)
+    if not ready:
+        found = sheet(src, work, PIANO, (1, MAX_PAGES), old(PIANO))
+        shutil.copyfile(work / f"{info.name}-{PIANO}-layout.pdf", out_dir / info.piano_pdf)
+        final.write_bytes(found[1].read_bytes())
+        keep(PIANO, key, outputs, found)
+    found_parts = piano.parts(decode(src))
     probe_score = decode(src)
-    report["parts"] = [(p.name, p.first, p.last, piano.staff_of([probe_score.bars[n - 1] for n in range(p.first, p.last + 1)])) for p in found]
+    report["parts"] = [(p.name, p.first, p.last, piano.staff_of([probe_score.bars[n - 1] for n in range(p.first, p.last + 1)])) for p in found_parts]
+    report["built"] = built
+    report["launches"] = LAUNCHES["count"]
+    report["seconds"] = round(time.monotonic() - began, 1)
     (work / f"{info.name}-report.json").write_text(json.dumps(report, ensure_ascii=False), encoding="utf-8")
     return report
+
+
+def free_workers(count: int, cores: int | None = None, load: float | None = None) -> int:
+    """Workers the machine can run now: its free cores, at least 1."""
+    cores = cores if cores is not None else os.cpu_count() or 1
+    load = load if load is not None else os.getloadavg()[0]
+    return max(1, min(count, MAX_WORKERS, int(cores - load)))
 
 
 def main() -> None:
@@ -591,15 +717,18 @@ def main() -> None:
     src_dir, out_dir, work = map(pathlib.Path, sys.argv[1:4])
     wanted = sys.argv[4:]
     sources = [src for src in song_sources(src_dir) if not wanted or src.stem.split("-")[0] in wanted]
-    with concurrent.futures.ProcessPoolExecutor(max_workers=min(len(sources), MAX_WORKERS)) as pool:
+    began = time.monotonic()
+    with concurrent.futures.ProcessPoolExecutor(max_workers=free_workers(len(sources))) as pool:
         results = pool.map(port, sources, itertools.repeat(out_dir), itertools.repeat(work))
-        reports = list(results)
-    for report in reports:
-        print(json.dumps(report, ensure_ascii=False), flush=True)
+        reports = []
+        for report in results:
+            reports.append(report)
+            print(json.dumps(report, ensure_ascii=False), flush=True)
     previous = work / "build-report.json"
     earlier = json.loads(previous.read_text(encoding="utf-8")) if previous.exists() else {}
     earlier.update({str(r["song"]): r for r in reports})
     previous.write_text(json.dumps(earlier, ensure_ascii=False, indent=1), encoding="utf-8")
+    print(f"songs {len(reports)} launches {sum(int(str(r['launches'])) for r in reports)} seconds {time.monotonic() - began:.1f}")
 
 
 if __name__ == "__main__":

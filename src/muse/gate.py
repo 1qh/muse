@@ -9,12 +9,13 @@ import pathlib
 import shutil
 import subprocess
 import sys
+import time
 import xml.etree.ElementTree as ET
 from collections.abc import Callable
 
 import pymupdf
 
-from muse import inverse, navigate, pdfcheck, piano, port, scorefile, verify
+from muse import buildcache, inverse, navigate, pdfcheck, piano, port, scorefile, verify
 from muse.model import Score
 from muse.song import Song, decode, song_of, sources
 
@@ -176,6 +177,12 @@ def piano_problems(src: pathlib.Path, sheet: pathlib.Path) -> list[str]:
             problems.append(f"bar {number}: rest not hidden")
         if len(held.chords) != len(bar.chords):
             problems.append(f"bar {number}: {len(held.chords)} chords, source has {len(bar.chords)}")
+    starts = [1] + [number + 1 for number, measure in enumerate(staves[0].findall("Measure"), 1) if measure.find("LayoutBreak") is not None and number < len(bars)]
+    reduced = decode(src)
+    piano.reduce(reduced)
+    noted = {bar.number for bar in reduced.bars if piano.has_notes(bar)}
+    marks = {index + 1 for index, bar in enumerate(reduced.bars) if bar.rehearsal or bar.segno or bar.coda or (index and reduced.bars[index - 1].final)}
+    problems += [f"bar {first}: short empty line could merge" for first in piano.sparse_lines(starts, noted, marks, len(bars))]
     return problems
 
 
@@ -247,24 +254,45 @@ def check_song(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> tupl
     return failures, notes
 
 
+def cached_check(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> tuple[list[str], list[str], bool]:
+    """A pass stays valid while the source, code, style, private lists and every checked file are unchanged; a failure is always re-run."""
+    info = song_of(src)
+    outputs = sorted(path for path in (out / info.name).iterdir() if path.is_file()) + [work / f"{info.name}-piano-final.mscz"]
+    private = pathlib.Path(os.environ["MUSE_PRIVATE"])
+    lists = "".join(buildcache.file_digest(path) for path in sorted(private.glob("*.txt")) + sorted(private.glob("*.json")) if path.is_file())
+    key = buildcache.key_of(src, repr(info), buildcache.code_files(), lists)
+    state = buildcache.load(info.name)
+    if buildcache.fresh(state.get("gate"), key, outputs):
+        return [], list(state["gate"]["notes"]), True
+    failures, notes = check_song(src, out, work)
+    state = buildcache.load(info.name)
+    state.pop("gate", None)
+    if not failures:
+        state["gate"] = buildcache.record(key, outputs, notes=notes)
+    buildcache.save(info.name, state)
+    return failures, notes, False
+
+
 def main() -> None:
     src_dir, out, work = map(pathlib.Path, sys.argv[1:4])
     work.mkdir(parents=True, exist_ok=True)
     total = 0
-    found = sources(src_dir)
+    wanted = sys.argv[4:]
+    found = [src for src in sources(src_dir) if not wanted or src.stem.split("-")[0] in wanted]
     held_back = withheld_songs()
     for name, reason in held_back.items():
         print(f"withheld MuseScore 3 file: {name}: {reason}")
-    trouble = folder_problems(out, [song_of(src) for src in found], set(held_back))
+    trouble = folder_problems(out, [song_of(src) for src in sources(src_dir)], set(held_back))
     for problem in trouble:
         print("  FAIL: folders:", problem)
     total += len(trouble)
     for src in found:
+        began = time.monotonic()
         try:
-            failures, notes = check_song(src, out, work)
+            failures, notes, cached = cached_check(src, out, work)
         except Exception as error:  # a refused source is a failure of this song, never the end of the run
-            failures, notes = [f"refused: {error}"], []
-        print(f"{src.stem}: {len(failures)} failures")
+            failures, notes, cached = [f"refused: {error}"], [], False
+        print(f"{src.stem}: {len(failures)} failures {time.monotonic() - began:.1f}s{' cached' if cached else ''}")
         for note in notes:
             print("  note:", note)
         for failure in failures:

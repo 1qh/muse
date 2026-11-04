@@ -3,10 +3,9 @@ from fractions import Fraction as F
 
 import pymupdf
 
-from muse import musicxml, piano, port
+from muse import musicxml, pdfcheck, piano, port
 from muse.model import Bar, Chord, Event, Head, Score, Text
 from muse.navigate import expected_order
-from muse import pdfcheck
 from muse.pdfcheck import chord_collisions, foreign_fonts, idle_staves, margin_words, oversized_text, past_margin, title_problems
 from muse.symbolfont import Decoder, assemble_chords, is_dust, nominal_dots, parse_chord
 from muse.verify import midi
