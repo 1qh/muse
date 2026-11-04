@@ -273,6 +273,28 @@ def cached_check(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> tu
     return failures, notes, False
 
 
+def verdicts(src_dir: pathlib.Path, out: pathlib.Path, work: pathlib.Path, names: tuple[str, ...] = ()) -> dict[str, list[str]]:
+    """Each song folder's own failures, its files included."""
+    work.mkdir(parents=True, exist_ok=True)
+    held_back = set(withheld_songs())
+    found: dict[str, list[str]] = {}
+    for src in sources(src_dir):
+        info = song_of(src)
+        if names and info.name not in names:
+            continue
+        files = {name for name in info.files() if name != info.legacy_file or info.name not in held_back}
+        folder = out / info.name
+        held = {f"{info.name}/{p.name}" for p in folder.iterdir() if p.is_file() and p.name != ".DS_Store"} if folder.exists() else set()
+        found[info.name] = [f"missing {name}" for name in sorted(files - held)] + [f"stray {name}" for name in sorted(held - files)]
+        if not found[info.name]:
+            try:
+                found[info.name] = cached_check(src, out, work)[0]
+            except Exception as error:  # a refused source blocks its song, never the run
+                found[info.name] = [f"refused: {error}"]
+        print(f"{info.name}: {len(found[info.name])} failures", flush=True)
+    return found
+
+
 def main() -> None:
     src_dir, out, work = map(pathlib.Path, sys.argv[1:4])
     work.mkdir(parents=True, exist_ok=True)

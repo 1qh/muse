@@ -144,15 +144,22 @@ def recorder(gate_fails=False, state="PRIVATE"):
 def test_publish_refuses_a_public_repo_before_anything_runs(tmp_path):
     run, calls = recorder(state="PUBLIC")
     with pytest.raises(publish.Refused, match="not private"):
-        publish.publish(tmp_path, tmp_path, tmp_path, run)
+        publish.publish(tmp_path, tmp_path, tmp_path, run, lambda *_: {})
     assert len(calls) == 1
 
 
-def test_publish_refuses_a_failed_gate_and_touches_no_git(tmp_path):
-    run, calls = recorder(gate_fails=True)
-    with pytest.raises(publish.Refused, match="nothing published"):
-        publish.publish(tmp_path, tmp_path, tmp_path, run)
-    assert not any(args[0] == "git" for args in calls)
+def test_a_failing_song_keeps_its_folder_and_a_passing_song_publishes(tmp_path):
+    calls = []
+
+    def run(*args, cwd=None):
+        calls.append(args)
+        return {"view": "PRIVATE", "ls-files": "a/a.pdf", "--cached": "good/x.pdf", "rev-parse": "t", "get-url": "u"}.get(next((x for x in reversed(args) if x in ("view", "ls-files", "--cached", "rev-parse", "get-url")), ""), "PRIVATE" if "visibility" in args else "")
+
+    blocked = publish.publish(tmp_path, tmp_path, tmp_path, run, lambda *_: {"good": [], "bad": ["bar 1 wrong"]})
+    assert blocked == {"bad": ["bar 1 wrong"]}
+    assert ("git", "add", "-A", "--", "good") in calls
+    assert ("git", "add", "-A", "--", "bad") not in calls
+    assert ("git", "checkout", "HEAD", "--", "bad") in calls
 
 
 def test_sheets_repo_refuses_anything_but_sheets() -> None:

@@ -8,7 +8,10 @@ import sys
 import tempfile
 from collections.abc import Callable
 
+from muse import gate
+
 Runner = Callable[..., str]
+Judge = Callable[[pathlib.Path, pathlib.Path, pathlib.Path, tuple[str, ...]], dict[str, list[str]]]
 
 
 class Refused(RuntimeError):
@@ -31,19 +34,31 @@ def stray_files(tracked: str) -> list[str]:
     return [name for name in tracked.split("\n") if name and not name.endswith((".pdf", ".mscz"))]
 
 
-def publish(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path, run: Runner = sh) -> None:
+def keep_last_good(out: pathlib.Path, song: str, run: Runner) -> None:
+    """Put a failing song's folder back to what is published; a song never published leaves nothing."""
+    if run("git", "ls-files", "--", song, cwd=out):
+        run("git", "reset", "-q", "HEAD", "--", song, cwd=out)
+        run("git", "checkout", "HEAD", "--", song, cwd=out)
+    run("git", "clean", "-fdq", "--", song, cwd=out)
+
+
+def publish(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path, run: Runner = sh, judge: Judge = gate.verdicts, names: tuple[str, ...] = ()) -> dict[str, list[str]]:
+    """Publish every song passing its gate; returns the blocked songs, each keeping its last good folder, with reasons."""
     if visibility(out, run) != "PRIVATE":
         raise Refused(f"{out} is not private; sheets may only go to a private repo")
-    try:
-        run(sys.executable, "-m", "muse.gate", str(src), str(out), str(work))
-    except Refused as error:
-        raise Refused(f"gate failed, nothing published:\n{error}") from error
-    run("git", "add", "-A", ".", cwd=out)
+    verdicts = judge(src, out, work, names)
+    blocked = {song: failures for song, failures in verdicts.items() if failures}
+    for song in blocked:
+        keep_last_good(out, song, run)
+    for song in verdicts:
+        if song not in blocked:
+            run("git", "add", "-A", "--", song, cwd=out)
     extras = stray_files(run("git", "ls-files", cwd=out))
     if extras:
         raise SystemExit(f"the sheets repo holds only PDF and MuseScore files, refusing: {extras}")
-    if run("git", "status", "--porcelain", cwd=out):
-        run("git", "commit", "-m", "fix: re-export sheets", cwd=out)
+    if not run("git", "diff", "--cached", "--name-only", cwd=out):
+        return blocked
+    run("git", "commit", "-m", "fix: re-export sheets", cwd=out)
     run("git", "push", cwd=out)
     tree = run("git", "rev-parse", "HEAD^{tree}", cwd=out)
     url = run("git", "remote", "get-url", "origin", cwd=out)
@@ -64,7 +79,7 @@ def publish(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path, run: Runne
         raise Refused("local tree differs after the purge")
     if visibility(out, run) != "PRIVATE":
         raise Refused(f"{out} stopped being private")
-    print("ok")
+    return blocked
 
 
 def main() -> None:
@@ -72,9 +87,13 @@ def main() -> None:
         raise SystemExit("bfg not found")
     src, out, work = map(pathlib.Path, sys.argv[1:4])
     try:
-        publish(src, out, work)
+        blocked = publish(src, out, work, names=tuple(sys.argv[4:]))
     except Refused as error:
         raise SystemExit(str(error)) from error
+    for song, failures in blocked.items():
+        print(f"blocked {song}: {failures[:3]}")
+    print("ok" if not blocked else f"blocked {len(blocked)}")
+    raise SystemExit(1 if blocked else 0)
 
 
 if __name__ == "__main__":
