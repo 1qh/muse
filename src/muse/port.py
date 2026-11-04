@@ -453,8 +453,8 @@ def seat_chords(score_path: pathlib.Path, pdf: pathlib.Path, render: Callable[[]
             moved = chordseat.align(score_path, pdf)
             if not widened and not moved:
                 return
-        except ValueError as error:
-            raise SheetRefused(f"{song}: {error}") from error
+        except ValueError:
+            return  # chords run together, so the text layer merges them; the crowding check splits that line
         render()
 
 
@@ -559,6 +559,12 @@ def lay_out(src: pathlib.Path, work: pathlib.Path, spatium: float, distance: flo
         clearing["signs"] = True
         build()
     refuse_fixed(probe, info.title, song)
+    try:
+        seating = chordseat.problems(base, probe)
+    except ValueError as error:
+        raise DoesNotFit(f"{song}: {error}") from error
+    if seating:
+        raise DoesNotFit(f"{song}: {seating[:3]}")
     found_problems = pdfcheck.all_problems(probe, info.title)
     if found_problems:
         raise DoesNotFit(f"{song}: {found_problems[:3]}")
