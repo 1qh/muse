@@ -162,6 +162,8 @@ def sparse_lines(starts: list[int], noted: set[int], section_starts: set[int], t
 
 def lone_lines(starts: list[int], total: int) -> list[int]:
     """Lines holding 1 bar, by bar number."""
+    if len(starts) < 2:
+        return []  # a single line has no neighbour to join
     return [first for first, stop in zip(starts, [*starts[1:], total + 1], strict=True) if stop - first == 1]
 
 
