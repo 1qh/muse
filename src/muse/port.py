@@ -564,8 +564,8 @@ def lay_out(src: pathlib.Path, work: pathlib.Path, spatium: float, distance: flo
             if row[0] in crowded and len(row) > 1:
                 starts.add(split_at(row[0] - 1, row[-1], tied))
         measure()
-        if len(pymupdf.open(probe)) != found:
-            raise DoesNotFit(f"{song}: even pages need {len(pymupdf.open(probe))} pages, not {found}")
+    if len(pymupdf.open(probe)) != found:
+        raise DoesNotFit(f"{song}: even pages need {len(pymupdf.open(probe))} pages, not {found}")
     if pdfcheck.sign_on_chord(probe):
         clearing["signs"] = True
         build()
