@@ -1,5 +1,9 @@
 """A cache must never hide a stale file."""
-from muse import buildcache, port
+import subprocess
+
+import pytest
+
+from muse import buildcache, port, preflight
 
 
 def setup(tmp_path):
@@ -45,3 +49,31 @@ def test_workers_follow_the_free_cores():
 
 def test_gate_code_is_outside_every_build_key():
     assert not buildcache.CHECK_ONLY_CODE & {p.name for p in buildcache.code_files(skip=buildcache.CHECK_ONLY_CODE)}
+
+
+def test_a_failing_code_check_stops_the_rest():
+    calls = []
+
+    def check(command, **_):
+        calls.append(command)
+        return subprocess.CompletedProcess(command, 1, "boom", "")
+
+    assert preflight.code_problems(check)[0].startswith("tests: boom")
+    assert len(calls) == 1
+
+
+def test_a_song_with_no_piano_part_or_a_refused_source_is_named(monkeypatch, tmp_path):
+    source = tmp_path / "x.pdf"
+    source.write_text("x")
+    monkeypatch.setattr(preflight, "decode", lambda _: object())
+    monkeypatch.setattr(preflight, "song_of", lambda *_: "song")
+    monkeypatch.setattr(preflight.piano, "parts", lambda _: [])
+    assert preflight.song_problem(source) == "no piano part resolved"
+    monkeypatch.setattr(preflight, "decode", lambda _: (_ for _ in ()).throw(ValueError("bad font")))
+    assert "bad font" in preflight.song_problem(source)
+
+
+def test_a_check_no_size_can_change_refuses_instead_of_searching():
+    assert not issubclass(port.SheetRefused, port.DoesNotFit)
+    with pytest.raises(RuntimeError):
+        raise port.SheetRefused("x")

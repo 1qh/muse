@@ -328,6 +328,10 @@ def balance(score: Score, probe: pathlib.Path) -> bool:
     return True
 
 
+class SheetRefused(RuntimeError):
+    """A final-PDF check no size can change; the song stops at once instead of searching."""
+
+
 class DoesNotFit(Exception):
     """This size does not fit the song's page count."""
 
@@ -486,6 +490,9 @@ def lay_out(src: pathlib.Path, work: pathlib.Path, spatium: float, distance: flo
     if pdfcheck.sign_on_chord(probe):
         lifted["signs"] = True
         build()
+    fixed_problems = pdfcheck.margin_words(probe) + pdfcheck.foreign_fonts(probe) + pdfcheck.title_problems(probe, info.title) + pdfcheck.sign_problems(probe)
+    if fixed_problems:
+        raise SheetRefused(f"{song}: {fixed_problems[:3]}")
     found_problems = pdfcheck.all_problems(probe, info.title)
     if found_problems:
         raise DoesNotFit(f"{song}: {found_problems[:3]}")
