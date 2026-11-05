@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import concurrent.futures
+import hashlib
 import json
 import os
 import pathlib
@@ -38,7 +39,7 @@ SIZE_FLOORS = (1.2, 1.15)  # below 1.2 only for a song that fits its pages no ot
 MAX_PAGES = 2
 MAX_WORKERS = 3  # another project shares this machine
 SEAT_PASSES = 5
-LAYOUT_RULES = 7  # raise when layout rules change, so a saved layout is searched again rather than re-proved
+LAYOUT_FILES = ("port.py", "chordseat.py", "piano.py", "chordnames.py", "musicxml.py", "style.mss")
 FINAL_SPLITS = 8
 FINAL_STEPS = 6  # sizes to step down when the chosen layout fails its final checks
 SHEET_LAUNCH_CAP = 150
@@ -625,6 +626,14 @@ def line_starts(score: Score) -> list[int]:
     return [row[0] - 1 for row in rows(score)]
 
 
+def layout_rules() -> str:
+    """A digest of what decides a layout: a saved layout from other rules is searched again."""
+    whole = hashlib.sha256()
+    for name in LAYOUT_FILES:
+        whole.update((pathlib.Path(__file__).parent / name).read_bytes())
+    return whole.hexdigest()[:16]
+
+
 def prove(src: pathlib.Path, work: pathlib.Path, variant: str, saved: dict[str, Any]) -> tuple[Score, pathlib.Path, float, float, int] | None:
     """Rebuild a saved decision once; None sends the sheet back to the search."""
     try:
@@ -766,7 +775,7 @@ def legacy_signs(mscz: pathlib.Path) -> None:
 def sheet(src: pathlib.Path, work: pathlib.Path, variant: str, limits: tuple[int, ...], saved: dict[str, Any] | None) -> tuple[Score, pathlib.Path, float, float, int]:
     """A saved decision re-proved in 1 pass, or the search."""
     SEARCH_CAP["hit"] = 0
-    found = prove(src, work, variant, saved) if saved and saved.get("rules") == LAYOUT_RULES else None  # new layout rules owe a new search
+    found = prove(src, work, variant, saved) if saved and saved.get("rules") == layout_rules() else None  # new layout rules owe a new search
     for limit in limits:
         found = found or fit(src, work, variant, limit)
     if found is None:
@@ -783,7 +792,7 @@ def floor_gap_problems(variant: str, saved: dict[str, Any] | None) -> list[str]:
 
 
 def decision(found: tuple[Score, pathlib.Path, float, float, int]) -> dict[str, Any]:
-    return {"rules": LAYOUT_RULES, "spatium": found[2], "distance": found[3], "pages": found[4], "lines": line_starts(found[0])}
+    return {"rules": layout_rules(), "spatium": found[2], "distance": found[3], "pages": found[4], "lines": line_starts(found[0])}
 
 
 def port(src: pathlib.Path, out_dir: pathlib.Path, work: pathlib.Path) -> dict[str, object]:

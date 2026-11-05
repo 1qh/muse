@@ -472,7 +472,7 @@ def test_a_layout_saved_under_old_rules_is_searched_again(monkeypatch, tmp_path)
     monkeypatch.setattr(port, "prove", lambda *a: calls.append("prove") or ("proved",))
     monkeypatch.setattr(port, "fit", lambda *a: calls.append("fit") or ("fitted",))
     assert port.sheet(tmp_path, tmp_path, port.PIANO, (1,), {"rules": 1}) == ("fitted",)
-    assert port.sheet(tmp_path, tmp_path, port.PIANO, (1,), {"rules": port.LAYOUT_RULES}) == ("proved",)
+    assert port.sheet(tmp_path, tmp_path, port.PIANO, (1,), {"rules": port.layout_rules()}) == ("proved",)
     assert calls == ["fit", "prove"]
 
 
@@ -531,3 +531,13 @@ def test_a_wrong_playback_is_found():
 def test_a_wrong_mapping_breaks_its_chord():
     chord = parse_chord("Amaj7", None, 0)
     assert 'text="^7"' in musicxml.harmony(chord, F(0))
+
+
+def test_oracle_finds_a_lost_word_and_excuses_the_rest() -> None:
+    from collections import Counter
+
+    from muse import oracle
+
+    printed = Counter({"strings": 1, "dizi": 1, "maj": 3, "piano": 1})
+    decoded = Counter({"strings": 1, "vapiano": 1})
+    assert oracle.lost_words(printed, decoded, {"maj"}) == {"dizi": 1}

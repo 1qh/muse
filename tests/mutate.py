@@ -8,6 +8,8 @@ import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 MUTATIONS = [
+    ("oracle.py", "if count > decoded[word] and word not in excluded and word not in joined and not CHORD.fullmatch(word)}", "if False}", "lost word"),
+    ("symbolfont.py", "any(abs(s.y - y) < CREDIT_ROW and s.x >= x for y, x in credit_rows)", "any(abs(s.y - y) < CREDIT_ROW for y, x in credit_rows)", "credit row left"),
     ("pdfcheck.py", "if not any(high <= head <= low for head in heads):", "if False:", "empty staff"),
     ("port.py", "bar.texts2 = []\n", "pass\n", "idle cue"),
     ("piano.py", "bar.voices = first if voices_sound(first) else second if voices_sound(second) else first", "bar.voices = first", "kept bar staff"),
@@ -49,7 +51,7 @@ MUTATIONS = [
     ("port.py", "or previous.final or piano.label_of(bar))", "or previous.final)", "label starts a line"),
     ("gate.py", 'for bar in sorted(labels - opening - tied_in)]', 'for bar in []]', "label inside a line"),
     ("port.py", "if following in starts and following not in fixed and len(row) > 1:", "if False:", "hand bar on"),
-    ("port.py", 'if saved and saved.get("rules") == LAYOUT_RULES else None', "if saved else None", "old layout reused"),
+    ("port.py", 'if saved and saved.get("rules") == layout_rules() else None', "if saved else None", "old layout reused"),
     ("port.py", "* size * len(bar.chords)", "* size", "shared bar room"),
     ("port.py", "while end < len(bars) and end - at < TRY_CEILING and line_room(bars[at:end + 1], spatium) <= LINE_WIDTH:", "while False:", "line fill"),
     ("port.py", "awkward = stop < len(bars) and (tied_out(bars[stop - 1]) or not bars[stop].chords or len(bars) - stop == 1)", "awkward = False", "awkward break"),
@@ -135,6 +137,10 @@ def run(src: pathlib.Path) -> int:
 
 
 def main() -> None:
+    if "--anchors" in sys.argv:
+        dead = [name for file, old, _, name in MUTATIONS if old not in (ROOT / "src" / "muse" / file).read_text(encoding="utf-8")]
+        print(f"dead anchors: {dead}" if dead else "ok")
+        raise SystemExit(1 if dead else 0)
     survived = 0
     with tempfile.TemporaryDirectory() as tmp:
         base = pathlib.Path(tmp) / "src"

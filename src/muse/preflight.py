@@ -6,13 +6,14 @@ import subprocess
 import sys
 from collections.abc import Callable
 
-from muse import buildcache, piano
+from muse import buildcache, oracle, piano
 from muse.song import decode, song_of, sources
 
 CODE_CHECKS = (
     ("tests", (sys.executable, "-m", "pytest", "-q", "-x")),
     ("lint", (sys.executable, "-m", "ruff", "check", "-q", "src", "tests")),
     ("types", (sys.executable, "-m", "mypy", "src")),
+    ("control anchors", (sys.executable, "tests/mutate.py", "--anchors")),
 )
 
 
@@ -24,6 +25,9 @@ def song_problem(src: pathlib.Path) -> str:
         buildcache.key_of(src, repr(info), buildcache.code_files())
         if not piano.parts(score):
             return "no piano part resolved"
+        lost = oracle.problems(src, score, info.title)
+        if lost:
+            return lost[0]
     except Exception as error:  # every refusal names its song and the others go on
         return f"{type(error).__name__}: {str(error)[:200]}"
     return ""

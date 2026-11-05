@@ -26,8 +26,7 @@ KNOWN_GLYPHS = frozenset((0x20, 0x23, 0x65, 0x6D, 0xF0E2, 0xF0F7, 0x2E, 0x31, 0x
                           0xF0C0, 0xF0C5, 0xF0C7, 0xF0C8, 0xF0CE, 0xF0CF, 0xF0D2, 0xF0D3, 0xF0D9, 0xF0DE, 0xF0E1, 0xF0E4, 0xF0EB, 0xF0EE, 0xF0F3, 0xF0F5, 0xF0F6, 0xF0FA))
 FLATS, SHARPS, NATURALS = {0x62, 0xF062}, {0x23, 0xF023}, {0x6E, 0xF06E}
 STEP_PER_SIZE = 2.16 / 17.9
-CREDIT_CLEARANCE = 42.0  # points above the first staff line
-CREDIT_X = 300.0
+CREDIT_ROW = 2.0  # points: text on a credit label's baseline, right of the label, is that credit
 COINCIDENT_X = 2.0
 MAX_SPLIT_RESTS = 7
 BEAM_GAP = 0.9
@@ -685,10 +684,11 @@ class Decoder:
         clef_x = min((g.x + 1 for g in glyphs if g.code == CLEF and abs(g.y - sys[0]) < 8), default=0.0)
         small_flats = [g for g in glyphs if g.code in FLATS | SHARPS and abs(g.size - size) > 0.5 and g.size > 10]
         items = []
+        credit_rows = [(s.y, s.x) for s in spans if any(n in s.text for n in NOISE)]
         for s in spans:
             if any(n in s.text for n in NOISE) or s.size > 20:
                 continue
-            if bars and bars[0].number == 1 and s.y < sys[0] - CREDIT_CLEARANCE and (s.x > CREDIT_X or s.y < MARK_Y):
+            if bars and bars[0].number == 1 and (s.y < MARK_Y or any(abs(s.y - y) < CREDIT_ROW and s.x >= x for y, x in credit_rows)):
                 continue  # credits sit in the top corners, well above the first staff's chords and cues
             if abs(s.size - 8.0) < 0.3 and s.text.strip().isdigit() and (not s.font.startswith("Times") or s.x < clef_x) and bars and s.y > sys[0] - 45 and s.x < bars[0].left + 40:
                 self.printed.append((bars[0].number, int(s.text)))
