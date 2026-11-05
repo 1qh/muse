@@ -42,9 +42,10 @@ SEAT_PASSES = 5
 LAYOUT_FILES = ("port.py", "chordseat.py", "piano.py", "chordnames.py", "musicxml.py", "style.mss")
 FINAL_SPLITS = 8
 FINAL_STEPS = 6  # sizes to step down when the chosen layout fails its final checks
-SHEET_LAUNCH_CAP = 150
+SHEET_LAUNCH_CAP = 400
 FINAL_LAUNCH_CAP = 600
-PIANO_LAUNCH_CAP = 250
+PIANO_LAUNCH_CAP = 500
+NEAR_REACH = 0.5  # how far above a saved size a seeded search looks
 SIZE_STEP = 0.05
 CLIMB_START, CLIMB_STEP, CLIMB_STEPS = 1.3, 0.1, 8
 SIGN_CLEARANCE = 3.0  # spaces a chord moves right off a sign printed on its baseline
@@ -668,7 +669,7 @@ def acceptable(laid: Score, variant: str) -> bool:
     return short_line_share(rows(laid)) <= MAX_SHORT_SHARE
 
 
-def fit(src: pathlib.Path, work: pathlib.Path, variant: str, limit: int) -> tuple[Score, pathlib.Path, float, float, int] | None:
+def fit(src: pathlib.Path, work: pathlib.Path, variant: str, limit: int, near: float | None = None) -> tuple[Score, pathlib.Path, float, float, int] | None:
     """The largest notation of 1 sheet within a page limit and a launch cap; only the chosen layout is seated and checked in full."""
     tried: dict[tuple[float, float, bool], bool] = {}
     SEARCH_CAP["at"] = LAUNCHES["count"] + (PIANO_LAUNCH_CAP if variant == PIANO else SHEET_LAUNCH_CAP)
@@ -687,10 +688,12 @@ def fit(src: pathlib.Path, work: pathlib.Path, variant: str, limit: int) -> tupl
         floors = [(size, gap) for size in SIZE_FLOORS for gap in (BASE_DISTANCE, MIDDLE_DISTANCE, TIGHT_DISTANCE) if size == SIZE_FLOORS[0] or gap != BASE_DISTANCE]
         climb = [(round(CLIMB_START + step * CLIMB_STEP, 2), BASE_DISTANCE) for step in range(CLIMB_STEPS)]  # text keeps its size, so the smallest notation can collide where a larger one fits
         floors += climb
-        found = next((pair for pair in floors if fits(pair[0], pair[1], compact=False)), None)
+        seeded = near is not None and fits(near, BASE_DISTANCE)
+        found = (near, BASE_DISTANCE) if seeded else next((pair for pair in floors if fits(pair[0], pair[1], compact=False)), None)
         if found is None:
             return None
-        spatium = largest_fit(found[0], SIZE_STEP, MAX_SPATIUM, lambda value: fits(value, found[1]))
+        ceiling = min(MAX_SPATIUM, found[0] + NEAR_REACH) if seeded else MAX_SPATIUM
+        spatium = largest_fit(found[0], SIZE_STEP, ceiling, lambda value: fits(value, found[1]))
         distance = found[1]
     finally:
         SEARCH_CAP["at"] = 0
@@ -798,7 +801,7 @@ def sheet(src: pathlib.Path, work: pathlib.Path, variant: str, limits: tuple[int
     found = prove(src, work, variant, saved) if saved else None  # a finished search stays paid for
     SEARCHED["rules"] = saved.get("searched", saved.get("rules")) if found and saved else layout_rules()
     for limit in limits:
-        found = found or fit(src, work, variant, limit)
+        found = found or fit(src, work, variant, limit, float(saved["spatium"]) if saved else None)
     if found is None:
         cause = "a launch cap stopped the search" if SEARCH_CAP["hit"] else f"it is over {limits[-1]} pages at the smallest size"
         raise DoesNotFit(f"{src.stem}: the {variant} sheet has no passing layout: {cause}")

@@ -470,7 +470,7 @@ def test_chords_sharing_a_bar_each_ask_for_their_share():
 def test_a_saved_layout_is_proved_before_any_search(monkeypatch, tmp_path):
     calls = []
     monkeypatch.setattr(port, "prove", lambda *a: calls.append("prove") or ("proved",))
-    monkeypatch.setattr(port, "fit", lambda *a: calls.append("fit") or ("fitted",))
+    monkeypatch.setattr(port, "fit", lambda *a, **k: calls.append("fit") or ("fitted",))
     assert port.sheet(tmp_path, tmp_path, port.PIANO, (1,), {"rules": "old"}) == ("proved",)
     assert port.SEARCHED["rules"] == "old"
     assert port.sheet(tmp_path, tmp_path, port.PIANO, (1,), None) == ("fitted",)
@@ -600,3 +600,23 @@ def test_prove_refuses_a_built_line_opening_without_its_chord(monkeypatch, tmp_p
     monkeypatch.setattr(port, "line_rule_breaks", lambda laid: [])
     monkeypatch.setattr(port, "chordless_opening", lambda laid, base: [17])
     assert port.prove(tmp_path, tmp_path, port.PIANO, {"spatium": 1.5, "distance": 11.0, "pages": 1, "lines": [0]}) is None
+
+
+def test_a_search_starts_at_the_saved_size_and_looks_near_it(monkeypatch, tmp_path):
+    tried = []
+
+    class Fits:
+        pass
+
+    def lay(src, work, size, gap, limit, variant, seated=False):
+        tried.append(size)
+        if size > 1.6:
+            raise port.DoesNotFit("too big")
+        return Fits(), None, None
+
+    monkeypatch.setattr(port, "lay_out", lay)
+    monkeypatch.setattr(port, "acceptable", lambda *a: True)
+    monkeypatch.setattr(port, "finish", lambda src, work, variant, limit, size, gap: size)
+    assert port.fit(tmp_path, tmp_path, port.ORIGINAL, 2, near=1.4) == 1.6
+    assert tried[0] == 1.4
+    assert max(tried) <= 1.95

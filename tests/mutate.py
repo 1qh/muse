@@ -11,6 +11,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 CONTROL_WORKERS = 8
 CONTROL_SECONDS = 180
 MUTATIONS = [
+    ("port.py", "seeded = near is not None and fits(near, BASE_DISTANCE)", "seeded = False", "search ignores saved size"),
     ("port.py", "or line_rule_breaks(laid) or chordless_opening(laid, base):", "or line_rule_breaks(laid):", "proof ignores chordless lines"),
     ("port.py", "or line_rule_breaks(laid) or chordless_opening(laid, base):", "or chordless_opening(laid, base):", "proof ignores line rules"),
     ("chordnames.py", 'f"<ChordList>{found[1]}</ChordList></Style>"', '"</Style>"', "chord list not embedded"),
