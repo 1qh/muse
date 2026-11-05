@@ -220,6 +220,12 @@ def line_room(bars: list[Bar], spatium: float, even_empty: bool) -> float:
     return sum(bar_room(bar, spatium) for bar in bars if piano.has_notes(bar)) + max(empty, default=0.0) * len(empty)
 
 
+def break_cost(bars: list[Bar], stop: int, full: int) -> tuple[bool, float]:
+    """A break is awkward before a chordless bar, on a tie or stranding 1 bar; otherwise fuller is better, and a phrase boundary is worth a little."""
+    awkward = stop < len(bars) and (tied_out(bars[stop - 1]) or not bars[stop].chords or len(bars) - stop == 1)
+    return (awkward, full - stop - (PHRASE_PULL if stop % PHRASE == 0 else 0.0))
+
+
 def fill_block(bars: list[Bar], spatium: float, even_empty: bool) -> list[int]:
     """Positions starting a line in a section: each line fills until the next bar will not fit, then breaks at the best nearby place."""
     starts = []
@@ -230,11 +236,7 @@ def fill_block(bars: list[Bar], spatium: float, even_empty: bool) -> list[int]:
         while end < len(bars) and end - at < TRY_CEILING and line_room(bars[at:end + 1], spatium, even_empty) <= LINE_WIDTH:
             end += 1
 
-        def cost(stop: int) -> tuple[bool, float]:
-            awkward = stop < len(bars) and (tied_out(bars[stop - 1]) or not bars[stop].chords or len(bars) - stop == 1)
-            return (awkward, end - stop - (PHRASE_PULL if stop % PHRASE == 0 else 0.0))
-
-        at = min(range(max(at + 1, end - BACK_REACH), end + 1), key=cost)
+        at = min(range(max(at + 1, end - BACK_REACH), end + 1), key=lambda stop, full=end: break_cost(bars, stop, full))
     return starts
 
 

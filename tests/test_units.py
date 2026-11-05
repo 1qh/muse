@@ -432,12 +432,12 @@ def test_a_chordless_line_start_is_found(monkeypatch):
 
 def test_a_section_fills_its_lines_by_room_and_not_by_a_count():
     def bar(letters: int) -> Bar:
-        made = Bar(1, 0, 0.0, 100.0, F(4), voices=[], chords=[parse_chord("A" + "m" * (letters - 3), None, 0)] if letters else [])
-        return made
+        return Bar(1, 0, 0.0, 100.0, F(4), voices=[], chords=[parse_chord("A" + "m" * (letters - 3), None, 0)] if letters else [])
     light = [bar(4) for _ in range(30)]
     wide = [bar(20) for _ in range(30)]
     assert len(port.fill_block(light, 1.2, True)) < len(port.fill_block(wide, 1.2, True))
-    assert all(b - a <= port.TRY_CEILING for a, b in zip(port.fill_block(light, 1.2, True), port.fill_block(light, 1.2, True)[1:]))
+    starts = port.fill_block(light, 1.2, True)
+    assert all(b - a <= port.TRY_CEILING for a, b in zip(starts, starts[1:], strict=False))
 
 
 def test_a_break_avoids_a_chordless_next_bar():
