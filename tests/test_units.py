@@ -450,8 +450,8 @@ def test_a_break_avoids_a_chordless_next_bar():
 def test_a_piano_line_prices_every_empty_bar_as_its_widest():
     narrow = Bar(1, 0, 0.0, 100.0, F(4), voices=[], chords=[parse_chord("A", None, 0)])
     broad = Bar(2, 0, 0.0, 100.0, F(4), voices=[], chords=[parse_chord("Ammmmmmmmm", None, 0)])
-    assert port.line_room([narrow, broad], 1.2, True) == 2 * port.bar_room(broad, 1.2) * port.PIANO_PACK
-    assert port.line_room([broad, broad], 1.2, True) == 2 * port.bar_room(broad, 1.2) * port.PIANO_PACK
+    assert port.line_room([narrow, broad], 1.2, True) == 2 * port.bar_room(broad, 1.2)
+    assert port.line_room([broad, broad], 1.2, True) == 2 * port.bar_room(broad, 1.2)
 
 
 def test_merging_asks_what_fits_and_respects_marks():
@@ -472,3 +472,9 @@ def test_a_crowded_line_gives_up_its_last_bars_avoiding_a_tie():
 def test_a_cue_at_chord_size_is_no_chord():
     assert chordseat.CHORD_SHAPE.match("Am7") and chordseat.CHORD_SHAPE.match("A") and chordseat.CHORD_SHAPE.match("Bb")
     assert not chordseat.CHORD_SHAPE.match("AcousticGtr") and not chordseat.CHORD_SHAPE.match("After") and not chordseat.CHORD_SHAPE.match("Dizi")
+
+
+def test_chords_sharing_a_bar_each_ask_for_their_share():
+    lone = Bar(1, 0, 0.0, 100.0, F(4), voices=[], chords=[parse_chord("Am7", None, 0)])
+    pair = Bar(2, 0, 0.0, 100.0, F(4), voices=[], chords=[parse_chord("Am7", None, 0), parse_chord("Am7", None, 0)])
+    assert port.bar_room(pair, 1.2) == 2 * port.bar_room(lone, 1.2)

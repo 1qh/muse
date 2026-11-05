@@ -17,13 +17,14 @@ from typing import Any
 import pymupdf
 
 from muse import buildcache, chordseat, musicxml, pdfcheck, piano, scorefile
-from muse.model import Bar, Score
+from muse.model import Bar, Chord, Score
 from muse.song import Song, decode, song_of
 from muse.song import sources as song_sources
 
 MAX_LAYOUT_ROUNDS = 40
 MAX_MERGE_ROUNDS = 12
-LETTER_WIDTH = 0.55  # of the chord size
+LETTER_WIDTH = 0.52  # of the chord size
+CHORD_GAP = 0.75  # of the chord size, between 2 chords
 CHORD_SIZE_PER_SPACE = 8.0  # printed chord points per unit of the style's spatium
 LINE_WIDTH = 540.0  # points of a line after its clef
 TRY_CEILING = 24  # bars tried on a line, only to limit tries; what fits decides
@@ -41,7 +42,6 @@ FINAL_SPLITS = 4
 FINAL_STEPS = 3  # sizes to step down when the chosen layout fails its final checks
 SHEET_LAUNCH_CAP = 60
 PIANO_LAUNCH_CAP = 150
-PIANO_PACK = 0.7  # a piano line starts this much fuller than the estimate says, and the render corrects it
 SIZE_STEP = 0.05
 SIGN_CLEARANCE = 3.0  # spaces a chord moves right off a sign printed on its baseline
 SIGN_SIZE = 25  # a sign may exceed the chords: about 2.5 times the default sign
@@ -207,9 +207,15 @@ def sections(score: Score) -> list[list[int]]:
     return blocks
 
 
+def chord_name_length(chord: Chord) -> int:
+    return len(chord.root) + bool(chord.root_alter) + len(chord.kind) + (len(chord.bass) + 1 + bool(chord.bass_alter) if chord.bass else 0)
+
+
 def bar_room(bar: Bar, spatium: float) -> float:
-    """Points a bar asks for: its chord names with their gaps, or its notes, whichever is more."""
-    chords = piano.chord_letters(bar) * LETTER_WIDTH * CHORD_SIZE_PER_SPACE * spatium
+    """Points a bar asks for: chords sit on evenly shared beats, so the longest chord and its gap times the chords sharing the bar; or its notes, whichever is more."""
+    size = CHORD_SIZE_PER_SPACE * spatium
+    longest = max((chord_name_length(chord) for chord in bar.chords), default=0)
+    chords = (longest * LETTER_WIDTH + CHORD_GAP) * size * len(bar.chords)
     notes = sum(len(voice) for voice in bar.voices) * NOTE_ROOM * spatium if piano.has_notes(bar) else 0.0
     return max(chords, notes, EMPTY_BAR_ROOM * spatium)
 
@@ -219,7 +225,7 @@ def line_room(bars: list[Bar], spatium: float, even_empty: bool) -> float:
     if not even_empty:
         return sum(bar_room(bar, spatium) for bar in bars)
     empty = [bar_room(bar, spatium) for bar in bars if not piano.has_notes(bar)]
-    return PIANO_PACK * (sum(bar_room(bar, spatium) for bar in bars if piano.has_notes(bar)) + max(empty, default=0.0) * len(empty))
+    return sum(bar_room(bar, spatium) for bar in bars if piano.has_notes(bar)) + max(empty, default=0.0) * len(empty)
 
 
 def break_cost(bars: list[Bar], stop: int, full: int) -> tuple[bool, float]:
