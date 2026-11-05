@@ -3,8 +3,10 @@ from __future__ import annotations
 
 import json
 import pathlib
+import re
 import struct
 import subprocess
+import zipfile
 from collections.abc import Callable
 
 SHORT = {
@@ -53,6 +55,26 @@ def stored(kind: str) -> str:
 def same_chord(left: str, right: str) -> bool:
     """Whether 2 stored names mean 1 chord, whichever program wrote them."""
     return LEGACY_SPELLING.get(left, left) == LEGACY_SPELLING.get(right, right)
+
+
+CHORD_PATH = re.compile(rb"<chordDescriptionFile>[^<]*</chordDescriptionFile>")
+STORED_NAME = b"<chordDescriptionFile>chordlist.xml</chordDescriptionFile>"
+
+
+def drop_chord_path(mscz: pathlib.Path) -> None:
+    """Name the embedded chord list in a score's style in place of the build machine's path to it."""
+    with zipfile.ZipFile(mscz) as source:
+        members = [(item, source.read(item)) for item in source.infolist()]
+    with zipfile.ZipFile(mscz, "w", zipfile.ZIP_DEFLATED) as target:
+        for item, data in members:
+            target.writestr(item, CHORD_PATH.sub(STORED_NAME, data) if item.filename.endswith((".mss", ".mscx")) else data)
+
+
+def chord_path_problems(mscz: pathlib.Path) -> list[str]:
+    """Any style in a score that names a chord file by anything but the embedded list."""
+    with zipfile.ZipFile(mscz) as source:
+        found = [m for name in source.namelist() if name.endswith((".mss", ".mscx")) for m in CHORD_PATH.findall(source.read(name))]
+    return [f"{mscz.name}: chord file {m.decode()}" for m in found if m != STORED_NAME and b"chords_std" not in m]
 
 
 def chord_file(work: pathlib.Path) -> pathlib.Path:

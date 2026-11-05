@@ -485,13 +485,11 @@ def test_a_crowded_line_hands_its_last_bar_on_and_only_a_section_end_splits():
     assert 8 in held and len(held) == 3
 
 
-def test_a_stale_non_piano_layout_starts_from_its_earlier_size(monkeypatch, tmp_path):
-    seen = []
-    monkeypatch.setattr(port, "finish", lambda *a: seen.append(a[4]) or ("finished",))
+def test_a_stale_layout_is_searched_again_rather_than_started_from_its_earlier_size(monkeypatch, tmp_path):
+    monkeypatch.setattr(port, "finish", lambda *a: ("finished",))
     monkeypatch.setattr(port, "fit", lambda *a: ("searched",))
-    assert port.sheet(tmp_path, tmp_path, port.ORIGINAL, (2,), {"rules": 1, "spatium": 1.55, "distance": 12.0}) == ("finished",)
-    assert seen == [1.55]
-    assert port.sheet(tmp_path, tmp_path, port.PIANO, (1,), {"rules": 1, "spatium": 1.55, "distance": 12.0}) == ("searched",)
+    for variant in (port.ORIGINAL, port.PIANO):
+        assert port.sheet(tmp_path, tmp_path, variant, (2,), {"rules": 1, "spatium": 1.55, "distance": 12.0}) == ("searched",)
 
 
 def test_a_lyric_label_starts_a_line():

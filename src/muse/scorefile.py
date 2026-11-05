@@ -7,6 +7,8 @@ import xml.etree.ElementTree as ET
 import zipfile
 from fractions import Fraction as F
 
+from muse import chordnames
+
 DURATIONS = {"long": F(4), "breve": F(2), "whole": F(1), "half": F(1, 2), "quarter": F(1, 4), "eighth": F(1, 8), "16th": F(1, 16), "32nd": F(1, 32), "64th": F(1, 64)}
 GRACE = ("acciaccatura", "appoggiatura", "grace4", "grace16", "grace32", "grace8after", "grace16after", "grace32after")
 
@@ -76,6 +78,11 @@ def read(path: pathlib.Path) -> list[list[FileBar]]:
     return [[read_bar(m) for m in staff.findall("Measure")] for staff in staves(root_of(path))]
 
 
+def same_spelling(chords: list[tuple[F, int, int, str]]) -> list[tuple[F, int, int, str]]:
+    """Chords with the legacy file's parser spellings folded, since they name the same chord."""
+    return sorted((at, root, bass, chordnames.LEGACY_SPELLING.get(name, name)) for at, root, bass, name in chords)
+
+
 def difference(a: pathlib.Path, b: pathlib.Path) -> list[str]:
     """Where 2 files disagree about notes, chords, chord beats, signs or jumps."""
     one, two = read(a), read(b)
@@ -89,7 +96,7 @@ def difference(a: pathlib.Path, b: pathlib.Path) -> list[str]:
         for index, (x, y) in enumerate(zip(left, right, strict=True), 1):
             if sorted(x.pitches) != sorted(y.pitches):
                 problems.append(f"bar {index} staff {number}: notes differ")
-            if sorted(x.chords) != sorted(y.chords):
+            if same_spelling(x.chords) != same_spelling(y.chords):
                 problems.append(f"bar {index}: chords differ {sorted(x.chords)} {sorted(y.chords)}")
             if sorted(x.signs) != sorted(y.signs):
                 problems.append(f"bar {index}: signs differ {x.signs} {y.signs}")

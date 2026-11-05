@@ -38,12 +38,12 @@ SIZE_FLOORS = (1.2, 1.15)  # below 1.2 only for a song that fits its pages no ot
 MAX_PAGES = 2
 MAX_WORKERS = 3  # another project shares this machine
 SEAT_PASSES = 5
-LAYOUT_RULES = 6  # raise when layout rules change, so a saved layout is searched again rather than re-proved
+LAYOUT_RULES = 7  # raise when layout rules change, so a saved layout is searched again rather than re-proved
 FINAL_SPLITS = 8
-FINAL_STEPS = 3  # sizes to step down when the chosen layout fails its final checks
-SHEET_LAUNCH_CAP = 60
-FINAL_LAUNCH_CAP = 90
-PIANO_LAUNCH_CAP = 150
+FINAL_STEPS = 6  # sizes to step down when the chosen layout fails its final checks
+SHEET_LAUNCH_CAP = 150
+FINAL_LAUNCH_CAP = 600
+PIANO_LAUNCH_CAP = 250
 SIZE_STEP = 0.05
 SIGN_CLEARANCE = 3.0  # spaces a chord moves right off a sign printed on its baseline
 SIGN_SIZE = 25  # a sign may exceed the chords: about 2.5 times the default sign
@@ -78,11 +78,12 @@ def require_font(folders: tuple[pathlib.Path, ...] = FONT_DIRS) -> None:
 
 
 LAUNCHES = {"count": 0}
-SEARCH_CAP = {"at": 0}  # launch count where a sheet's search stops; 0 leaves it open
+SEARCH_CAP = {"at": 0, "hit": 0}  # launch count where a sheet's search stops, 0 leaving it open; and how often a cap stopped it
 
 
 def run(*args: str) -> None:
     if SEARCH_CAP["at"] and LAUNCHES["count"] >= SEARCH_CAP["at"]:
+        SEARCH_CAP["hit"] += 1
         raise DoesNotFit("the search reached its launch cap")
     LAUNCHES["count"] += 1
     done = subprocess.run(["mscore", *args], capture_output=True, text=True, timeout=240)
@@ -171,6 +172,11 @@ def tied_out(bar: Bar) -> bool:
     return any(head.tie_start for voice in [*bar.voices, *bar.voices2] if voice for head in voice[-1].heads)
 
 
+def last_before(where: list[tuple[int, float, int]], page_no: int) -> int:
+    """The line a page with no printed bar number continues: the last one numbered on an earlier page."""
+    return max(item for item in where if item[0] < page_no)[2]
+
+
 def crowded_rows(pdf: pathlib.Path, firsts: list[int]) -> set[int]:
     """First bar of every line holding chords that run together, matched by page and height."""
     where = []
@@ -184,11 +190,11 @@ def crowded_rows(pdf: pathlib.Path, firsts: list[int]) -> set[int]:
     crowded = set()
     for page_no, y, _ in pdfcheck.chord_collisions(pdf):
         same_page = [item for item in where if item[0] == page_no]
-        crowded.add(min(same_page, key=lambda item: abs(item[1] - y))[2])
+        crowded.add(min(same_page, key=lambda item: abs(item[1] - y))[2] if same_page else last_before(where, page_no))
     for page_no, y, _ in [*pdfcheck.past_margin(pdf), *pdfcheck.text_collisions(pdf)]:
         above = [item for item in where if item[0] == page_no and item[1] <= y]
         same_page = above or [item for item in where if item[0] == page_no]
-        crowded.add(max(same_page, key=lambda item: item[1])[2])
+        crowded.add(max(same_page, key=lambda item: item[1])[2] if same_page else last_before(where, page_no))
     return crowded
 
 
@@ -759,14 +765,21 @@ def legacy_signs(mscz: pathlib.Path) -> None:
 
 def sheet(src: pathlib.Path, work: pathlib.Path, variant: str, limits: tuple[int, ...], saved: dict[str, Any] | None) -> tuple[Score, pathlib.Path, float, float, int]:
     """A saved decision re-proved in 1 pass, or the search."""
+    SEARCH_CAP["hit"] = 0
     found = prove(src, work, variant, saved) if saved and saved.get("rules") == LAYOUT_RULES else None  # new layout rules owe a new search
-    if not found and saved and variant != PIANO:  # a sheet with no size goal beyond its earlier one starts there rather than at the floor
-        found = finish(src, work, variant, limits[-1], float(saved["spatium"]), float(saved["distance"]))
     for limit in limits:
         found = found or fit(src, work, variant, limit)
     if found is None:
-        raise DoesNotFit(f"{src.stem}: the {variant} sheet is over {limits[-1]} pages at the smallest size")
+        cause = "a launch cap stopped the search" if SEARCH_CAP["hit"] else f"it is over {limits[-1]} pages at the smallest size"
+        raise DoesNotFit(f"{src.stem}: the {variant} sheet has no passing layout: {cause}")
     return found
+
+
+def floor_gap_problems(variant: str, saved: dict[str, Any] | None) -> list[str]:
+    """A sheet at the smallest size with room to widen its line gap had height to spend on size, so its search failed."""
+    if saved and float(saved["spatium"]) <= SIZE_FLOORS[0] and float(saved["distance"]) > BASE_DISTANCE:
+        return [f"{variant} sheet at the size floor {saved['spatium']} with line gap {saved['distance']}"]
+    return []
 
 
 def decision(found: tuple[Score, pathlib.Path, float, float, int]) -> dict[str, Any]:
@@ -807,6 +820,8 @@ def port(src: pathlib.Path, out_dir: pathlib.Path, work: pathlib.Path) -> dict[s
         shutil.copyfile(work / f"{info.name}-{ORIGINAL}-layout.pdf", out_dir / info.original_pdf)
         # the legacy file reads the original tone's MusicXML, so it is built before anything overwrites it
         build_legacy(src, work, out_dir / info.legacy_file, found[2], found[3], info)
+        chordnames.drop_chord_path(out_dir / info.score_file)
+        chordnames.drop_chord_path(out_dir / info.legacy_file)
         legacy_gap = scorefile.difference(out_dir / info.score_file, out_dir / info.legacy_file)
         report["legacy"] = legacy_gap[:6]
         if legacy_gap:

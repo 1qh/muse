@@ -276,3 +276,12 @@ def test_a_lone_bar_joins_inside_its_section_before_crossing_a_mark():
 def test_clearing_lone_bars_keeps_what_fits_and_gives_up_cleanly():
     assert port.clear_lone_bars({0, 8, 9}, {9}, 20, lambda _: True) == {0, 9}
     assert port.clear_lone_bars({0, 8, 9}, {9}, 20, lambda _: False) == {0, 8, 9}
+
+
+def test_the_legacy_half_diminished_spelling_is_the_same_chord(tmp_path):
+    rest = "<Rest><durationType>measure</durationType><duration>1/1</duration></Rest>"
+    short = write_score(tmp_path / "s.mscz", f"<Harmony><root>16</root><name>0</name></Harmony>{rest}")
+    legacy = write_score(tmp_path / "l.mscz", f"<Harmony><root>16</root><name>07</name></Harmony>{rest}")
+    other = write_score(tmp_path / "o.mscz", f"<Harmony><root>16</root><name>m7</name></Harmony>{rest}")
+    assert scorefile.difference(short, legacy) == []
+    assert "chords differ" in scorefile.difference(short, other)[0]
