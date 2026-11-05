@@ -141,13 +141,6 @@ def recorder(gate_fails=False, state="PRIVATE"):
     return run, calls
 
 
-def test_publish_refuses_a_public_repo_before_anything_runs(tmp_path):
-    run, calls = recorder(state="PUBLIC")
-    with pytest.raises(publish.Refused, match="not private"):
-        publish.publish(tmp_path, tmp_path, tmp_path, run, lambda *_: {})
-    assert len(calls) == 1
-
-
 def test_a_failing_song_keeps_its_folder_and_a_passing_song_publishes(tmp_path):
     calls = []
 

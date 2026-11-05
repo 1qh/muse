@@ -1,4 +1,4 @@
-"""The only way sheets reach their repo: confirm it is private, pass the gate, push, then purge replaced binaries."""
+"""The only way sheets reach their repo: pass the gate, push, then purge replaced binaries."""
 from __future__ import annotations
 
 import pathlib
@@ -28,10 +28,6 @@ def sh(*args: str, cwd: pathlib.Path | None = None) -> str:
     return done.stdout.strip()
 
 
-def visibility(out: pathlib.Path, run: Runner) -> str:
-    return run("gh", "repo", "view", "--json", "visibility", "-q", ".visibility", cwd=out)
-
-
 def stray_files(tracked: str) -> list[str]:
     """Anything tracked in the sheets repo but a PDF or a MuseScore file."""
     return [name for name in tracked.split("\n") if name and not name.endswith((".pdf", ".mscz"))]
@@ -59,8 +55,6 @@ def keep_last_good(out: pathlib.Path, song: str, run: Runner) -> None:
 
 def publish(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path, run: Runner = sh, judge: Judge = gate.verdicts, names: tuple[str, ...] = ()) -> dict[str, list[str]]:
     """Publish every song passing its gate; returns the blocked songs, each keeping its last good folder, with reasons."""
-    if visibility(out, run) != "PRIVATE":
-        raise Refused(f"{out} is not private; sheets may only go to a private repo")
     verdicts = judge(src, out, work, names)
     blocked = {song: failures for song, failures in verdicts.items() if failures}
     for song in blocked:
@@ -93,8 +87,6 @@ def publish(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path, run: Runne
     run("git", "gc", "--prune=now", cwd=out)
     if run("git", "rev-parse", "HEAD^{tree}", cwd=out) != tree:
         raise Refused("local tree differs after the purge")
-    if visibility(out, run) != "PRIVATE":
-        raise Refused(f"{out} stopped being private")
     return blocked
 
 

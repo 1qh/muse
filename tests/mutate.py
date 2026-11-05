@@ -130,7 +130,6 @@ MUTATIONS = [
     ("song.py", "raise UnknownEncoding(", "return 'symbolfont' or (", "unknown encoding"),
     ("song.py", "text.title() if text.isupper() else text", "text", "title case"),
     ("symbolfont.py", "if ord(ch[\"c\"]) not in KNOWN_GLYPHS:", "if False:", "unknown glyph"),
-    ("publish.py", 'if visibility(out, run) != "PRIVATE":\n        raise Refused(f"{out} is not private', 'if False:\n        raise Refused(f"{out} is not private', "private only"),
     ("publish.py", "        keep_last_good(out, song, run)\n", "        pass\n", "keep last good"),
     ("publish.py", "if song not in blocked:", "if True:", "failing song staged"),
     ("publish.py", 'if attempt == tries or "Internal Server Error" not in str(error):', "if True:", "server error retry"),
