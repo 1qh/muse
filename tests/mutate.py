@@ -35,6 +35,7 @@ MUTATIONS = [
     ("piano.py", "if label in done else end", "if False else end", "sibling length"),
     ("piano.py", "if held is None:\n            empty_bar(bar)", "if False:\n            empty_bar(bar)", "piano empties"),
     ("piano.py", "left -= len(taken)", "left -= 0", "hint length"),
+    ("port.py", "if not found and saved and variant != PIANO:", "if False:", "earlier size"),
     ("port.py", "if following in starts and following not in fixed and len(row) > 1:", "if False:", "hand bar on"),
     ("port.py", 'if saved and saved.get("rules") == LAYOUT_RULES else None', "if saved else None", "old layout reused"),
     ("port.py", "* size * len(bar.chords)", "* size", "shared bar room"),

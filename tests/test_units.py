@@ -496,3 +496,12 @@ def test_a_crowded_line_hands_its_last_bar_on_and_only_a_section_end_splits():
     held = {0, 8}
     port.ease_line(held, [1, 2, 3, 4, 5, 6, 7, 8], {8}, [False] * 24)
     assert 8 in held and len(held) == 3
+
+
+def test_a_stale_non_piano_layout_starts_from_its_earlier_size(monkeypatch, tmp_path):
+    seen = []
+    monkeypatch.setattr(port, "finish", lambda *a: seen.append(a[4]) or ("finished",))
+    monkeypatch.setattr(port, "fit", lambda *a: ("searched",))
+    assert port.sheet(tmp_path, tmp_path, port.ORIGINAL, (2,), {"rules": 1, "spatium": 1.55, "distance": 12.0}) == ("finished",)
+    assert seen == [1.55]
+    assert port.sheet(tmp_path, tmp_path, port.PIANO, (1,), {"rules": 1, "spatium": 1.55, "distance": 12.0}) == ("searched",)

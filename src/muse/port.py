@@ -790,6 +790,8 @@ def legacy_signs(mscz: pathlib.Path) -> None:
 def sheet(src: pathlib.Path, work: pathlib.Path, variant: str, limits: tuple[int, ...], saved: dict[str, Any] | None) -> tuple[Score, pathlib.Path, float, float, int]:
     """A saved decision re-proved in 1 pass, or the search."""
     found = prove(src, work, variant, saved) if saved and saved.get("rules") == LAYOUT_RULES else None  # new layout rules owe a new search
+    if not found and saved and variant != PIANO:  # a sheet with no size goal beyond its earlier one starts there rather than at the floor
+        found = finish(src, work, variant, limits[-1], float(saved["spatium"]), float(saved["distance"]))
     for limit in limits:
         found = found or fit(src, work, variant, limit)
     if found is None:
