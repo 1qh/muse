@@ -38,7 +38,7 @@ SIZE_FLOORS = (1.2, 1.15)  # below 1.2 only for a song that fits its pages no ot
 MAX_PAGES = 2
 MAX_WORKERS = 3  # another project shares this machine
 SEAT_PASSES = 5
-LAYOUT_RULES = 3  # raise when layout rules change, so a saved layout is searched again rather than re-proved
+LAYOUT_RULES = 4  # raise when layout rules change, so a saved layout is searched again rather than re-proved
 FINAL_SPLITS = 8
 FINAL_STEPS = 3  # sizes to step down when the chosen layout fails its final checks
 SHEET_LAUNCH_CAP = 60
@@ -193,8 +193,8 @@ def crowded_rows(pdf: pathlib.Path, firsts: list[int]) -> set[int]:
 
 
 def must_start_line(bar: Bar, previous: Bar | None) -> bool:
-    """Only a section mark starts a new block of lines."""
-    return previous is None or bool(bar.rehearsal or bar.segno or bar.coda or previous.final)
+    """A section mark or a lyric label starts a new block of lines."""
+    return previous is None or bool(bar.rehearsal or bar.segno or bar.coda or previous.final or piano.label_of(bar))
 
 
 def sections(score: Score) -> list[list[int]]:

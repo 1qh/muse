@@ -35,6 +35,8 @@ MUTATIONS = [
     ("piano.py", "if label in done else end", "if False else end", "sibling length"),
     ("piano.py", "if held is None:\n            empty_bar(bar)", "if False:\n            empty_bar(bar)", "piano empties"),
     ("piano.py", "left -= len(taken)", "left -= 0", "hint length"),
+    ("port.py", "or previous.final or piano.label_of(bar))", "or previous.final)", "label starts a line"),
+    ("gate.py", 'for bar in sorted(labels - opening - tied_in)]', 'for bar in []]', "label inside a line"),
     ("port.py", "if not found and saved and variant != PIANO:", "if False:", "earlier size"),
     ("port.py", "if following in starts and following not in fixed and len(row) > 1:", "if False:", "hand bar on"),
     ("port.py", 'if saved and saved.get("rules") == LAYOUT_RULES else None', "if saved else None", "old layout reused"),

@@ -505,3 +505,22 @@ def test_a_stale_non_piano_layout_starts_from_its_earlier_size(monkeypatch, tmp_
     assert port.sheet(tmp_path, tmp_path, port.ORIGINAL, (2,), {"rules": 1, "spatium": 1.55, "distance": 12.0}) == ("finished",)
     assert seen == [1.55]
     assert port.sheet(tmp_path, tmp_path, port.PIANO, (1,), {"rules": 1, "spatium": 1.55, "distance": 12.0}) == ("searched",)
+
+
+def test_a_lyric_label_starts_a_line():
+    plain = Bar(1, 0, 0.0, 100.0, F(4), voices=[])
+    labelled = Bar(2, 0, 0.0, 100.0, F(4), voices=[], texts=[Text(0.0, 0.0, [("Chorus-a: words", True, True)], False)])
+    assert port.must_start_line(labelled, plain)
+    assert not port.must_start_line(plain, plain)
+
+
+def test_the_gate_refuses_a_label_inside_a_line(monkeypatch, tmp_path):
+    from muse import gate
+    labelled = Bar(2, 0, 0.0, 100.0, F(4), voices=[], texts=[Text(0.0, 0.0, [("Chorus-a: words", True, True)], False)])
+    first = Bar(1, 0, 0.0, 100.0, F(4), voices=[])
+    monkeypatch.setattr(chordseat, "score_text", lambda _: ("x", ""))
+    monkeypatch.setattr(chordseat, "chordless_starts", lambda _: [])
+    monkeypatch.setattr(chordseat, "bar_rows", lambda _: [[1, 2]])
+    assert gate.chord_starts(tmp_path, Score([first, labelled], [], [])) == ["bar 2: lyric label inside a line"]
+    monkeypatch.setattr(chordseat, "bar_rows", lambda _: [[1], [2]])
+    assert gate.chord_starts(tmp_path, Score([first, labelled], [], [])) == []

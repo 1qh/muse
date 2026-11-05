@@ -282,7 +282,13 @@ def chord_starts(score_path: pathlib.Path, score: Score) -> list[str]:
     held = [bar for bar in found if bar in marks]
     if held:
         print(f"{score_path.name}: section marks open these lines without a chord: {held}", flush=True)
-    return [f"bar {bar}: line starts without its chord" for bar in found if bar not in marks]
+    tied_in = {bar.number for bar in score.bars if bar.number > 1 and port.tied_out(score.bars[bar.number - 2])}
+    labels = {bar.number for bar in score.bars if piano.label_of(bar)}
+    opening = {numbers[0] for numbers in chordseat.bar_rows(chordseat.score_text(score_path)[1]) if numbers}
+    tied_labels = sorted((labels - opening) & tied_in)
+    if tied_labels:
+        print(f"{score_path.name}: a tie holds these lyric labels inside a line: {tied_labels}", flush=True)
+    return [f"bar {bar}: line starts without its chord" for bar in found if bar not in marks] + [f"bar {bar}: lyric label inside a line" for bar in sorted(labels - opening - tied_in)]
 
 
 def even_piano_bars(src: pathlib.Path, sheet: pathlib.Path, pdf: pathlib.Path) -> list[str]:
