@@ -101,3 +101,12 @@ def test_no_cue_joins_a_word_across_two_source_spans() -> None:
 def test_every_source_reads_with_no_flag() -> None:
     flagged = {path.stem: [issue.message for issue in decode(path).flags] for folder in os.environ["MUSE_SOURCES"].split(os.pathsep) for path in pathlib.Path(folder).glob("*.pdf")}
     assert not {name: flags for name, flags in flagged.items() if flags}
+
+
+def test_every_change_of_bar_length_prints_its_time_signature() -> None:
+    silent = []
+    for folder in os.environ["MUSE_SOURCES"].split(os.pathsep):
+        for path in pathlib.Path(folder).glob("*.pdf"):
+            bars = decode(path).bars
+            silent += [(path.stem, after.number) for before, after in zip(bars, bars[1:], strict=False) if before.length != after.length and after.time is None]
+    assert not silent

@@ -541,3 +541,17 @@ def test_oracle_finds_a_lost_word_and_excuses_the_rest() -> None:
     printed = Counter({"strings": 1, "dizi": 1, "maj": 3, "piano": 1})
     decoded = Counter({"strings": 1, "vapiano": 1})
     assert oracle.lost_words(printed, decoded, {"maj"}) == {"dizi": 1}
+
+
+def test_a_flag_far_from_a_stem_does_not_shorten_its_note() -> None:
+    from fractions import Fraction
+
+    from muse import leland
+    from muse.model import Bar
+
+    bar = Bar(1, 0, 0.0, 200.0, Fraction(1))
+    head = (leland.BLACK, 50.0, 100.0)
+    stem = (56.8, 80.0, 100.0)
+    far_flag = (0xE240, 56.8, 140.0)
+    voices = leland.read_events(bar, [head, far_flag], 108.0, 2.7, [stem], [], 0, [])
+    assert voices[0][0].nominal == 1
