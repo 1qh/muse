@@ -697,23 +697,25 @@ def finish(src: pathlib.Path, work: pathlib.Path, variant: str, limit: int, spat
         size = round(spatium - step * SIZE_STEP, 2)
         if size < SIZE_FLOORS[-1]:
             break
-        try:
-            laid, _, _ = lay_out(src, work, size, distance, limit, variant, seated=False)
-            lines = line_starts(laid)
-            score, base, probe = lay_out(src, work, size, distance, limit, variant, lines)
-        except DoesNotFit:
-            continue
-        gap = distance
-        for wider in (distance * 2, distance * 1.5):  # the line gap changes height alone, so a seated layout keeps its lines
+        for start_gap in sorted({distance, MIDDLE_DISTANCE, TIGHT_DISTANCE}, reverse=True):  # a tighter line gap keeps the bigger notation
+            if start_gap > distance:
+                continue
             try:
-                score, base, probe = lay_out(src, work, size, wider, limit, variant, line_starts(score))
-                gap = wider
-                break
+                laid, _, _ = lay_out(src, work, size, start_gap, limit, variant, seated=False)
+                score, base, probe = lay_out(src, work, size, start_gap, limit, variant, line_starts(laid))
             except DoesNotFit:
                 continue
-        else:
-            score, base, probe = lay_out(src, work, size, distance, limit, variant, line_starts(score))
-        return score, base, size, gap, len(pymupdf.open(probe))
+            gap = start_gap
+            for wider in (start_gap * 2, start_gap * 1.5):  # the line gap changes height alone, so a seated layout keeps its lines
+                try:
+                    score, base, probe = lay_out(src, work, size, wider, limit, variant, line_starts(score))
+                    gap = wider
+                    break
+                except DoesNotFit:
+                    continue
+            else:
+                score, base, probe = lay_out(src, work, size, start_gap, limit, variant, line_starts(score))
+            return score, base, size, gap, len(pymupdf.open(probe))
     return None
 
 
