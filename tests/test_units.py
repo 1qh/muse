@@ -487,3 +487,12 @@ def test_a_layout_saved_under_old_rules_is_searched_again(monkeypatch, tmp_path)
     assert port.sheet(tmp_path, tmp_path, port.PIANO, (1,), {"rules": 1}) == ("fitted",)
     assert port.sheet(tmp_path, tmp_path, port.PIANO, (1,), {"rules": port.LAYOUT_RULES}) == ("proved",)
     assert calls == ["fit", "prove"]
+
+
+def test_a_crowded_line_hands_its_last_bar_on_and_only_a_section_end_splits():
+    starts = {0, 8, 16}
+    port.ease_line(starts, [1, 2, 3, 4, 5, 6, 7, 8], set(), [False] * 24)
+    assert starts == {0, 7, 16}
+    held = {0, 8}
+    port.ease_line(held, [1, 2, 3, 4, 5, 6, 7, 8], {8}, [False] * 24)
+    assert 8 in held and len(held) == 3

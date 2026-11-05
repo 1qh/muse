@@ -38,8 +38,8 @@ SIZE_FLOORS = (1.2, 1.15)  # below 1.2 only for a song that fits its pages no ot
 MAX_PAGES = 2
 MAX_WORKERS = 3  # another project shares this machine
 SEAT_PASSES = 5
-LAYOUT_RULES = 2  # raise when layout rules change, so a saved layout is searched again rather than re-proved
-FINAL_SPLITS = 4
+LAYOUT_RULES = 3  # raise when layout rules change, so a saved layout is searched again rather than re-proved
+FINAL_SPLITS = 8
 FINAL_STEPS = 3  # sizes to step down when the chosen layout fails its final checks
 SHEET_LAUNCH_CAP = 60
 PIANO_LAUNCH_CAP = 150
@@ -258,6 +258,16 @@ def opening_lines(score: Score, variant: str = TONE, spatium: float = 1.2) -> li
 def short_line_share(lines: list[list[int]]) -> float:
     """Share of lines with 2 bars or fewer."""
     return sum(1 for line in lines if len(line) <= 2) / len(lines)
+
+
+def ease_line(starts: set[int], row: list[int], fixed: set[int], tied: list[bool]) -> None:
+    """A crowded line hands its last bar to the next line of its section; only the last line of a section splits."""
+    following = row[-1]  # the 0-based start of the next line equals the 1-based number of this line's last bar
+    if following in starts and following not in fixed and len(row) > 1:
+        starts.discard(following)
+        starts.add(following - 1)
+    else:
+        starts.add(split_at(row[0] - 1, row[-1], tied))
 
 
 def merge_candidates(lines: list[list[int]], fixed: set[int], refused: set[int], fits: Callable[[list[int]], bool]) -> set[int]:
@@ -556,7 +566,7 @@ def lay_out(src: pathlib.Path, work: pathlib.Path, spatium: float, distance: flo
             split = False
             for row in declared:
                 if any(n in row for n in bad) and len(row) > 1:
-                    starts.add(split_at(row[0] - 1, row[-1], tied))
+                    ease_line(starts, row, fixed, tied)
                     split = True
             if not split:
                 raise DoesNotFit(f"{song}: bars {sorted(bad)} do not fit alone")
@@ -580,7 +590,7 @@ def lay_out(src: pathlib.Path, work: pathlib.Path, spatium: float, distance: flo
                 break
             for row in declared:
                 if any(n in row for n in bad) and len(row) > 1:
-                    starts.add(split_at(row[0] - 1, row[-1], tied))
+                    ease_line(starts, row, fixed, tied)
                 elif any(n in row for n in bad):
                     raise DoesNotFit(f"{song}: bar {row[0]} does not fit alone")
         else:
@@ -594,7 +604,7 @@ def lay_out(src: pathlib.Path, work: pathlib.Path, spatium: float, distance: flo
             if not splitting:
                 raise DoesNotFit(f"{song}: bars {sorted(bad)} do not fit alone")
             for row in splitting:
-                starts.add(split_at(row[0] - 1, row[-1], tied))
+                ease_line(starts, row, fixed, tied)
         else:
             raise DoesNotFit(f"{song}: saved lines no longer fit")
     found = len(pymupdf.open(probe))
