@@ -38,6 +38,7 @@ SIZE_FLOORS = (1.2, 1.15)  # below 1.2 only for a song that fits its pages no ot
 MAX_PAGES = 2
 MAX_WORKERS = 3  # another project shares this machine
 SEAT_PASSES = 5
+LAYOUT_RULES = 2  # raise when layout rules change, so a saved layout is searched again rather than re-proved
 FINAL_SPLITS = 4
 FINAL_STEPS = 3  # sizes to step down when the chosen layout fails its final checks
 SHEET_LAUNCH_CAP = 60
@@ -778,7 +779,7 @@ def legacy_signs(mscz: pathlib.Path) -> None:
 
 def sheet(src: pathlib.Path, work: pathlib.Path, variant: str, limits: tuple[int, ...], saved: dict[str, Any] | None) -> tuple[Score, pathlib.Path, float, float, int]:
     """A saved decision re-proved in 1 pass, or the search."""
-    found = prove(src, work, variant, saved) if saved else None
+    found = prove(src, work, variant, saved) if saved and saved.get("rules") == LAYOUT_RULES else None  # new layout rules owe a new search
     for limit in limits:
         found = found or fit(src, work, variant, limit)
     if found is None:
@@ -787,7 +788,7 @@ def sheet(src: pathlib.Path, work: pathlib.Path, variant: str, limits: tuple[int
 
 
 def decision(found: tuple[Score, pathlib.Path, float, float, int]) -> dict[str, Any]:
-    return {"spatium": found[2], "distance": found[3], "pages": found[4], "stretch": CHORD_STRETCH, "lines": line_starts(found[0])}
+    return {"rules": LAYOUT_RULES, "spatium": found[2], "distance": found[3], "pages": found[4], "stretch": CHORD_STRETCH, "lines": line_starts(found[0])}
 
 
 def port(src: pathlib.Path, out_dir: pathlib.Path, work: pathlib.Path) -> dict[str, object]:

@@ -478,3 +478,12 @@ def test_chords_sharing_a_bar_each_ask_for_their_share():
     lone = Bar(1, 0, 0.0, 100.0, F(4), voices=[], chords=[parse_chord("Am7", None, 0)])
     pair = Bar(2, 0, 0.0, 100.0, F(4), voices=[], chords=[parse_chord("Am7", None, 0), parse_chord("Am7", None, 0)])
     assert port.bar_room(pair, 1.2) == 2 * port.bar_room(lone, 1.2)
+
+
+def test_a_layout_saved_under_old_rules_is_searched_again(monkeypatch, tmp_path):
+    calls = []
+    monkeypatch.setattr(port, "prove", lambda *a: calls.append("prove") or ("proved",))
+    monkeypatch.setattr(port, "fit", lambda *a: calls.append("fit") or ("fitted",))
+    assert port.sheet(tmp_path, tmp_path, port.PIANO, (1,), {"rules": 1}) == ("fitted",)
+    assert port.sheet(tmp_path, tmp_path, port.PIANO, (1,), {"rules": port.LAYOUT_RULES}) == ("proved",)
+    assert calls == ["fit", "prove"]
