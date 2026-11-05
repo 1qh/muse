@@ -695,3 +695,10 @@ def test_a_jump_prints_only_its_boxed_sign():
     out = port.boxed_sign('<Marker>\n<style>Repeat Text Right</style><offset x="0" y="-7"/><text>To Coda</text><label>coda</label></Marker>')
     assert "<sym>coda</sym>" in out and "offset" not in out and 'b="220"' in out
     assert out.index("</style>") < out.index("<frameType>")
+
+
+def test_2_jump_signs_in_1_bar_stand_side_by_side_and_a_lone_one_stays():
+    both = "<Measure><Marker><label>coda</label></Marker><Jump><text/></Jump></Measure>"
+    alone = "<Measure><Jump><text/></Jump></Measure>"
+    assert 'offset x="-5"' in port.beside_each_other(both)
+    assert "offset" not in port.beside_each_other(alone)

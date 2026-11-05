@@ -11,6 +11,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 CONTROL_WORKERS = 8
 CONTROL_SECONDS = 180
 MUTATIONS = [
+    ("port.py", 'measures[at] = measure.replace("<Jump>",', 'measures[at] = measure.replace("<None>",', "signs stacked"),
     ("song.py", "if events and max(events) < chord.x - PAST_EVENT and", "if False and", "chord stays past its bar"),
     ("song.py", "chord.x + name * CHORD_LETTER > bar.right + CROSSING", "True", "chord moved without crossing"),
     ("piano.py", 'found = {bar.number for bar in score.bars if any(event.accent', 'found = {bar.number for bar in score.bars if False and any(event.accent', "accent dropped"),

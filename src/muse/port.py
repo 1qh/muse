@@ -51,6 +51,7 @@ BORROW_FROM = 4  # bars a line must hold to lend its last one to a short line be
 RELAXED_SHORT_SHARE = 0.30  # for a song 15% would hold at the smallest size
 CLIMB_START, CLIMB_STEP, CLIMB_STEPS = 1.3, 0.1, 8
 SIGN_CLEARANCE = 3.0  # spaces a chord moves right off a sign printed on its baseline
+SIGN_STEP = -5  # spaces a jump sign steps left of the sign beside it
 SIGN_SIZE = 25  # a sign may exceed the chords: about 2.5 times the default sign
 MARKER_TYPES = {"segno": "segno", "coda": "codab"}
 LEGACY_SIGN_SIZE = 25  # MuseScore 3 sizes the sign as text
@@ -98,7 +99,7 @@ def run(*args: str) -> None:
 
 JUMPS = {
     "To Coda": "<Marker><style>repeat_right</style><text><sym>coda</sym></text><label>coda</label><markerType>coda</markerType><markerCenterOnSymbol>0</markerCenterOnSymbol><musicSymbolSize>25</musicSymbolSize></Marker>",
-    "D.S. al Coda": "<Jump><text><sym>segno</sym></text><jumpTo>segno</jumpTo><playUntil>coda</playUntil><continueAt>codab</continueAt></Jump>",
+    "D.S. al Coda": "<Jump><musicSymbolSize>25</musicSymbolSize><text><sym>segno</sym></text><jumpTo>segno</jumpTo><playUntil>coda</playUntil><continueAt>codab</continueAt></Jump>",
 }
 BOX = '<frameType>1</frameType><frameWidth>0.45</frameWidth><framePadding>0.4</framePadding><frameFgColor r="{}" g="{}" b="{}" a="255"/>'
 SIGN_BOX = {"segno": BOX.format(220, 0, 0), "coda": BOX.format(0, 0, 220)}
@@ -396,13 +397,22 @@ def boxed_sign(element: str) -> str:
     return bare.replace(">", ">" + SIGN_BOX[kind], 1)
 
 
+def beside_each_other(text: str) -> str:
+    """In a bar holding 2 jump signs the Jump steps left, so both stay in the chord row of their own bar."""
+    measures = re.split(r"(?<=</Measure>)", text)
+    for at, measure in enumerate(measures):
+        if "<Jump>" in measure and "<label>coda</label>" in measure:
+            measures[at] = measure.replace("<Jump>", f'<Jump><offset x="{SIGN_STEP}" y="0"/>', 1)
+    return "".join(measures)
+
+
 def big_signs(mscz: pathlib.Path) -> None:
     """Every jump sign in its box, with no words."""
     with zipfile.ZipFile(mscz) as z:
         items = {info.filename: z.read(info.filename) for info in z.infolist()}
     for name, data in items.items():
         if name.endswith(".mscx"):
-            items[name] = re.sub(r"<(Marker|Jump)>.*?</\1>", lambda m: boxed_sign(m[0]), data.decode("utf-8"), flags=re.S).encode("utf-8")
+            items[name] = beside_each_other(re.sub(r"<(Marker|Jump)>.*?</\1>", lambda m: boxed_sign(m[0]), data.decode("utf-8"), flags=re.S)).encode("utf-8")
     with zipfile.ZipFile(mscz, "w", zipfile.ZIP_DEFLATED) as z:
         for key, data in items.items():
             z.writestr(key, data)
