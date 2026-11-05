@@ -94,5 +94,5 @@ def test_no_cue_joins_a_word_across_two_source_spans() -> None:
         for path in sorted(pathlib.Path(folder).glob("*.pdf")):
             for bar in decode(path).bars:
                 for text in [*bar.texts, *bar.texts2]:
-                    joined += [(path.stem, bar.number) for left, right in zip(text.runs, text.runs[1:]) if left[0] and right[0] and left[0][-1].isalnum() and right[0][0].isalnum()]
+                    joined += [(path.stem, bar.number) for left, right in zip(text.runs, text.runs[1:], strict=False) if left[0] and right[0] and left[0][-1].isalnum() and right[0][0].isalnum()]
     assert not joined
