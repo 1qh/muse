@@ -1,4 +1,5 @@
 """Mutation controls: plant each defect in a copy of the source and require the tests to go red."""
+import concurrent.futures
 import os
 import pathlib
 import shutil
@@ -7,6 +8,7 @@ import sys
 import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
+CONTROL_WORKERS = 8
 MUTATIONS = [
     ("leland.py", "if r.width >= page.rect.width - 1:", "if False:", "page background is a beam"),
     ("leland.py", "and st[1] - 8 <= f[2] <= st[2] + 8:", ":", "flag of another staff"),
@@ -142,30 +144,35 @@ def run(src: pathlib.Path) -> int:
     return subprocess.run(args, env=env, cwd=ROOT, capture_output=True, timeout=300).returncode
 
 
+def control(mutation: tuple[str, str, str, str]) -> str:
+    """1 planted bug in its own copy of the code, so controls run side by side."""
+    name, old, new, label = mutation
+    with tempfile.TemporaryDirectory() as tmp:
+        base = pathlib.Path(tmp) / "src"
+        shutil.copytree(ROOT / "src", base, ignore=shutil.ignore_patterns("*.egg-info", "__pycache__"))
+        path = base / "muse" / name
+        text = path.read_text()
+        if old not in text:
+            return f"{label}: ANCHOR MISSING"
+        path.write_text(text.replace(old, new))
+        return f"{label}: {'red' if run(base) else 'SURVIVED'}"
+
+
 def main() -> None:
     if "--anchors" in sys.argv:
         dead = [name for file, old, _, name in MUTATIONS if old not in (ROOT / "src" / "muse" / file).read_text(encoding="utf-8")]
         print(f"dead anchors: {dead}" if dead else "ok")
         raise SystemExit(1 if dead else 0)
-    survived = 0
-    with tempfile.TemporaryDirectory() as tmp:
-        base = pathlib.Path(tmp) / "src"
-        shutil.copytree(ROOT / "src", base, ignore=shutil.ignore_patterns("*.egg-info", "__pycache__"))
-        if run(base) != 0:
-            raise SystemExit("baseline is red")
-        for name, old, new, label in MUTATIONS:
-            path = base / "muse" / name
-            text = path.read_text()
-            if old not in text:
-                print(f"{label}: ANCHOR MISSING")
-                survived += 1
-                continue
-            path.write_text(text.replace(old, new))
-            code = run(base)
-            path.write_text(text)
-            print(f"{label}: {'red' if code else 'SURVIVED'}")
-            survived += code == 0
-    raise SystemExit(1 if survived else 0)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=CONTROL_WORKERS) as pool:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = pathlib.Path(tmp) / "src"
+            shutil.copytree(ROOT / "src", base, ignore=shutil.ignore_patterns("*.egg-info", "__pycache__"))
+            if run(base) != 0:
+                raise SystemExit("baseline is red")
+        outcomes = list(pool.map(control, MUTATIONS))
+    for outcome in outcomes:
+        print(outcome)
+    raise SystemExit(1 if any(not outcome.endswith(": red") for outcome in outcomes) else 0)
 
 
 main()
