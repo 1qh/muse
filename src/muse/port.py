@@ -52,7 +52,9 @@ RELAXED_SHORT_SHARE = 0.30  # for a song 15% would hold at the smallest size
 CLIMB_START, CLIMB_STEP, CLIMB_STEPS = 1.3, 0.1, 8
 SIGN_CLEARANCE = 3.0  # spaces a chord moves right off a sign printed on its baseline
 TARGET_HOLD = '<autoplace>0</autoplace><offset x="1" y="-3"/>'
-SIGN_STEP = -8  # spaces a jump sign steps left of the sign beside it
+SIGN_STEP = -6  # spaces a jump sign steps left of the sign beside it
+SIGN_RISE = -2.5  # spaces above the staff, in its own chord row
+SIGN_BAR_STRETCH = 2.5  # a bar holding 2 signs widens to hold both
 SIGN_SIZE = 25  # a sign may exceed the chords: about 2.5 times the default sign
 MARKER_TYPES = {"segno": "segno", "coda": "codab"}
 LEGACY_SIGN_SIZE = 25  # MuseScore 3 sizes the sign as text
@@ -401,10 +403,11 @@ def boxed_sign(element: str) -> str:
 
 def beside_each_other(text: str) -> str:
     """In a bar holding 2 jump signs the Jump steps left, so both stay in the chord row of their own bar."""
-    measures = re.split(r"(?<=</Measure>)", text)
+    measures = re.split(r"(?=<Measure)", text)
     for at, measure in enumerate(measures):
         if "<Jump>" in measure and "<label>coda</label>" in measure:
-            measures[at] = measure.replace("<Jump>", f'<Jump><offset x="{SIGN_STEP}" y="0"/>', 1)
+            measure = re.sub(r"^<Measure([^>]*)>", lambda m: f"<Measure{m[1]}><stretch>{SIGN_BAR_STRETCH}</stretch>", measure, count=1)
+            measures[at] = measure.replace("<Jump>", f'<Jump><autoplace>0</autoplace><offset x="{SIGN_STEP}" y="{SIGN_RISE}"/>', 1)
     return "".join(measures)
 
 

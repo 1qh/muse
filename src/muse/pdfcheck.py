@@ -19,6 +19,7 @@ TEXT_OVERLAP = 2.0  # slanted words of 1 phrase overlap by less
 JUMP_GAP = 4.0
 SIGNS = "\ue047\ue048"
 CHORD_FLOOR = 9.0  # points: text this large starting with a note letter is a chord
+COVER_SLACK = 1.5  # points a sign may graze a chord letter
 ROW_SLACK = 10.0  # points a sign baseline may rise above its line's chord baseline
 SIGN_OVER_CHORD = 1.6
 SIGN_TOUCH_SLACK = 1.0
@@ -177,19 +178,27 @@ def sign_on_chord(path: pathlib.Path) -> list[str]:
     """A segno or coda on the baseline of the chord beside it, its ink running into the chord's first letter."""
     found = []
     for number, page in enumerate(pymupdf.open(path), 1):
-        signs, chars = [], []
+        signs, chars, sign_boxes = [], [], []
         for block in page.get_text("rawdict")["blocks"]:
             for line in block.get("lines", []):
                 for span in line["spans"]:
                     for ch in span["chars"]:
                         if ch["c"] in SIGNS:
                             signs.append((ch["origin"], span["size"]))
+                            sign_boxes.append(ch["bbox"])
                         elif not ch["c"].isspace() and not 0xE000 <= ord(ch["c"]) <= 0xF8FF:
                             chars.append((ch, span["size"]))
         top = max((size for _, size in chars), default=0.0)
         boxes = [(ch["bbox"][0], ch["bbox"][2], ch["origin"][1]) for ch, size in chars if abs(size - top) < 0.05]
         found += [f"p{number}: sign touches a chord" for (x, y), size in signs if sign_touches(x, y, size, top, boxes)]
+        letters = [ch["bbox"] for ch, size in chars if abs(size - top) < 0.05]
+        found += [f"p{number}: sign covers a chord" for box in sign_boxes if any(overlap(box, letter) > COVER_SLACK for letter in letters)]
     return found
+
+
+def overlap(a: tuple[float, float, float, float], b: tuple[float, float, float, float]) -> float:
+    """Points 2 boxes share in their narrower direction; 0 when apart."""
+    return max(0.0, min(min(a[2], b[2]) - max(a[0], b[0]), min(a[3], b[3]) - max(a[1], b[1])))
 
 
 def sign_touches(x: float, y: float, size: float, chord_size: float, chord_letters: list[tuple[float, float, float]]) -> bool:

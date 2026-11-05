@@ -112,3 +112,8 @@ def test_a_jump_sign_above_its_chord_row_is_refused(tmp_path, monkeypatch):
     monkeypatch.setattr(pdfcheck, "SIGNS", "S")
     assert pdfcheck.sign_row_problems(_row_pdf(tmp_path / "high.pdf", 150))
     assert pdfcheck.sign_row_problems(_row_pdf(tmp_path / "row.pdf", 186)) == []
+
+
+def test_a_sign_over_a_chord_letter_is_refused():
+    assert pdfcheck.overlap((0, 0, 10, 10), (8, 2, 14, 9)) == 2
+    assert pdfcheck.overlap((0, 0, 10, 10), (11, 2, 14, 9)) == 0
