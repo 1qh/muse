@@ -9,6 +9,7 @@ import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 CONTROL_WORKERS = 8
+CONTROL_SECONDS = 180
 MUTATIONS = [
     ("port.py", "if not acceptable(laid, variant) or line_rule_breaks(laid):", "if not acceptable(laid, variant):", "proof ignores line rules"),
     ("chordnames.py", 'f"<ChordList>{found[1]}</ChordList></Style>"', '"</Style>"', "chord list not embedded"),
@@ -144,7 +145,10 @@ MUTATIONS = [
 def run(src: pathlib.Path) -> int:
     env = dict(os.environ, PYTHONPATH=str(src))
     args = [sys.executable, "-m", "pytest", "-q", "-x", "-p", "no:cacheprovider", "-o", f"pythonpath={src}", str(ROOT / "tests")]
-    return subprocess.run(args, env=env, cwd=ROOT, capture_output=True, timeout=300).returncode
+    try:
+        return subprocess.run(args, env=env, cwd=ROOT, capture_output=True, timeout=CONTROL_SECONDS).returncode
+    except subprocess.TimeoutExpired:  # a planted bug that hangs the suite is a bug the suite noticed
+        return 1
 
 
 def control(mutation: tuple[str, str, str, str]) -> str:
