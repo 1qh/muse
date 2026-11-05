@@ -8,6 +8,11 @@ import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 MUTATIONS = [
+    ("leland.py", "if r.width >= page.rect.width - 1:", "if False:", "page background is a beam"),
+    ("leland.py", "and st[1] - 8 <= f[2] <= st[2] + 8:", ":", "flag of another staff"),
+    ("leland.py", "return abs(stem_at[id(one)] - stem_at[id(other)]) < 0.3", "return abs(one.x - other.x) < DISPLACED", "chord by distance"),
+    ("leland.py", "e.tuplet = True", "e.tuplet = False", "tuplet ignored"),
+    ("leland.py", "bar.time = changed", "bar.time = None", "time change"),
     ("symbolfont.py", "or (piece[0].isalnum() and runs[-1][0][-1].isalnum()))", "or False)", "cue words joined"),
     ("oracle.py", "if count > decoded[word] and word not in excluded and word not in joined and not CHORD.fullmatch(word)}", "if False}", "lost word"),
     ("symbolfont.py", "any(abs(s.y - y) < CREDIT_ROW and s.x >= x for y, x in credit_rows)", "any(abs(s.y - y) < CREDIT_ROW for y, x in credit_rows)", "credit row left"),

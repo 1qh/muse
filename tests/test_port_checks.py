@@ -72,3 +72,9 @@ def test_a_lyric_label_with_a_slash_is_no_bass(tmp_path):
 
 def test_the_chord_file_keeps_the_bass_level():
     assert any("/ :n :a" in new for _, new in chordnames.CHORD_FILE_RENDERS)
+
+
+def test_a_bass_a_little_lower_on_its_own_line_is_refused(tmp_path):
+    found = pdfcheck.bass_problems(bass_pdf(tmp_path / "b.pdf", (50, 100, 14, "A"), (58, 101.5, 14, "/C")))
+    assert found
+    assert "baselines" in found[0]

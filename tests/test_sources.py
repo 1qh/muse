@@ -96,3 +96,8 @@ def test_no_cue_joins_a_word_across_two_source_spans() -> None:
                 for text in [*bar.texts, *bar.texts2]:
                     joined += [(path.stem, bar.number) for left, right in zip(text.runs, text.runs[1:], strict=False) if left[0] and right[0] and left[0][-1].isalnum() and right[0][0].isalnum()]
     assert not joined
+
+
+def test_every_source_reads_with_no_flag() -> None:
+    flagged = {path.stem: [issue.message for issue in decode(path).flags] for folder in os.environ["MUSE_SOURCES"].split(os.pathsep) for path in pathlib.Path(folder).glob("*.pdf")}
+    assert not {name: flags for name, flags in flagged.items() if flags}

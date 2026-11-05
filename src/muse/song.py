@@ -9,7 +9,7 @@ import re
 
 import pymupdf
 
-from muse import bravura, symbolfont
+from muse import bravura, leland, symbolfont
 from muse.model import Score, UnknownEncoding
 
 MAJOR = {"Cb": -7, "Gb": -6, "Db": -5, "Ab": -4, "Eb": -3, "Bb": -2, "F": -1, "C": 0, "G": 1, "D": 2, "A": 3, "E": 4, "B": 5, "F#": 6, "C#": 7}
@@ -76,6 +76,8 @@ def encoding(path: pathlib.Path) -> str:
     """Which decoder reads this PDF, judged by its fonts and music glyphs; an unknown one is refused by name."""
     doc = pymupdf.open(path)
     fonts = sorted({font[3] for page in doc for font in page.get_fonts()})
+    if "Leland" in {name.split("+")[-1] for name in fonts}:
+        return "leland"
     if any(name.split("+")[-1].startswith("Bravura") for name in fonts):
         return "bravura"
     if any(name.split("+")[-1].startswith("Anastasia") for name in fonts):
@@ -87,7 +89,8 @@ def encoding(path: pathlib.Path) -> str:
 
 
 def decode(path: pathlib.Path) -> Score:
-    return bravura.decode(str(path)) if encoding(path) == "bravura" else symbolfont.decode(str(path))
+    decoders = {"bravura": bravura.decode, "leland": leland.decode, "symbolfont": symbolfont.decode}
+    return decoders[encoding(path)](str(path))
 
 
 def target_of(root: str, minor: bool) -> tuple[str, int, str, int]:
