@@ -51,7 +51,8 @@ BORROW_FROM = 4  # bars a line must hold to lend its last one to a short line be
 RELAXED_SHORT_SHARE = 0.30  # for a song 15% would hold at the smallest size
 CLIMB_START, CLIMB_STEP, CLIMB_STEPS = 1.3, 0.1, 8
 SIGN_CLEARANCE = 3.0  # spaces a chord moves right off a sign printed on its baseline
-SIGN_STEP = -5  # spaces a jump sign steps left of the sign beside it
+TARGET_HOLD = '<autoplace>0</autoplace><offset x="1" y="-3"/>'
+SIGN_STEP = -8  # spaces a jump sign steps left of the sign beside it
 SIGN_SIZE = 25  # a sign may exceed the chords: about 2.5 times the default sign
 MARKER_TYPES = {"segno": "segno", "coda": "codab"}
 LEGACY_SIGN_SIZE = 25  # MuseScore 3 sizes the sign as text
@@ -393,7 +394,8 @@ def boxed_sign(element: str) -> str:
     bare = re.sub(r"<offset[^>]*/>", "", element)
     bare = re.sub(r"<text>.*?</text>", f"<text><sym>{kind}</sym></text>", bare, flags=re.S)
     if "</style>" in bare:
-        return bare.replace("</style>", "</style>" + SIGN_BOX[kind], 1)
+        held = TARGET_HOLD if "repeat_left" in bare or "Repeat Text Left" in bare else ""  # a target held down in its own line's chord row
+        return bare.replace("</style>", "</style>" + held + SIGN_BOX[kind], 1)
     return bare.replace(">", ">" + SIGN_BOX[kind], 1)
 
 

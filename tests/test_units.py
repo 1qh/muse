@@ -700,5 +700,5 @@ def test_a_jump_prints_only_its_boxed_sign():
 def test_2_jump_signs_in_1_bar_stand_side_by_side_and_a_lone_one_stays():
     both = "<Measure><Marker><label>coda</label></Marker><Jump><text/></Jump></Measure>"
     alone = "<Measure><Jump><text/></Jump></Measure>"
-    assert 'offset x="-5"' in port.beside_each_other(both)
+    assert f'offset x="{port.SIGN_STEP}"' in port.beside_each_other(both)
     assert "offset" not in port.beside_each_other(alone)

@@ -18,6 +18,8 @@ JUMP_WORDS = ("D.S.", "al", "To", "Coda")
 TEXT_OVERLAP = 2.0  # slanted words of 1 phrase overlap by less
 JUMP_GAP = 4.0
 SIGNS = "\ue047\ue048"
+CHORD_FLOOR = 9.0  # points: text this large starting with a note letter is a chord
+ROW_SLACK = 4.0  # points a sign baseline may rise above its line's chord baseline
 SIGN_OVER_CHORD = 1.6
 SIGN_TOUCH_SLACK = 1.0
 MAX_CHORD_SPACES = 2.5  # chord baseline above the staff top, on a line with no notes
@@ -128,6 +130,34 @@ def sign_sizes(path: pathlib.Path) -> tuple[list[float], float]:
                     elif text.strip() and not all(0xE000 <= ord(c) <= 0xF8FF for c in text.strip()):
                         words.append(span["size"])
     return signs, max(words, default=0.0)
+
+
+def sign_row_problems(path: pathlib.Path) -> list[str]:
+    """A jump sign sits in the chord row of the line it belongs to: no higher than that line's chord baseline allows."""
+    problems = []
+    for number, page in enumerate(pymupdf.open(path), 1):
+        ys = sorted({round(d["rect"].y0, 1) for d in page.get_drawings() if d["rect"].width > 100 and d["rect"].height < 1})
+        staves = [(ys[i], ys[i + 4]) for i in range(0, len(ys) - 4) if all(abs((ys[i + k + 1] - ys[i + k]) - (ys[i + 1] - ys[i])) < 0.5 for k in range(4))]
+        staves = [s for k, s in enumerate(staves) if not k or s[0] > staves[k - 1][1]]
+        signs, chords = [], []
+        for block in page.get_text("rawdict")["blocks"]:
+            for line in block.get("lines", []):
+                for span in line["spans"]:
+                    text = "".join(c["c"] for c in span["chars"]).strip()
+                    if any(c in SIGNS for c in text):
+                        signs += [c["bbox"][3] for c in span["chars"] if c["c"] in SIGNS]
+                    elif text and text[0] in "ABCDEFG" and span["size"] >= CHORD_FLOOR:
+                        chords.append(span["origin"][1])
+        for y in signs:
+            below = [s for s in staves if s[0] >= y]
+            if not below:
+                continue
+            above = [s for s in staves if s[1] < below[0][0]]
+            floor = above[-1][1] if above else 0.0
+            row = [c for c in chords if floor < c < below[0][0]]
+            if y < min(row, default=below[0][0]) - ROW_SLACK:
+                problems.append(f"page {number}: a jump sign at height {y:.0f} sits above the chord row of its line")
+    return problems
 
 
 def sign_problems(path: pathlib.Path) -> list[str]:
@@ -261,7 +291,7 @@ def idle_staves(clefs: list[float], heads: list[float], starts: list[float]) -> 
 
 
 def all_problems(path: pathlib.Path, title: str) -> list[str]:
-    return empty_staves(path) + text_problems(path) + title_problems(path, title) + sign_problems(path) + sign_on_chord(path) + seating_problems(path) + [f"text on text: {c[2]}" for c in text_collisions(path)]
+    return empty_staves(path) + text_problems(path) + title_problems(path, title) + sign_problems(path) + sign_row_problems(path) + sign_on_chord(path) + seating_problems(path) + [f"text on text: {c[2]}" for c in text_collisions(path)]
 
 
 def main() -> None:

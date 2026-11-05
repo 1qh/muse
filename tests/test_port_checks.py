@@ -94,3 +94,21 @@ def test_a_jump_without_its_box_or_with_words_is_refused(tmp_path):
         with zipfile.ZipFile(path, "w") as z:
             z.writestr("s.mscx", f'<museScore version="4.70"><Score>{body}</Score></museScore>')
         assert any(found in problem for problem in scorefile.builtin_sign_problems(path))
+
+
+def _row_pdf(path, sign_y):
+    doc = pymupdf.open()
+    page = doc.new_page()
+    for top in (100.0, 200.0):
+        for k in range(5):
+            page.draw_line((40, top + 2 * k), (500, top + 2 * k))
+    page.insert_text((60, 185), "Am7", fontsize=11)
+    page.insert_text((450, sign_y), "S", fontsize=14)
+    doc.save(path)
+    return path
+
+
+def test_a_jump_sign_above_its_chord_row_is_refused(tmp_path, monkeypatch):
+    monkeypatch.setattr(pdfcheck, "SIGNS", "S")
+    assert pdfcheck.sign_row_problems(_row_pdf(tmp_path / "high.pdf", 150))
+    assert pdfcheck.sign_row_problems(_row_pdf(tmp_path / "row.pdf", 186)) == []

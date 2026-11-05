@@ -11,6 +11,8 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 CONTROL_WORKERS = 8
 CONTROL_SECONDS = 180
 MUTATIONS = [
+    ("pdfcheck.py", "if y < min(row, default=below[0][0]) - ROW_SLACK:", "if False:", "sign row unchecked"),
+    ("port.py", '"repeat_left" in bare or "Repeat Text Left" in bare else ""', 'False else ""', "target not held"),
     ("port.py", 'measures[at] = measure.replace("<Jump>",', 'measures[at] = measure.replace("<None>",', "signs stacked"),
     ("song.py", "if events and max(events) < chord.x - PAST_EVENT and", "if False and", "chord stays past its bar"),
     ("song.py", "chord.x + name * CHORD_LETTER > bar.right + CROSSING", "True", "chord moved without crossing"),
