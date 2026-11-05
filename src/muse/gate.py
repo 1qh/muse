@@ -179,12 +179,7 @@ def piano_problems(src: pathlib.Path, sheet: pathlib.Path) -> list[str]:
         if len(held.chords) != len(bar.chords):
             problems.append(f"bar {number}: {len(held.chords)} chords, source has {len(bar.chords)}")
     starts = [1] + [number + 1 for number, measure in enumerate(staves[0].findall("Measure"), 1) if measure.find("LayoutBreak") is not None and number < len(bars)]
-    reduced = decode(src)
-    piano.reduce(reduced)
-    noted = {bar.number for bar in reduced.bars if piano.has_notes(bar)}
-    marks = {index + 1 for index, bar in enumerate(reduced.bars) if bar.rehearsal or bar.segno or bar.coda or (index and reduced.bars[index - 1].final)}
     problems += [f"bar {first}: lone bar on a line" for first in piano.lone_lines(starts, len(bars))]
-    print(f"{src.stem}: dense short piano lines left as they are: {piano.sparse_lines(starts, noted, marks, len(bars), {bar.number: piano.chord_letters(bar) for bar in reduced.bars})}", flush=True)
     return problems
 
 
@@ -247,6 +242,10 @@ def check_song(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> tupl
     guarded("piano", lambda: piano_problems(src, sheet))
     guarded("even bars piano", lambda: even_piano_bars(src, sheet, out / song.piano_pdf))
     options = port.transpose_options(song)
+    guarded("line start piano", lambda: chord_starts(sheet, score))
+    guarded("line start original", lambda: chord_starts(out / song.score_file, score))
+    if song.direction:
+        guarded("line start tone", lambda: chord_starts(work / f"{song.name}-{port.TONE}.mscz", score))
     guarded("chord seat piano", lambda: chordseat.problems(sheet, measured(sheet, out / song.piano_pdf, work, options)))
     guarded("chord seat original", lambda: chordseat.problems(out / song.score_file, measured(out / song.score_file, out / song.original_pdf, work, None)))
     if song.direction:
@@ -274,6 +273,16 @@ def measured(score_path: pathlib.Path, pdf: pathlib.Path, work: pathlib.Path, op
     else:
         port.run("-o", str(target), str(score_path))
     return copy
+
+
+def chord_starts(score_path: pathlib.Path, score: Score) -> list[str]:
+    """A line starting on a bar without its chord fails; 1 a section mark holds there is listed."""
+    marks = {block[0] + 1 for block in port.sections(score)}
+    found = chordseat.chordless_starts(chordseat.score_text(score_path)[1])
+    held = [bar for bar in found if bar in marks]
+    if held:
+        print(f"{score_path.name}: section marks open these lines without a chord: {held}", flush=True)
+    return [f"bar {bar}: line starts without its chord" for bar in found if bar not in marks]
 
 
 def even_piano_bars(src: pathlib.Path, sheet: pathlib.Path, pdf: pathlib.Path) -> list[str]:

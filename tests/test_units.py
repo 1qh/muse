@@ -188,25 +188,6 @@ def test_title_must_print_once_at_the_top_right(tmp_path) -> None:
     assert title_problems(absent, "Song") == ["p1: title printed 0 times at the top right"]
 
 
-def test_grid_keeps_a_steady_line_length() -> None:
-    assert port.grid(8, 4, [False] * 8) == [0, 4]
-    assert port.grid(9, 4, [False] * 9) == [0, 4]
-    assert port.grid(9, 4, [False] * 9, pickup=True) == [0, 5]
-
-
-def test_grid_moves_a_break_off_a_tie() -> None:
-    tied = [False, False, False, True, False, False, False, False]
-    assert port.grid(8, 4, tied) == [0, 5]
-    assert port.grid(4, 1, [False, False, False, False]) == [0, 1, 2, 3]
-
-
-def test_only_the_crowded_line_splits_near_its_middle_off_a_tie() -> None:
-    assert port.split_at(0, 8, [False] * 8) == 4
-    assert port.split_at(0, 8, [False, False, False, True, False, False, False, False]) == 3
-    assert port.split_at(0, 2, [True, True]) == 1
-    assert port.split_at(0, 6, [False, True, True, True, True, True]) == 3
-
-
 def test_text_past_the_right_margin_is_found(tmp_path) -> None:
     path = tmp_path / "margin.pdf"
     doc = pymupdf.open()
@@ -220,13 +201,6 @@ def test_text_past_the_right_margin_is_found(tmp_path) -> None:
 def test_bars_with_more_chords_get_more_width() -> None:
     assert port.chord_stretch(1) == 1.0
     assert port.chord_stretch(3) > port.chord_stretch(2) > 1.0
-
-
-def test_short_neighbours_merge_unless_fixed_or_refused() -> None:
-    lines = [[1, 2], [3, 4], [5, 6, 7, 8, 9, 10], [11, 12]]
-    assert port.merge_candidates(lines, set(), set()) == {2, 10}
-    assert port.merge_candidates(lines, {2}, set()) == {4}
-    assert port.merge_candidates(lines, {2, 4}, {10}) == set()
 
 
 def test_short_line_share_counts_lines_of_2_bars_or_fewer() -> None:
@@ -368,12 +342,6 @@ def test_uneven_empty_bars_are_found_and_notes_are_ignored(monkeypatch, tmp_path
     assert chordseat.uneven(tmp_path, tmp_path, {4}) == []
 
 
-def test_a_line_holds_the_most_bars_its_widest_chord_allows():
-    assert port.bars_that_fit([6], 1.2) == 16
-    assert port.bars_that_fit([12], 1.2) == 8
-    assert port.bars_that_fit([30], 1.2) == 2
-
-
 def test_measure_boxes_are_read_in_points(tmp_path):
     mpos = tmp_path / "x.mpos"
     mpos.write_text('<score><elements><element id="0" x="4320" y="11776" sx="2000" sy="2607" page="1"></element></elements></score>')
@@ -443,3 +411,59 @@ def test_the_launch_cap_stops_a_search_and_only_a_search(monkeypatch):
     port.SEARCH_CAP["at"] = 0
     port.run("x")
     assert len(calls) == 2
+
+
+def test_a_line_never_starts_on_a_bar_without_its_chord():
+    # bar 5 has no chord: its chord's bar goes down with it
+    assert port.settle_chord_starts({0, 5}, {0, 2, 4, 6}, set(), 8) == {0, 4}
+    # the chord opens the line above already, so the bar stays up there and the next chord starts the line
+    assert port.settle_chord_starts({0, 1, 6}, {0, 3, 6}, set(), 8) == {0, 3, 6}
+    # a section mark holds its place
+    assert port.settle_chord_starts({0, 5}, {0, 6}, {5}, 8) == {0, 5}
+    # nothing to move to: the line simply joins
+    assert port.settle_chord_starts({0, 5}, {0}, set(), 8) == {0}
+
+
+def test_a_chordless_line_start_is_found(monkeypatch):
+    monkeypatch.setattr(chordseat, "bar_rows", lambda _: [[1, 2], [3, 4], [5, 6]])
+    monkeypatch.setattr(chordseat, "rows_of", lambda _: [[(0, True)], [(1, True)], [(0, True)]])
+    assert chordseat.chordless_starts("") == [3]
+
+
+def test_a_section_fills_its_lines_by_room_and_not_by_a_count():
+    def bar(letters: int) -> Bar:
+        made = Bar(1, 0, 0.0, 100.0, F(4), voices=[], chords=[parse_chord("A" + "m" * (letters - 3), None, 0)] if letters else [])
+        return made
+    light = [bar(4) for _ in range(30)]
+    wide = [bar(20) for _ in range(30)]
+    assert len(port.fill_block(light, 1.2, True)) < len(port.fill_block(wide, 1.2, True))
+    assert all(b - a <= port.TRY_CEILING for a, b in zip(port.fill_block(light, 1.2, True), port.fill_block(light, 1.2, True)[1:]))
+
+
+def test_a_break_avoids_a_chordless_next_bar():
+    bars = [Bar(1, 0, 0.0, 100.0, F(4), voices=[], chords=[parse_chord("Am", None, 0)]) for _ in range(40)]
+    plain = port.fill_block(bars, 1.2, True)
+    bars[plain[1]].chords = []
+    assert plain[1] not in port.fill_block(bars, 1.2, True)
+
+
+def test_a_piano_line_prices_every_empty_bar_as_its_widest():
+    narrow = Bar(1, 0, 0.0, 100.0, F(4), voices=[], chords=[parse_chord("A", None, 0)])
+    broad = Bar(2, 0, 0.0, 100.0, F(4), voices=[], chords=[parse_chord("Ammmmmmmmm", None, 0)])
+    assert port.line_room([narrow, broad], 1.2, True) == 2 * port.bar_room(broad, 1.2)
+    assert port.line_room([narrow, broad], 1.2, False) < port.line_room([narrow, broad], 1.2, True)
+
+
+def test_merging_asks_what_fits_and_respects_marks():
+    lines = [[1, 2], [3, 4], [5, 6]]
+    assert port.merge_candidates(lines, set(), set(), lambda _: True) == {2}
+    assert port.merge_candidates(lines, {2}, set(), lambda _: True) == {4}
+    assert port.merge_candidates(lines, set(), set(), lambda _: False) == set()
+
+
+def test_a_crowded_line_gives_up_its_last_bars_avoiding_a_tie():
+    assert port.split_at(0, 16, [False] * 16) == 12
+    assert port.split_at(0, 2, [True, True]) == 1
+    tied = [False] * 16
+    tied[11] = True
+    assert port.split_at(0, 16, tied) in (11, 13)

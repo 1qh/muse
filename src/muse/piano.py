@@ -12,9 +12,7 @@ LETTER = re.compile(r"^[A-Z]\d?$")
 PIANO_CUE = re.compile(r"piano|keys?\b|key/|rhodes", re.I)
 MIN_TAIL = 3  # consecutive bars of notes closing an unlabelled section read as instrumental
 HINT_WORDS = 4
-SHORT_LINE = 4  # bars; 2 such empty neighbours read as sparse
 CHORD_GAP_LETTERS = 2
-MERGEABLE_LETTERS = 60  # three quarters of what a line holds at the smallest size; denser chords refuse the 0.75 gap
 
 
 @dataclasses.dataclass
@@ -145,19 +143,6 @@ def by_mark(score: Score, number: int) -> bool:
 def chord_letters(bar: Bar) -> int:
     """Room a bar's chord names ask for, in letters, with the gap each chord needs."""
     return sum(len(c.root) + bool(c.root_alter) + len(c.kind) + (len(c.bass) + 1 if c.bass else 0) + CHORD_GAP_LETTERS for c in bar.chords)
-
-
-def sparse_lines(starts: list[int], noted: set[int], section_starts: set[int], total: int, letters: dict[int, int]) -> list[int]:
-    """Line starts where 2 neighbouring note-free lines of a section hold at most SHORT_LINE bars each, with chord room to merge."""
-    ends = [*starts[1:], total + 1]
-    found = []
-    for at in range(len(starts) - 1):
-        first, second, stop = starts[at], starts[at + 1], ends[at + 1]
-        if second in section_starts or second - first > SHORT_LINE or stop - second > SHORT_LINE:
-            continue
-        if not noted & set(range(first, stop)) and sum(letters.get(n, 0) for n in range(first, stop)) <= MERGEABLE_LETTERS:
-            found.append(first)
-    return found
 
 
 def lone_lines(starts: list[int], total: int) -> list[int]:

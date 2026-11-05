@@ -259,27 +259,6 @@ def test_a_band_cue_sharing_the_lyric_text_survives_the_word_limit():
     assert "BAND IN" in whole and "five" not in whole and "seven" in whole
 
 
-def test_short_empty_neighbours_are_sparse_unless_notes_a_section_or_dense_chords_part_them():
-    light = {n: 6 for n in range(1, 15)}
-    assert piano.sparse_lines([1, 3, 7], set(), set(), 14, light) == [1]
-    assert piano.sparse_lines([1, 3, 7], {2}, set(), 6, light) == [3]
-    assert piano.sparse_lines([1, 3], set(), {3}, 4, light) == []
-    assert piano.sparse_lines([1, 9], set(), set(), 12, light) == []
-    assert piano.sparse_lines([1, 5], set(), set(), 8, {n: 20 for n in range(1, 9)}) == []
-
-
-def test_empty_bars_fill_a_piano_line_to_16_and_noted_bars_to_8():
-    from muse import port
-    score = Score([bar(n) for n in range(1, 21)], [], [])
-    for empty in score.bars:
-        empty.voices = []
-    assert port.piano_grid(score, list(range(20))) == [0, 16]
-    noted = Score([bar(n) for n in range(1, 11)], [], [])
-    for full in noted.bars:
-        full.voices = [[note()]]
-    assert port.piano_grid(noted, list(range(10))) == [0, 8]
-
-
 def test_a_lone_line_is_found_and_only_it():
     assert piano.lone_lines([1, 9, 10, 14], 17) == [9]
     assert piano.lone_lines([1, 9], 9) == [9]

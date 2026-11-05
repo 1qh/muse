@@ -23,15 +23,16 @@ from muse.song import sources as song_sources
 
 MAX_LAYOUT_ROUNDS = 40
 MAX_MERGE_ROUNDS = 12
-BARS_PER_LINE = 8
-PIANO_LINE_LOAD = 16  # an empty bar costs 1 and a bar with notes 2, so notes keep 8 bars a line
-NOTED_LOAD = 2
-PIANO_LINE_CHOICES = (16, 12, 8, 4, 2)  # bars on a line of empty bars, the most where every chord fits
 LETTER_WIDTH = 0.55  # of the chord size
 CHORD_SIZE_PER_SPACE = 8.0  # printed chord points per unit of the style's spatium
 LINE_WIDTH = 540.0  # points of a line after its clef
-TIE_REACH = 2  # extra bars a line may take to avoid breaking on a tie
-PICKUP_EVENTS = 2  # a first bar this thin shares the opening line as a pickup
+TRY_CEILING = 24  # bars tried on a line, only to limit tries; what fits decides
+PHRASE = 4  # bars from a section's start that make a phrase boundary
+PHRASE_PULL = 1.5  # a phrase boundary is worth this many bars left off a line
+BACK_REACH = 2  # bars a line may give back for a better break
+SPLIT_SHARE = 4  # a crowded line gives up this share of its bars
+NOTE_ROOM = 9.0  # points per note event, per unit of spatium
+EMPTY_BAR_ROOM = 12.0  # points an empty bar needs, per unit of spatium
 SIZE_FLOORS = (1.2, 1.15)  # below 1.2 only for a song that fits its pages no other way; under 1.15 the fixed title outgrows chords
 MAX_PAGES = 2
 MAX_WORKERS = 3  # another project shares this machine
@@ -49,7 +50,6 @@ JUMP_LIFT = -7  # clears the chord row it would otherwise touch
 JUMP_WORD_SIZE = 12  # below the chords
 MAX_SHORT_SHARE = 0.15  # readers find many 2-bar lines sparse; smaller notation is preferred
 CHORD_STRETCH = 0.45
-STRETCH_CHOICES = (0.45, 0.15, 0.0)
 MIDDLE_DISTANCE = 9.0
 LEGACY_TOP_BORDER = 15  # MuseScore 3 lifts jump words and voltas into the title otherwise
 TIGHT_DISTANCE = 6.0  # line gap only for a song that fits its pages no other way
@@ -205,64 +205,42 @@ def sections(score: Score) -> list[list[int]]:
     return blocks
 
 
-def grid(count: int, per_line: int, tied: list[bool], pickup: bool = False) -> list[int]:
-    """Line starts at a steady bars-per-line: no single bar left over, and no break on a tie when 1 or 2 more bars avoid it."""
+def bar_room(bar: Bar, spatium: float) -> float:
+    """Points a bar asks for: its chord names with their gaps, or its notes, whichever is more."""
+    chords = piano.chord_letters(bar) * LETTER_WIDTH * CHORD_SIZE_PER_SPACE * spatium
+    notes = sum(len(voice) for voice in bar.voices) * NOTE_ROOM * spatium if piano.has_notes(bar) else 0.0
+    return max(chords, notes, EMPTY_BAR_ROOM * spatium)
+
+
+def line_room(bars: list[Bar], spatium: float, even_empty: bool) -> float:
+    """Points a line asks for; on a piano sheet every empty bar takes the width of the widest."""
+    if not even_empty:
+        return sum(bar_room(bar, spatium) for bar in bars)
+    empty = [bar_room(bar, spatium) for bar in bars if not piano.has_notes(bar)]
+    return sum(bar_room(bar, spatium) for bar in bars if piano.has_notes(bar)) + max(empty, default=0.0) * len(empty)
+
+
+def fill_block(bars: list[Bar], spatium: float, even_empty: bool) -> list[int]:
+    """Positions starting a line in a section: each line fills until the next bar will not fit, then breaks at the best nearby place."""
     starts = []
     at = 0
-    while at < count:
+    while at < len(bars):
         starts.append(at)
-        end = at + per_line + (1 if pickup and at == 0 else 0)
-        if count - end == 1 and per_line > 1:
-            end = count
-        limit = at + per_line + TIE_REACH
-        while end < count and tied[end - 1] and end < limit:
+        end = at + 1
+        while end < len(bars) and end - at < TRY_CEILING and line_room(bars[at:end + 1], spatium, even_empty) <= LINE_WIDTH:
             end += 1
-        if end < count and tied[end - 1]:
-            back = at + per_line
-            while back > at + 1 and tied[back - 1]:
-                back -= 1
-            end = back if not tied[back - 1] else at + per_line
-        at = end
-    return starts
 
+        def cost(stop: int) -> tuple[bool, float]:
+            awkward = stop < len(bars) and (tied_out(bars[stop - 1]) or not bars[stop].chords or len(bars) - stop == 1)
+            return (awkward, end - stop - (PHRASE_PULL if stop % PHRASE == 0 else 0.0))
 
-def bars_that_fit(letters: list[int], spatium: float) -> int:
-    """The most equal bars a line can hold when its widest bar needs the given chord letters."""
-    room = max(letters, default=0) * LETTER_WIDTH * CHORD_SIZE_PER_SPACE * spatium
-    return next((n for n in PIANO_LINE_CHOICES if room <= LINE_WIDTH / n), PIANO_LINE_CHOICES[-1])
-
-
-def piano_grid(score: Score, block: list[int], spatium: float = 1.2) -> list[int]:
-    """Positions in a block that start a line: the largest of 16, 12 or 8 where every chord fits on equal bars, by load where notes come in."""
-    starts = []
-    at = 0
-    while at < len(block):
-        starts.append(at)
-        take = 1
-        for choice in PIANO_LINE_CHOICES:
-            window = [score.bars[i] for i in block[at:at + choice]]
-            load = sum(NOTED_LOAD if piano.has_notes(bar) else 1 for bar in window)
-            if load <= PIANO_LINE_LOAD and bars_that_fit([piano.chord_letters(bar) for bar in window], spatium) >= len(window):
-                take = len(window)
-                break
-        end = at + take
-        while end < len(block) and tied_out(score.bars[block[end - 1]]) and end > at + 1:
-            end -= 1
-        at = end
+        at = min(range(max(at + 1, end - BACK_REACH), end + 1), key=cost)
     return starts
 
 
 def opening_lines(score: Score, variant: str = TONE, spatium: float = 1.2) -> list[int]:
-    """0-based bars that start a line before any line has been judged too crowded."""
-    if variant == PIANO:
-        return [block[at] for block in sections(score) for at in piano_grid(score, block, spatium)]
-    starts = []
-    for number, block in enumerate(sections(score)):
-        tied = [tied_out(score.bars[i]) for i in block]
-        first_events = sum(len(voice) for voice in score.bars[block[0]].voices)
-        pickup = number == 0 and first_events <= PICKUP_EVENTS
-        starts += [block[start] for start in grid(len(block), BARS_PER_LINE, tied, pickup)]
-    return starts
+    """0-based bars that start a line, from estimated widths, before any render has judged them."""
+    return [block[at] for block in sections(score) for at in fill_block([score.bars[i] for i in block], spatium, variant == PIANO)]
 
 
 def short_line_share(lines: list[list[int]]) -> float:
@@ -270,24 +248,24 @@ def short_line_share(lines: list[list[int]]) -> float:
     return sum(1 for line in lines if len(line) <= 2) / len(lines)
 
 
-def merge_candidates(lines: list[list[int]], fixed: set[int], refused: set[int], weight: Callable[[list[int]], int] = len, cap: int = BARS_PER_LINE) -> set[int]:
+def merge_candidates(lines: list[list[int]], fixed: set[int], refused: set[int], fits: Callable[[list[int]], bool]) -> set[int]:
     """0-based line starts to try removing: shortest neighbours first, each line in at most 1 merge."""
-    pairs = sorted(range(len(lines) - 1), key=lambda n: weight(lines[n]) + weight(lines[n + 1]))
+    pairs = sorted(range(len(lines) - 1), key=lambda n: len(lines[n]) + len(lines[n + 1]))
     used: set[int] = set()
     joins = set()
     for n in pairs:
         start = lines[n + 1][0] - 1
         if n in used or n + 1 in used or start in fixed or start in refused:
             continue
-        if weight(lines[n]) + weight(lines[n + 1]) <= cap:
+        if fits(lines[n] + lines[n + 1]):
             joins.add(start)
             used |= {n, n + 1}
     return joins
 
 
 def split_at(first: int, end: int, tied: list[bool]) -> int:
-    """Where to halve line [first, end): no stranded single bar, then off a tie, then nearest the middle."""
-    middle = (first + end) // 2
+    """Where a line that will not fit gives up its last bars: no stranded single bar, then off a tie, then taking as little as helps."""
+    middle = end - max(1, (end - first) // SPLIT_SHARE)
 
     def cost(at: int) -> tuple[bool, bool, int, int]:
         lone = end - first > 2 and (at == first + 1 or at == end - 1)
@@ -472,6 +450,25 @@ def seat_chords(score_path: pathlib.Path, pdf: pathlib.Path, render: Callable[[]
         return  # chords run together, so the text layer merges them; the crowding check splits that line
 
 
+def settle_chord_starts(starts: set[int], chorded: set[int], marks: set[int], total: int) -> set[int]:
+    """No line starts on a bar without its own chord: its chord's bar goes down with it, or it stays up on its chord's line; a section mark stays where it is."""
+    settled = set(starts)
+    for bar in sorted(starts):
+        if bar == 0 or bar in chorded or bar in marks or bar not in settled:
+            continue
+        settled.discard(bar)
+        earlier = max((s for s in settled if s < bar), default=0)
+        back = max((c for c in chorded if earlier < c < bar), default=None)
+        if back is not None:
+            settled.add(back)
+            continue
+        later = min((s for s in settled if s > bar), default=total)
+        ahead = min((c for c in chorded if bar < c < later), default=None)
+        if ahead is not None:
+            settled.add(ahead)
+    return settled
+
+
 def refuse_fixed(probe: pathlib.Path, title: str, song: str) -> None:
     """Stop the song on a check no size can change."""
     fixed_problems = pdfcheck.margin_words(probe) + pdfcheck.foreign_fonts(probe) + pdfcheck.title_problems(probe, title) + pdfcheck.sign_problems(probe)
@@ -493,8 +490,9 @@ def lay_out(src: pathlib.Path, work: pathlib.Path, spatium: float, distance: flo
     base = work / f"{song}.mscz"
     probe = work / f"{song}-layout.pdf"
     starts = set(opening_lines(score, variant, spatium)) if lines is None else set(lines)
-    load = (lambda line: sum(NOTED_LOAD if piano.has_notes(score.bars[n - 1]) else 1 for n in line)) if variant == PIANO else len
-    cap = PIANO_LINE_LOAD if variant == PIANO else BARS_PER_LINE
+    def joins_fit(line: list[int]) -> bool:
+        return len(line) <= TRY_CEILING and line_room([score.bars[n - 1] for n in line], spatium, variant == PIANO) <= LINE_WIDTH
+
     tied = [tied_out(bar) for bar in score.bars]
     fixed = {block[0] for block in sections(score)}
 
@@ -512,7 +510,11 @@ def lay_out(src: pathlib.Path, work: pathlib.Path, spatium: float, distance: flo
             noted = {bar.number for bar in score.bars if piano.has_notes(bar)} if variant == PIANO else None
             seat_chords(base, probe, lambda: export_view(options, base, probe), song, noted)
 
+    chorded = {index for index, bar in enumerate(score.bars) if bar.chords}
+
     def measure() -> tuple[list[list[int]], set[int]]:
+        nonlocal starts
+        starts = settle_chord_starts(starts, chorded, fixed, len(score.bars))
         for index, bar in enumerate(score.bars):
             bar.new_system = index in starts and index != 0
             bar.new_page = False
@@ -550,7 +552,7 @@ def lay_out(src: pathlib.Path, work: pathlib.Path, spatium: float, distance: flo
             raise DoesNotFit(f"{song}: lines {sorted(bad)} still do not fit")
         refused: set[int] = set()
         for _ in range(MAX_MERGE_ROUNDS):
-            joins = merge_candidates(rows(score), fixed, refused, load, cap)
+            joins = merge_candidates(rows(score), fixed, refused, joins_fit)
             if not joins:
                 break
             starts -= joins
@@ -626,22 +628,6 @@ def largest_fit(start: float, step: float, stop: float, fits: Callable[[float], 
         else:
             high = middle
     return low
-
-
-def choose_stretch(src: pathlib.Path, work: pathlib.Path, spatium: float, distance: float, limit: int, variant: str) -> None:
-    """Chord width helps some songs and starves others, so each sheet keeps the share leaving fewest short lines."""
-    global CHORD_STRETCH  # noqa: PLW0603
-    best: tuple[float, float] | None = None
-    for share in STRETCH_CHOICES:
-        CHORD_STRETCH = share
-        try:
-            laid, _, _ = lay_out(src, work, spatium, distance, limit, variant)
-        except DoesNotFit:
-            continue
-        found = short_line_share(rows(laid))
-        if best is None or found < best[0]:
-            best = (found, share)
-    CHORD_STRETCH = best[1] if best else STRETCH_CHOICES[0]
 
 
 def line_starts(score: Score) -> list[int]:

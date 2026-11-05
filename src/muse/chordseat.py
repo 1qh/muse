@@ -382,6 +382,15 @@ def uneven(mscz: pathlib.Path, pdf: pathlib.Path, noted: set[int]) -> list[str]:
     return [f"bar {bar}: {width:.1f} pt wide, line mean {mean:.1f}" for bar, width, mean in empty_widths(score_text(mscz)[1], matched(score_text(mscz)[1], pdf), noted) if abs(width - mean) > EQUAL_TOLERANCE]
 
 
+def chordless_starts(text: str) -> list[int]:
+    """Bars opening a line, past the first, that hold no chord of their own."""
+    found = []
+    for numbers, chords in zip(bar_rows(text), rows_of(text), strict=True):
+        if numbers and numbers[0] != 1 and not (chords and chords[0][0] == 0):
+            found.append(numbers[0])
+    return found
+
+
 def problems(mscz: pathlib.Path, pdf: pathlib.Path, reach: float | None = None) -> list[str]:
     """Beat-1 chords off the barline on a final PDF; a reach allows a program's own fixed hold after it."""
     text = score_text(mscz)[1]
