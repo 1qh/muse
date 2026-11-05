@@ -776,7 +776,7 @@ class Decoder:
             runs: list[tuple[str, bool, bool]] = []
             for i, s in enumerate(group):
                 piece = s.text.strip() if len(group) == 1 else s.text
-                if i and s.x - group[i - 1].x1 > 1.5 and not piece.startswith(" ") and not runs[-1][0].endswith(" "):
+                if i and piece and runs[-1][0] and (s.x - group[i - 1].x1 > 1.5 or (piece[0].isalnum() and runs[-1][0][-1].isalnum())) and not piece.startswith(" ") and not runs[-1][0].endswith(" "):
                     piece = " " + piece
                 runs.append((piece, s.bold, s.italic))
             label_at = next((i for i, run in enumerate(runs) if i and ":" in run[0] and run[1] and run[2]), 0)

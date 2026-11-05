@@ -12,11 +12,12 @@ import pymupdf
 from muse.model import Score
 
 TOKEN = re.compile(r"[^\W\d_]+")
-MUSIC_FONTS = ("Anastasia", "CIDFont+F1", "Bravura", "Leland")
+MUSIC_FONTS = ("Anastasia", "Bravura", "Leland")
 CHORD_PIECES = {"maj", "add", "m", "dim", "sus", "aug", "a", "b", "c", "d", "e", "f", "g"}
 CREDIT_LABELS = {"sheet", "by", "copyright", "contact", "sáng", "tác", "trình", "bày", "singer", "lời", "việt"}
 CHORD = re.compile(r"[a-g](m|maj|min|sus|dim|add|aug)*")
 JUMP_WORDS = {"to", "coda", "fine"}
+NOTE_GLYPH = {"q"}  # the quarter note of a tempo mark, printed through a text font
 PRIVATE_NAMES = "banned.txt"
 
 
@@ -56,5 +57,5 @@ def lost_words(printed: collections.Counter[str], decoded: collections.Counter[s
 def problems(path: pathlib.Path, score: Score, title: str) -> list[str]:
     names = pathlib.Path(os.environ["MUSE_PRIVATE"]) / PRIVATE_NAMES
     private = {word for line in names.read_text(encoding="utf-8").splitlines() for word in tokens(line)}
-    lost = lost_words(source_words(path), decoded_words(score), private | set(tokens(title)) | CHORD_PIECES | CREDIT_LABELS | JUMP_WORDS)
+    lost = lost_words(source_words(path), decoded_words(score), private | set(tokens(title)) | CHORD_PIECES | CREDIT_LABELS | JUMP_WORDS | NOTE_GLYPH)
     return [f"words printed in the source and not decoded: {sorted(lost)}"] if lost else []

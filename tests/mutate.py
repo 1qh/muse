@@ -8,6 +8,7 @@ import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 MUTATIONS = [
+    ("symbolfont.py", "or (piece[0].isalnum() and runs[-1][0][-1].isalnum()))", "or False)", "cue words joined"),
     ("oracle.py", "if count > decoded[word] and word not in excluded and word not in joined and not CHORD.fullmatch(word)}", "if False}", "lost word"),
     ("symbolfont.py", "any(abs(s.y - y) < CREDIT_ROW and s.x >= x for y, x in credit_rows)", "any(abs(s.y - y) < CREDIT_ROW for y, x in credit_rows)", "credit row left"),
     ("pdfcheck.py", "if not any(high <= head <= low for head in heads):", "if False:", "empty staff"),

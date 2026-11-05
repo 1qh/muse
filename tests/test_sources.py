@@ -85,3 +85,14 @@ def test_no_private_credit_reaches_the_decoded_text() -> None:
         score = decode(source(name))
         words = " ".join(run[0] for bar in score.bars for text in [*bar.texts, *bar.texts2] for run in text.runs)
         assert not [word for word in names if word.strip() and word in words], name
+
+
+def test_no_cue_joins_a_word_across_two_source_spans() -> None:
+    root = os.environ["MUSE_SOURCES"]
+    joined = []
+    for folder in root.split(":"):
+        for path in sorted(pathlib.Path(folder).glob("*.pdf")):
+            for bar in decode(path).bars:
+                for text in [*bar.texts, *bar.texts2]:
+                    joined += [(path.stem, bar.number) for left, right in zip(text.runs, text.runs[1:]) if left[0] and right[0] and left[0][-1].isalnum() and right[0][0].isalnum()]
+    assert not joined
