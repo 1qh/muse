@@ -573,3 +573,14 @@ def test_a_chord_list_lands_inside_the_style(tmp_path):
     chordnames.embed_chord_list(score, chords)
     text = zipfile.ZipFile(score).read("s.mscx").decode()
     assert "<a>1</a><ChordList><renderBase>/ :n :a</renderBase></ChordList></Style>" in text
+
+
+def test_a_saved_layout_with_a_label_inside_a_line_fails_its_proof():
+    plain = Bar(1, 0, 0.0, 100.0, F(4), voices=[], new_system=False)
+    labelled = Bar(2, 0, 0.0, 100.0, F(4), voices=[], texts=[Text(0.0, 0.0, [("Chorus-a: words", True, True)], False)])
+    from muse.model import Chord, Score
+
+    plain.chords = labelled.chords = [Chord(0.0, "A", 0, "")]
+    assert port.line_rule_breaks(Score([plain, labelled], [], [])) == [2]
+    labelled.new_system = True
+    assert port.line_rule_breaks(Score([plain, labelled], [], [])) == []

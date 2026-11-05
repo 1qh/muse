@@ -46,6 +46,7 @@ SHEET_LAUNCH_CAP = 150
 FINAL_LAUNCH_CAP = 600
 PIANO_LAUNCH_CAP = 250
 SIZE_STEP = 0.05
+CLIMB_START, CLIMB_STEP, CLIMB_STEPS = 1.3, 0.1, 8
 SIGN_CLEARANCE = 3.0  # spaces a chord moves right off a sign printed on its baseline
 SIGN_SIZE = 25  # a sign may exceed the chords: about 2.5 times the default sign
 MARKER_TYPES = {"segno": "segno", "coda": "codab"}
@@ -635,13 +636,22 @@ def layout_rules() -> str:
     return whole.hexdigest()[:16]
 
 
+def line_rule_breaks(score: Score) -> list[int]:
+    """Bars the line rules say start a line and that sit inside one, or lines opening on a bar without a chord that a mark does not excuse."""
+    firsts = {row[0] for row in rows(score)}
+    marks = {block[0] + 1 for block in sections(score)}
+    inside = [bar.number for bar in score.bars if bar.number not in firsts and piano.label_of(bar) and not (bar.number > 1 and tied_out(score.bars[bar.number - 2]))]
+    bare = [n for n in firsts if n not in marks and not score.bars[n - 1].chords]
+    return sorted({*inside, *bare})
+
+
 def prove(src: pathlib.Path, work: pathlib.Path, variant: str, saved: dict[str, Any]) -> tuple[Score, pathlib.Path, float, float, int] | None:
     """Rebuild a saved decision once; None sends the sheet back to the search."""
     try:
         laid, base, probe = lay_out(src, work, float(saved["spatium"]), float(saved["distance"]), int(saved["pages"]), variant, list(saved["lines"]))
     except DoesNotFit:
         return None
-    if not acceptable(laid, variant):
+    if not acceptable(laid, variant) or line_rule_breaks(laid):
         return None
     return laid, base, float(saved["spatium"]), float(saved["distance"]), len(pymupdf.open(probe))
 
@@ -669,6 +679,8 @@ def fit(src: pathlib.Path, work: pathlib.Path, variant: str, limit: int) -> tupl
 
     try:
         floors = [(size, gap) for size in SIZE_FLOORS for gap in (BASE_DISTANCE, MIDDLE_DISTANCE, TIGHT_DISTANCE) if size == SIZE_FLOORS[0] or gap != BASE_DISTANCE]
+        climb = [(round(CLIMB_START + step * CLIMB_STEP, 2), BASE_DISTANCE) for step in range(CLIMB_STEPS)]  # text keeps its size, so the smallest notation can collide where a larger one fits
+        floors += climb
         found = next((pair for pair in floors if fits(pair[0], pair[1], compact=False)), None)
         if found is None:
             return None
