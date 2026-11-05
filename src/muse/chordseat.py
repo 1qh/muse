@@ -12,7 +12,7 @@ import pymupdf
 
 GAP = 0.0  # a beat-1 chord's ink starts exactly at the barline's right edge, or after a line's clef and signatures
 TOLERANCE = 0.4
-LEGACY_REACH = 5.6  # points: MuseScore 3 holds a mid-line chord about 5 after the barline whatever its offset
+LEGACY_REACH = 1.7  # staff spaces: MuseScore 3 holds a mid-line chord about 1.5 after the barline whatever its offset
 INK_DPI = 720
 MPOS_UNITS = 200.0  # position export units per point
 LEGACY_MPOS_UNITS = 60.0  # MuseScore 3 writes other units
@@ -166,12 +166,14 @@ def page_lines(pdf: pathlib.Path) -> list[dict[str, Any]]:
                 continue
             joined: list[float] = []
             rights: list[float] = []
+            texts: list[str] = []
             for word in sorted(mine, key=lambda w: w[1]):
-                if word[4][0] in "ABCDEFG":  # a chord's later pieces, such as what follows a flat, name no root
+                if word[4][0] in "ABCDEFG" and not (texts and texts[-1].endswith(("/", "("))):  # later pieces, such as what follows a flat or a slash, open no chord
                     joined.append(ink_left(page, word[1], word[3], word[0]))
                     rights.append(word[2])
                 elif rights:
                     rights[-1] = word[2]
+                texts.append(word[4])
             row = sorted((m for m in systems if m["y"] == staff_top), key=lambda m: m["x"])
             bars = [m["x"] + m["w"] for m in row]
             bottom = staff_top + space * 4
@@ -258,7 +260,7 @@ def align(mscz: pathlib.Path, pdf: pathlib.Path, reach: float | None = None) -> 
     def seat(match: re.Match[str]) -> str:
         nonlocal moved
         gap, space = next(at)
-        if gap is None or (abs(gap - GAP) <= TOLERANCE / 2 if reach is None else -TOLERANCE <= gap <= reach):
+        if gap is None or (abs(gap - GAP) <= TOLERANCE / 2 if reach is None else -TOLERANCE <= gap <= reach * space):
             return match.group(0)
         moved = True
         return moved_chord(match.group(0), (GAP - gap) / space)
@@ -383,5 +385,8 @@ def uneven(mscz: pathlib.Path, pdf: pathlib.Path, noted: set[int]) -> list[str]:
 def problems(mscz: pathlib.Path, pdf: pathlib.Path, reach: float | None = None) -> list[str]:
     """Beat-1 chords off the barline on a final PDF; a reach allows a program's own fixed hold after it."""
     text = score_text(mscz)[1]
-    found = gaps(rows_of(text), matched(text, pdf))
-    return [f"chord {index + 1}: gap {gap:.1f} pt, wanted {GAP}" for index, gap in enumerate(found) if gap is not None and (abs(gap - GAP) > TOLERANCE if reach is None else not -TOLERANCE <= gap <= reach)]
+    rows = rows_of(text)
+    lines = matched(text, pdf)
+    found = gaps(rows, lines)
+    room = spaces_of(rows, lines)
+    return [f"chord {index + 1}: gap {gap:.1f} pt, wanted {GAP}" for index, (gap, space) in enumerate(zip(found, room, strict=True)) if gap is not None and (abs(gap - GAP) > TOLERANCE if reach is None else not -TOLERANCE <= gap <= reach * space)]

@@ -399,8 +399,8 @@ def test_a_reach_allows_the_hold_and_nothing_past_it(monkeypatch, tmp_path):
     monkeypatch.setattr(chordseat, "rows_of", lambda _: [[(0, True), (1, True)]])
     monkeypatch.setattr(chordseat, "bar_rows", lambda _: [[1, 2]])
     monkeypatch.setattr(chordseat, "page_lines", lambda _: [{"chords": [50.0, 105.0], "bars": [100.0, 150.0], "start": 50.0, "space": 4.0}])
-    assert chordseat.problems(tmp_path, tmp_path, 5.6) == []
-    assert len(chordseat.problems(tmp_path, tmp_path, 4.0)) == 1
+    assert chordseat.problems(tmp_path, tmp_path, 1.7) == []
+    assert len(chordseat.problems(tmp_path, tmp_path, 1.0)) == 1
     assert len(chordseat.problems(tmp_path, tmp_path)) == 1
 
 
@@ -429,3 +429,17 @@ def test_a_bar_too_narrow_for_its_last_chord_asks_for_width():
     assert chordseat.short_bars(rows, [[1, 2]], [line]) == {2: (148.0 + 6.0 - 100.0) / 50.0}
     line["rights"] = [70.0, 120.0, 130.0]
     assert chordseat.short_bars(rows, [[1, 2]], [line]) == {}
+
+
+def test_the_launch_cap_stops_a_search_and_only_a_search(monkeypatch):
+    calls = []
+    monkeypatch.setattr(port.subprocess, "run", lambda *a, **k: calls.append(a) or port.subprocess.CompletedProcess(a, 0, "", ""))
+    port.LAUNCHES["count"] = 10
+    port.SEARCH_CAP["at"] = 11
+    port.run("x")
+    import pytest
+    with pytest.raises(port.DoesNotFit):
+        port.run("x")
+    port.SEARCH_CAP["at"] = 0
+    port.run("x")
+    assert len(calls) == 2

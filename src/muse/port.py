@@ -36,6 +36,10 @@ SIZE_FLOORS = (1.2, 1.15)  # below 1.2 only for a song that fits its pages no ot
 MAX_PAGES = 2
 MAX_WORKERS = 3  # another project shares this machine
 SEAT_PASSES = 5
+FINAL_SPLITS = 4
+FINAL_STEPS = 3  # sizes to step down when the chosen layout fails its final checks
+SHEET_LAUNCH_CAP = 60
+SIZE_STEP = 0.05
 SIGN_CLEARANCE = 3.0  # spaces a chord moves right off a sign printed on its baseline
 SIGN_SIZE = 25  # a sign may exceed the chords: about 2.5 times the default sign
 MARKER_TYPES = {"segno": "segno", "coda": "codab"}
@@ -71,9 +75,12 @@ def require_font(folders: tuple[pathlib.Path, ...] = FONT_DIRS) -> None:
 
 
 LAUNCHES = {"count": 0}
+SEARCH_CAP = {"at": 0}  # launch count where a sheet's search stops; 0 leaves it open
 
 
 def run(*args: str) -> None:
+    if SEARCH_CAP["at"] and LAUNCHES["count"] >= SEARCH_CAP["at"]:
+        raise DoesNotFit("the search reached its launch cap")
     LAUNCHES["count"] += 1
     done = subprocess.run(["mscore", *args], capture_output=True, text=True, timeout=240)
     if done.returncode:
@@ -419,9 +426,9 @@ def transpose_options(song: Song) -> dict[str, Any] | None:
     return {"mode": "to_key", "direction": song.direction, "targetKey": song.fifths, "transposeKeySignatures": True, "transposeChordNames": True, "useDoubleSharpsFlats": False, "transposeInterval": 0}
 
 
-def export_view(options: dict[str, Any] | None, base: pathlib.Path, target: pathlib.Path) -> None:
+def export_view(options: dict[str, Any] | None, base: pathlib.Path, target: pathlib.Path, positions: bool = True) -> None:
     """Export a score, in the sheet's tone when it has its own: chord names, and so their widths, differ by key."""
-    for out in (target, target.with_suffix(".mpos")):  # the positions are the program's own record of this same layout
+    for out in (target, target.with_suffix(".mpos")) if positions else (target,):  # the positions are the program's own record of this same layout
         if options:
             run("-o", str(out), "--transpose", json.dumps(options), str(base))
         else:
@@ -472,7 +479,7 @@ def refuse_fixed(probe: pathlib.Path, title: str, song: str) -> None:
         raise SheetRefused(f"{song}: {fixed_problems[:3]}")
 
 
-def lay_out(src: pathlib.Path, work: pathlib.Path, spatium: float, distance: float, pages: int | None, variant: str = TONE, lines: list[int] | None = None) -> tuple[Score, pathlib.Path, pathlib.Path]:
+def lay_out(src: pathlib.Path, work: pathlib.Path, spatium: float, distance: float, pages: int | None, variant: str = TONE, lines: list[int] | None = None, seated: bool = True) -> tuple[Score, pathlib.Path, pathlib.Path]:
     """Build 1 sheet of a song at 1 size: no line wraps on its own and lines spread evenly over its pages; given lines are proved, never searched."""
     score = decode(src)
     info = song_of(src, score)
@@ -500,9 +507,10 @@ def lay_out(src: pathlib.Path, work: pathlib.Path, spatium: float, distance: flo
         real_jumps(base, clearing["signs"])
         big_signs(base)
         widen_chord_bars(base, score, variant == PIANO)
-        export_view(options, base, probe)
-        noted = {bar.number for bar in score.bars if piano.has_notes(bar)} if variant == PIANO else None
-        seat_chords(base, probe, lambda: export_view(options, base, probe), song, noted)
+        export_view(options, base, probe, seated)
+        if seated:  # a search trial stops here: only the chosen layout pays to be measured
+            noted = {bar.number for bar in score.bars if piano.has_notes(bar)} if variant == PIANO else None
+            seat_chords(base, probe, lambda: export_view(options, base, probe), song, noted)
 
     def measure() -> tuple[list[list[int]], set[int]]:
         for index, bar in enumerate(score.bars):
@@ -563,8 +571,18 @@ def lay_out(src: pathlib.Path, work: pathlib.Path, spatium: float, distance: flo
                     raise DoesNotFit(f"{song}: bar {row[0]} does not fit alone")
         else:
             raise DoesNotFit(f"{song}: lines {sorted(bad)} still do not fit")
-    elif measure()[1]:
-        raise DoesNotFit(f"{song}: saved lines no longer fit")
+    else:
+        for _ in range(FINAL_SPLITS):  # seating can crowd a line a trial judged clear
+            declared, bad = measure()
+            if not bad:
+                break
+            splitting = [row for row in declared if any(n in row for n in bad) and len(row) > 1]
+            if not splitting:
+                raise DoesNotFit(f"{song}: bars {sorted(bad)} do not fit alone")
+            for row in splitting:
+                starts.add(split_at(row[0] - 1, row[-1], tied))
+        else:
+            raise DoesNotFit(f"{song}: saved lines no longer fit")
     found = len(pymupdf.open(probe))
     if pages is not None and found > pages:
         raise DoesNotFit(f"{song}: {found} pages, over {pages}")
@@ -585,13 +603,14 @@ def lay_out(src: pathlib.Path, work: pathlib.Path, spatium: float, distance: flo
         clearing["signs"] = True
         build()
     refuse_fixed(probe, info.title, song)
-    try:
-        seating = chordseat.problems(base, probe)
-    except ValueError as error:
-        raise DoesNotFit(f"{song}: {error}") from error
-    if seating:
-        raise DoesNotFit(f"{song}: {seating[:3]}")
-    found_problems = pdfcheck.all_problems(probe, info.title)
+    if seated:
+        try:
+            seating = chordseat.problems(base, probe)
+        except ValueError as error:
+            raise DoesNotFit(f"{song}: {error}") from error
+        if seating:
+            raise DoesNotFit(f"{song}: {seating[:3]}")
+    found_problems = pdfcheck.all_problems(probe, info.title) if seated else pdfcheck.text_problems(probe)
     if found_problems:
         raise DoesNotFit(f"{song}: {found_problems[:3]}")
     return score, base, probe
@@ -644,51 +663,61 @@ def prove(src: pathlib.Path, work: pathlib.Path, variant: str, saved: dict[str, 
 
 def acceptable(laid: Score, variant: str) -> bool:
     if variant == PIANO:
-        if piano.lone_lines([row[0] for row in rows(laid)], len(laid.bars)):
-            return False
-        noted = {bar.number for bar in laid.bars if piano.has_notes(bar)}
-        letters = {bar.number: piano.chord_letters(bar) for bar in laid.bars}
-        return not piano.sparse_lines([row[0] for row in rows(laid)], noted, {block[0] + 1 for block in sections(laid)}, len(laid.bars), letters)
+        return not piano.lone_lines([row[0] for row in rows(laid)], len(laid.bars))
     return short_line_share(rows(laid)) <= MAX_SHORT_SHARE
 
 
 def fit(src: pathlib.Path, work: pathlib.Path, variant: str, limit: int) -> tuple[Score, pathlib.Path, float, float, int] | None:
-    """The largest notation of 1 sheet within a page limit, its lines then spread over the height left."""
-    tried: dict[tuple[float, float, float, bool], bool] = {}
+    """The largest notation of 1 sheet within a page limit and a launch cap; only the chosen layout is seated and checked in full."""
+    tried: dict[tuple[float, float, bool], bool] = {}
+    SEARCH_CAP["at"] = LAUNCHES["count"] + SHEET_LAUNCH_CAP
 
     def fits(spatium: float, distance: float, compact: bool = True) -> bool:
-        memo = (spatium, distance, CHORD_STRETCH, compact)
+        memo = (spatium, distance, compact)
         if memo not in tried:
-            tried[memo] = attempt(spatium, distance, compact)
+            try:
+                laid, _, _ = lay_out(src, work, spatium, distance, limit, variant, seated=False)
+                tried[memo] = not compact or acceptable(laid, variant)
+            except DoesNotFit:
+                tried[memo] = False
         return tried[memo]
 
-    def attempt(spatium: float, distance: float, compact: bool) -> bool:
+    try:
+        floors = [(size, gap) for size in SIZE_FLOORS for gap in (BASE_DISTANCE, MIDDLE_DISTANCE, TIGHT_DISTANCE) if size == SIZE_FLOORS[0] or gap != BASE_DISTANCE]
+        found = next((pair for pair in floors if fits(pair[0], pair[1], compact=False)), None)
+        if found is None:
+            return None
+        spatium = largest_fit(found[0], SIZE_STEP, MAX_SPATIUM, lambda value: fits(value, found[1]))
+        distance = found[1]
+    finally:
+        SEARCH_CAP["at"] = 0
+    return finish(src, work, variant, limit, spatium, distance)
+
+
+def finish(src: pathlib.Path, work: pathlib.Path, variant: str, limit: int, spatium: float, distance: float) -> tuple[Score, pathlib.Path, float, float, int] | None:
+    """Seat and check the chosen size in full, stepping down a little when it fails; then open the line gap into the height left."""
+    for step in range(FINAL_STEPS):
+        size = round(spatium - step * SIZE_STEP, 2)
+        if size < SIZE_FLOORS[-1]:
+            break
         try:
-            laid, _, _ = lay_out(src, work, spatium, distance, limit, variant)
+            laid, _, _ = lay_out(src, work, size, distance, limit, variant, seated=False)
+            lines = line_starts(laid)
+            score, base, probe = lay_out(src, work, size, distance, limit, variant, lines)
         except DoesNotFit:
-            return False
-        return not compact or acceptable(laid, variant)
-
-    floors = [(size, gap) for size in SIZE_FLOORS for gap in (BASE_DISTANCE, MIDDLE_DISTANCE, TIGHT_DISTANCE) if size == SIZE_FLOORS[0] or gap != BASE_DISTANCE]
-    found = next((pair for pair in floors if fits(pair[0], pair[1], compact=False)), None)
-    if found is None:
-        return None
-    floor, start = found
-    choose_stretch(src, work, floor, start, limit, variant)
-    spatium = largest_fit(floor, 0.05, MAX_SPATIUM, lambda value: fits(value, start))
-    settled, _, _ = lay_out(src, work, spatium, start, limit, variant)
-    lines = line_starts(settled)  # the line gap changes height alone, so its search keeps these lines
-
-    def gap_fits(value: float) -> bool:
-        try:
-            lay_out(src, work, spatium, value, limit, variant, lines)
-        except DoesNotFit:
-            return False
-        return True
-
-    distance = largest_fit(start, 1.0, MAX_DISTANCE, gap_fits)
-    score, base, probe = lay_out(src, work, spatium, distance, limit, variant, lines)
-    return score, base, spatium, distance, len(pymupdf.open(probe))
+            continue
+        gap = distance
+        for wider in (distance * 2, distance * 1.5):  # the line gap changes height alone, so a seated layout keeps its lines
+            try:
+                score, base, probe = lay_out(src, work, size, wider, limit, variant, line_starts(score))
+                gap = wider
+                break
+            except DoesNotFit:
+                continue
+        else:
+            score, base, probe = lay_out(src, work, size, distance, limit, variant, line_starts(score))
+        return score, base, size, gap, len(pymupdf.open(probe))
+    return None
 
 
 def legacy_command() -> str:

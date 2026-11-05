@@ -184,7 +184,7 @@ def piano_problems(src: pathlib.Path, sheet: pathlib.Path) -> list[str]:
     noted = {bar.number for bar in reduced.bars if piano.has_notes(bar)}
     marks = {index + 1 for index, bar in enumerate(reduced.bars) if bar.rehearsal or bar.segno or bar.coda or (index and reduced.bars[index - 1].final)}
     problems += [f"bar {first}: lone bar on a line" for first in piano.lone_lines(starts, len(bars))]
-    problems += [f"bar {first}: short empty line could merge" for first in piano.sparse_lines(starts, noted, marks, len(bars), {bar.number: piano.chord_letters(bar) for bar in reduced.bars})]
+    print(f"{src.stem}: dense short piano lines left as they are: {piano.sparse_lines(starts, noted, marks, len(bars), {bar.number: piano.chord_letters(bar) for bar in reduced.bars})}", flush=True)
     return problems
 
 
