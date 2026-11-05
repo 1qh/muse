@@ -240,7 +240,10 @@ def check_song(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> tupl
     guarded("lines", ties)
     sheet = work / f"{song.name}-piano-final.mscz"
     guarded("piano", lambda: piano_problems(src, sheet))
-    guarded("even bars piano", lambda: even_piano_bars(src, sheet, out / song.piano_pdf))
+    guarded("even bars piano", lambda: even_bars(src, sheet, out / song.piano_pdf, work, port.transpose_options(song), True))
+    guarded("even bars original", lambda: even_bars(src, out / song.score_file, out / song.original_pdf, work, None, False))
+    if song.direction:
+        guarded("even bars tone", lambda: even_bars(src, work / f"{song.name}-{port.TONE}.mscz", out / song.tone_pdf, work, port.transpose_options(song), False))
     options = port.transpose_options(song)
     guarded("line start piano", lambda: chord_starts(sheet, score))
     guarded("line start original", lambda: chord_starts(out / song.score_file, score))
@@ -291,10 +294,12 @@ def chord_starts(score_path: pathlib.Path, score: Score) -> list[str]:
     return [f"bar {bar}: line starts without its chord" for bar in found if bar not in marks] + [f"bar {bar}: lyric label inside a line" for bar in sorted(labels - opening - tied_in)]
 
 
-def even_piano_bars(src: pathlib.Path, sheet: pathlib.Path, pdf: pathlib.Path) -> list[str]:
-    reduced = decode(src)
-    piano.reduce(reduced)
-    return chordseat.uneven(sheet, measured(sheet, pdf, sheet.parent, port.transpose_options(song_of(src))), {bar.number for bar in reduced.bars if piano.has_notes(bar)})
+def even_bars(src: pathlib.Path, score_path: pathlib.Path, pdf: pathlib.Path, work: pathlib.Path, options: dict[str, object] | None, reduced: bool) -> list[str]:
+    """Empty bars of 1 line are equal on every sheet: chord text never sets a width."""
+    score = decode(src)
+    if reduced:
+        piano.reduce(score)
+    return chordseat.uneven(score_path, measured(score_path, pdf, work, options), {bar.number for bar in score.bars if piano.has_notes(bar)})
 
 
 def cached_check(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> tuple[list[str], list[str], bool]:

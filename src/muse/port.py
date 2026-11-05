@@ -38,10 +38,11 @@ SIZE_FLOORS = (1.2, 1.15)  # below 1.2 only for a song that fits its pages no ot
 MAX_PAGES = 2
 MAX_WORKERS = 3  # another project shares this machine
 SEAT_PASSES = 5
-LAYOUT_RULES = 4  # raise when layout rules change, so a saved layout is searched again rather than re-proved
+LAYOUT_RULES = 5  # raise when layout rules change, so a saved layout is searched again rather than re-proved
 FINAL_SPLITS = 8
 FINAL_STEPS = 3  # sizes to step down when the chosen layout fails its final checks
 SHEET_LAUNCH_CAP = 60
+FINAL_LAUNCH_CAP = 90
 PIANO_LAUNCH_CAP = 150
 SIZE_STEP = 0.05
 SIGN_CLEARANCE = 3.0  # spaces a chord moves right off a sign printed on its baseline
@@ -52,7 +53,6 @@ LEGACY_ONLY_FONTS = ("staffFontFace", "systemFontFace", "beginFontFace", "contin
 JUMP_LIFT = -7  # clears the chord row it would otherwise touch
 JUMP_WORD_SIZE = 12  # below the chords
 MAX_SHORT_SHARE = 0.15  # readers find many 2-bar lines sparse; smaller notation is preferred
-CHORD_STRETCH = 0.45
 MIDDLE_DISTANCE = 9.0
 LEGACY_TOP_BORDER = 15  # MuseScore 3 lifts jump words and voltas into the title otherwise
 TIGHT_DISTANCE = 6.0  # line gap only for a song that fits its pages no other way
@@ -221,10 +221,8 @@ def bar_room(bar: Bar, spatium: float) -> float:
     return max(chords, notes, EMPTY_BAR_ROOM * spatium)
 
 
-def line_room(bars: list[Bar], spatium: float, even_empty: bool) -> float:
-    """Points a line asks for; on a piano sheet every empty bar takes the width of the widest."""
-    if not even_empty:
-        return sum(bar_room(bar, spatium) for bar in bars)
+def line_room(bars: list[Bar], spatium: float) -> float:
+    """Points a line asks for; every empty bar takes the width of the widest, since chord text never widens 1 bar."""
     empty = [bar_room(bar, spatium) for bar in bars if not piano.has_notes(bar)]
     return sum(bar_room(bar, spatium) for bar in bars if piano.has_notes(bar)) + max(empty, default=0.0) * len(empty)
 
@@ -235,14 +233,14 @@ def break_cost(bars: list[Bar], stop: int, full: int) -> tuple[bool, float]:
     return (awkward, full - stop - (PHRASE_PULL if stop % PHRASE == 0 else 0.0))
 
 
-def fill_block(bars: list[Bar], spatium: float, even_empty: bool) -> list[int]:
+def fill_block(bars: list[Bar], spatium: float) -> list[int]:
     """Positions starting a line in a section: each line fills until the next bar will not fit, then breaks at the best nearby place."""
     starts = []
     at = 0
     while at < len(bars):
         starts.append(at)
         end = at + 1
-        while end < len(bars) and end - at < TRY_CEILING and line_room(bars[at:end + 1], spatium, even_empty) <= LINE_WIDTH:
+        while end < len(bars) and end - at < TRY_CEILING and line_room(bars[at:end + 1], spatium) <= LINE_WIDTH:
             end += 1
 
         options = [(break_cost(bars, stop, end), stop) for stop in range(max(at + 1, end - BACK_REACH), end + 1)]
@@ -252,7 +250,7 @@ def fill_block(bars: list[Bar], spatium: float, even_empty: bool) -> list[int]:
 
 def opening_lines(score: Score, variant: str = TONE, spatium: float = 1.2) -> list[int]:
     """0-based bars that start a line, from estimated widths, before any render has judged them."""
-    return [block[at] for block in sections(score) for at in fill_block([score.bars[i] for i in block], spatium, variant == PIANO)]
+    return [block[at] for block in sections(score) for at in fill_block([score.bars[i] for i in block], spatium)]
 
 
 def short_line_share(lines: list[list[int]]) -> float:
@@ -374,11 +372,6 @@ def styled(work: pathlib.Path, name: str, title: str, spatium: float, distance: 
     return path
 
 
-def chord_stretch(chords: int) -> float:
-    """Width share of a bar: every chord past the first asks for room inside the line."""
-    return 1.0 + CHORD_STRETCH * max(0, chords - 1)
-
-
 def big_signs(mscz: pathlib.Path) -> None:
     """The jump words must catch the eye in bold; the style sizes the signs."""
     with zipfile.ZipFile(mscz) as z:
@@ -389,32 +382,6 @@ def big_signs(mscz: pathlib.Path) -> None:
             for words in ("To Coda", "D.S. al Coda"):
                 text = text.replace(f"<text>{words}</text>", f'<offset x="0" y="{JUMP_LIFT}"/><text><font size="{JUMP_WORD_SIZE}"/><b>{words}</b></text>')
             items[name] = text.encode("utf-8")
-    with zipfile.ZipFile(mscz, "w", zipfile.ZIP_DEFLATED) as z:
-        for key, data in items.items():
-            z.writestr(key, data)
-
-
-def widen_chord_bars(mscz: pathlib.Path, score: Score, equal_empty: bool = False) -> None:
-    """Give bars with more chords more width, so a line rarely has to split for them; an empty piano bar takes no share of its own."""
-    with zipfile.ZipFile(mscz) as z:
-        items = {info.filename: z.read(info.filename) for info in z.infolist()}
-    name = next(n for n in items if n.endswith(".mscx") and "/" not in n)
-    text = items[name].decode("utf-8")
-    first = text.index('<Staff id="1">', text.index("</Part>"))
-    end = text.find('<Staff id="2">', first)
-    end = end if end != -1 else text.index("</Score>", first)
-    body = text[first:end]
-    numbers = iter(score.bars)
-
-    def widen(match: re.Match[str]) -> str:
-        bar = next(numbers, None)
-        if bar is None:
-            return match.group(0)
-        factor = 1.0 if equal_empty and not piano.has_notes(bar) else chord_stretch(len(bar.chords))
-        return match.group(0) + f"<stretch>{factor:.2f}</stretch>" if factor != 1.0 else match.group(0)
-
-    body = re.sub(r"<Measure[^>]*>", widen, body)
-    items[name] = (text[:first] + body + text[end:]).encode("utf-8")
     with zipfile.ZipFile(mscz, "w", zipfile.ZIP_DEFLATED) as z:
         for key, data in items.items():
             z.writestr(key, data)
@@ -458,10 +425,6 @@ def seat_chords(score_path: pathlib.Path, pdf: pathlib.Path, render: Callable[[]
     try:
         for _ in range(SEAT_PASSES if noted is not None else 0):  # bars first: evening them moves every barline
             if not chordseat.equalize(score_path, pdf, noted or set()):
-                break
-            render()
-        for _ in range(SEAT_PASSES if noted is None and reach is None else 0):  # first the room each chord asks
-            if not chordseat.widen_short_bars(score_path, pdf):
                 break
             render()
         for _ in range(SEAT_PASSES):
@@ -513,7 +476,7 @@ def lay_out(src: pathlib.Path, work: pathlib.Path, spatium: float, distance: flo
     probe = work / f"{song}-layout.pdf"
     starts = set(opening_lines(score, variant, spatium)) if lines is None else set(lines)
     def joins_fit(line: list[int]) -> bool:
-        return len(line) <= TRY_CEILING and line_room([score.bars[n - 1] for n in line], spatium, variant == PIANO) <= LINE_WIDTH
+        return len(line) <= TRY_CEILING and line_room([score.bars[n - 1] for n in line], spatium) <= LINE_WIDTH
 
     tied = [tied_out(bar) for bar in score.bars]
     fixed = {block[0] for block in sections(score)}
@@ -526,10 +489,9 @@ def lay_out(src: pathlib.Path, work: pathlib.Path, spatium: float, distance: flo
         strip_title_frame(base)
         real_jumps(base, clearing["signs"])
         big_signs(base)
-        widen_chord_bars(base, score, variant == PIANO)
         export_view(options, base, probe, seated)
         if seated:  # a search trial stops here: only the chosen layout pays to be measured
-            noted = {bar.number for bar in score.bars if piano.has_notes(bar)} if variant == PIANO else None
+            noted = {bar.number for bar in score.bars if piano.has_notes(bar)}
             seat_chords(base, probe, lambda: export_view(options, base, probe), song, noted)
 
     chorded = {index for index, bar in enumerate(score.bars) if bar.chords}
@@ -658,8 +620,6 @@ def line_starts(score: Score) -> list[int]:
 
 def prove(src: pathlib.Path, work: pathlib.Path, variant: str, saved: dict[str, Any]) -> tuple[Score, pathlib.Path, float, float, int] | None:
     """Rebuild a saved decision once; None sends the sheet back to the search."""
-    global CHORD_STRETCH  # noqa: PLW0603
-    CHORD_STRETCH = float(saved["stretch"])
     try:
         laid, base, probe = lay_out(src, work, float(saved["spatium"]), float(saved["distance"]), int(saved["pages"]), variant, list(saved["lines"]))
     except DoesNotFit:
@@ -704,6 +664,14 @@ def fit(src: pathlib.Path, work: pathlib.Path, variant: str, limit: int) -> tupl
 
 def finish(src: pathlib.Path, work: pathlib.Path, variant: str, limit: int, spatium: float, distance: float) -> tuple[Score, pathlib.Path, float, float, int] | None:
     """Seat and check the chosen size in full, stepping down a little when it fails; then open the line gap into the height left."""
+    SEARCH_CAP["at"] = LAUNCHES["count"] + FINAL_LAUNCH_CAP
+    try:
+        return finish_within_cap(src, work, variant, limit, spatium, distance)
+    finally:
+        SEARCH_CAP["at"] = 0
+
+
+def finish_within_cap(src: pathlib.Path, work: pathlib.Path, variant: str, limit: int, spatium: float, distance: float) -> tuple[Score, pathlib.Path, float, float, int] | None:
     for step in range(FINAL_STEPS):
         size = round(spatium - step * SIZE_STEP, 2)
         if size < SIZE_FLOORS[-1]:
@@ -750,7 +718,6 @@ def build_legacy(src: pathlib.Path, work: pathlib.Path, target: pathlib.Path, sp
     strip_title_frame(raw)
     legacy_signs(raw)
     big_signs(raw)
-    widen_chord_bars(raw, score)
     seen = work / f"{info.name}-legacy-seat.pdf"
 
     def render() -> None:
@@ -759,7 +726,7 @@ def build_legacy(src: pathlib.Path, work: pathlib.Path, target: pathlib.Path, sp
             subprocess.run([legacy_command(), "-o", str(out), str(raw)], capture_output=True, check=True, timeout=240, stdin=subprocess.DEVNULL)
 
     render()
-    seat_chords(raw, seen, render, f"{info.name}-legacy", None, chordseat.LEGACY_REACH)
+    seat_chords(raw, seen, render, f"{info.name}-legacy", {bar.number for bar in score.bars if piano.has_notes(bar)}, chordseat.LEGACY_REACH)
     target.write_bytes(raw.read_bytes())
 
 
@@ -800,7 +767,7 @@ def sheet(src: pathlib.Path, work: pathlib.Path, variant: str, limits: tuple[int
 
 
 def decision(found: tuple[Score, pathlib.Path, float, float, int]) -> dict[str, Any]:
-    return {"rules": LAYOUT_RULES, "spatium": found[2], "distance": found[3], "pages": found[4], "stretch": CHORD_STRETCH, "lines": line_starts(found[0])}
+    return {"rules": LAYOUT_RULES, "spatium": found[2], "distance": found[3], "pages": found[4], "lines": line_starts(found[0])}
 
 
 def port(src: pathlib.Path, out_dir: pathlib.Path, work: pathlib.Path) -> dict[str, object]:

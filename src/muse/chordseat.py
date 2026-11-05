@@ -28,7 +28,6 @@ SIGN_REACH = 0.5  # of the chord size: a sign this near the chord baseline share
 EQUAL_TOLERANCE = 1.5  # points an empty bar may differ from its line's mean
 SAME_BARLINE = 6.0  # the 2 strokes of a repeat or a double bar are 1 barline
 MIN_STAFF_WIDTH = 60.0  # a short last line is left unfilled, and is still a staff
-CHORD_ROOM_GAP = 0.75  # of the chord size, between a chord and whatever follows it
 MIN_RULE_WIDTH = 10.0
 MIN_STAFF_SPACE = 2.0
 MAX_STAFF_SPACE = 9.0
@@ -275,24 +274,6 @@ def align(mscz: pathlib.Path, pdf: pathlib.Path, reach: float | None = None) -> 
     return moved
 
 
-def short_bars(rows: list[list[tuple[int, bool]]], bars: list[list[int]], lines: list[dict[str, Any]]) -> dict[int, float]:
-    """Bars too narrow for their last chord and its gap, by bar number, with the width factor each needs."""
-    wanted: dict[int, float] = {}
-    filled = [(row, numbers) for row, numbers in zip(rows, bars, strict=True) if row]
-    for (row, numbers), line in zip(filled, lines, strict=False):
-        edges = [line["start"], *line["bars"]]
-        if len(edges) != len(numbers) + 1 or len(row) != len(line.get("rights", [])):
-            continue
-        for at, (place, _) in enumerate(row):
-            if at + 1 < len(row) and row[at + 1][0] == place:
-                continue  # only a bar's last chord runs up against its end
-            width = edges[place + 1] - edges[place]
-            need = line["rights"][at] + line["size"] * CHORD_ROOM_GAP - edges[place]
-            if need > width:
-                wanted[numbers[place]] = need / width
-    return wanted
-
-
 def set_stretch(mscz: pathlib.Path, factors: dict[int, float]) -> None:
     """Multiply the given bars' stretch."""
     name, text = score_text(mscz)
@@ -321,15 +302,6 @@ def set_stretch(mscz: pathlib.Path, factors: dict[int, float]) -> None:
     with zipfile.ZipFile(mscz, "w", zipfile.ZIP_DEFLATED) as z:
         for key, data in items.items():
             z.writestr(key, data)
-
-
-def widen_short_bars(mscz: pathlib.Path, pdf: pathlib.Path) -> bool:
-    """Give a bar the width its own chord asks; True when anything moved."""
-    text = score_text(mscz)[1]
-    found = short_bars(rows_of(text), bar_rows(text), matched(text, pdf))
-    if found:
-        set_stretch(mscz, found)
-    return bool(found)
 
 
 def bar_rows(text: str) -> list[list[int]]:

@@ -198,11 +198,6 @@ def test_text_past_the_right_margin_is_found(tmp_path) -> None:
     assert [w[2] for w in past_margin(path)] == ["timpani"]
 
 
-def test_bars_with_more_chords_get_more_width() -> None:
-    assert port.chord_stretch(1) == 1.0
-    assert port.chord_stretch(3) > port.chord_stretch(2) > 1.0
-
-
 def test_short_line_share_counts_lines_of_2_bars_or_fewer() -> None:
     assert port.short_line_share([[1, 2], [3, 4, 5, 6], [7], [8, 9, 10, 11]]) == 0.5
 
@@ -391,14 +386,6 @@ def test_a_stray_long_line_inside_a_staff_does_not_hide_it():
     assert chordseat.staves_of(shapes) == [[60.0, 64.0, 68.0, 72.0, 76.0]]
 
 
-def test_a_bar_too_narrow_for_its_last_chord_asks_for_width():
-    rows = [[(0, True), (1, True), (1, False)]]
-    line = {"start": 50.0, "bars": [100.0, 150.0], "rights": [70.0, 120.0, 148.0], "size": 8.0}
-    assert chordseat.short_bars(rows, [[1, 2]], [line]) == {2: (148.0 + 6.0 - 100.0) / 50.0}
-    line["rights"] = [70.0, 120.0, 130.0]
-    assert chordseat.short_bars(rows, [[1, 2]], [line]) == {}
-
-
 def test_the_launch_cap_stops_a_search_and_only_a_search(monkeypatch):
     calls = []
     monkeypatch.setattr(port.subprocess, "run", lambda *a, **k: calls.append(a) or port.subprocess.CompletedProcess(a, 0, "", ""))
@@ -435,23 +422,23 @@ def test_a_section_fills_its_lines_by_room_and_not_by_a_count():
         return Bar(1, 0, 0.0, 100.0, F(4), voices=[], chords=[parse_chord("A" + "m" * (letters - 3), None, 0)] if letters else [])
     light = [bar(4) for _ in range(30)]
     wide = [bar(20) for _ in range(30)]
-    assert len(port.fill_block(light, 1.2, True)) < len(port.fill_block(wide, 1.2, True))
-    starts = port.fill_block(light, 1.2, True)
+    assert len(port.fill_block(light, 1.2)) < len(port.fill_block(wide, 1.2))
+    starts = port.fill_block(light, 1.2)
     assert all(b - a <= port.TRY_CEILING for a, b in zip(starts, starts[1:], strict=False))
 
 
 def test_a_break_avoids_a_chordless_next_bar():
     bars = [Bar(1, 0, 0.0, 100.0, F(4), voices=[], chords=[parse_chord("Am", None, 0)]) for _ in range(40)]
-    plain = port.fill_block(bars, 1.2, True)
+    plain = port.fill_block(bars, 1.2)
     bars[plain[1]].chords = []
-    assert plain[1] not in port.fill_block(bars, 1.2, True)
+    assert plain[1] not in port.fill_block(bars, 1.2)
 
 
 def test_a_piano_line_prices_every_empty_bar_as_its_widest():
     narrow = Bar(1, 0, 0.0, 100.0, F(4), voices=[], chords=[parse_chord("A", None, 0)])
     broad = Bar(2, 0, 0.0, 100.0, F(4), voices=[], chords=[parse_chord("Ammmmmmmmm", None, 0)])
-    assert port.line_room([narrow, broad], 1.2, True) == 2 * port.bar_room(broad, 1.2)
-    assert port.line_room([broad, broad], 1.2, True) == 2 * port.bar_room(broad, 1.2)
+    assert port.line_room([narrow, broad], 1.2) == 2 * port.bar_room(broad, 1.2)
+    assert port.line_room([broad, broad], 1.2) == 2 * port.bar_room(broad, 1.2)
 
 
 def test_merging_asks_what_fits_and_respects_marks():
@@ -524,3 +511,9 @@ def test_the_gate_refuses_a_label_inside_a_line(monkeypatch, tmp_path):
     assert gate.chord_starts(tmp_path, Score([first, labelled], [], [])) == ["bar 2: lyric label inside a line"]
     monkeypatch.setattr(chordseat, "bar_rows", lambda _: [[1], [2]])
     assert gate.chord_starts(tmp_path, Score([first, labelled], [], [])) == []
+
+
+def test_no_chord_stretches_a_bar():
+    import inspect
+    source = inspect.getsource(port)
+    assert "chord_stretch" not in source and "widen_chord_bars" not in source
