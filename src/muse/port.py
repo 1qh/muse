@@ -689,7 +689,7 @@ def fit(src: pathlib.Path, work: pathlib.Path, variant: str, limit: int, near: f
         climb = [(round(CLIMB_START + step * CLIMB_STEP, 2), BASE_DISTANCE) for step in range(CLIMB_STEPS)]  # text keeps its size, so the smallest notation can collide where a larger one fits
         floors += climb
         seeded = near is not None and fits(near, BASE_DISTANCE)
-        found = (near, BASE_DISTANCE) if seeded else next((pair for pair in floors if fits(pair[0], pair[1], compact=False)), None)
+        found = (float(near or 0), BASE_DISTANCE) if seeded else next((pair for pair in floors if fits(pair[0], pair[1], compact=False)), None)
         if found is None:
             return None
         ceiling = min(MAX_SPATIUM, found[0] + NEAR_REACH) if seeded else MAX_SPATIUM
