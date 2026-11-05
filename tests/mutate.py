@@ -188,8 +188,14 @@ def main() -> None:
         with tempfile.TemporaryDirectory() as tmp:
             base = pathlib.Path(tmp) / "src"
             shutil.copytree(ROOT / "src", base, ignore=shutil.ignore_patterns("*.egg-info", "__pycache__"))
-            if run(base) != 0:
-                raise SystemExit("baseline is red")
+            env = dict(os.environ, PYTHONPATH=str(base))
+            args = [sys.executable, "-m", "pytest", "-q", "-x", "-p", "no:cacheprovider", "-o", f"pythonpath={base}", str(ROOT / "tests")]
+            try:
+                done = subprocess.run(args, env=env, cwd=ROOT, capture_output=True, text=True, timeout=CONTROL_SECONDS)
+            except subprocess.TimeoutExpired:
+                raise SystemExit(f"baseline did not finish in {CONTROL_SECONDS} seconds") from None
+            if done.returncode:
+                raise SystemExit(f"baseline is red: {(done.stdout + done.stderr)[-1500:]}")
         outcomes = list(pool.map(control, MUTATIONS))
     for outcome in outcomes:
         print(outcome)
