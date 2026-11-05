@@ -95,6 +95,23 @@ def chord_file(work: pathlib.Path) -> pathlib.Path:
     return path
 
 
+def embed_chord_list(mscz: pathlib.Path, chords: pathlib.Path) -> None:
+    """Carry the chord list inside a score's style, so the file prints the same on any machine."""
+    found = re.search(r"<museScore[^>]*>(.*)</museScore>", chords.read_text(encoding="utf-8"), re.S)
+    if not found:
+        raise RuntimeError(f"{chords} holds no chord list")
+    with zipfile.ZipFile(mscz) as old:
+        items = {name: old.read(name) for name in old.namelist()}
+    named = [name for name in items if name.endswith(".mscx")]
+    text = items[named[0]].decode("utf-8")
+    if "</Style>" not in text:
+        raise RuntimeError(f"{mscz} has no style")
+    items[named[0]] = text.replace("</Style>", f"<ChordList>{found[1]}</ChordList></Style>", 1).encode("utf-8")
+    with zipfile.ZipFile(mscz, "w", zipfile.ZIP_DEFLATED) as new:
+        for name, data in items.items():
+            new.writestr(name, data)
+
+
 def bars_xml(kinds: list[str]) -> str:
     """1 bar of A per chord kind."""
     bars = []

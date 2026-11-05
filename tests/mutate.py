@@ -10,6 +10,7 @@ import tempfile
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 CONTROL_WORKERS = 8
 MUTATIONS = [
+    ("chordnames.py", 'f"<ChordList>{found[1]}</ChordList></Style>"', '"</Style>"', "chord list not embedded"),
     ("leland.py", "if r.width >= page.rect.width - 1:", "if False:", "page background is a beam"),
     ("leland.py", "and st[1] - 8 <= f[2] <= st[2] + 8:", ":", "flag of another staff"),
     ("leland.py", "return abs(stem_at[id(one)] - stem_at[id(other)]) < 0.3", "return abs(one.x - other.x) < DISPLACED", "chord by distance"),

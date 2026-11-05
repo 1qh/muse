@@ -558,3 +558,18 @@ def test_a_flag_far_from_a_stem_does_not_shorten_its_note() -> None:
     far_flag = (0xE240, 56.8, 140.0)
     voices = leland.read_events(bar, [head, far_flag], 108.0, 2.7, [stem], [], 0, [])
     assert voices[0][0].nominal == 1
+
+
+def test_a_chord_list_lands_inside_the_style(tmp_path):
+    import zipfile
+
+    from muse import chordnames
+
+    score = tmp_path / "s.mscz"
+    with zipfile.ZipFile(score, "w") as z:
+        z.writestr("s.mscx", "<museScore><Style><a>1</a></Style></museScore>")
+    chords = tmp_path / "c.xml"
+    chords.write_text('<museScore version="3"><renderBase>/ :n :a</renderBase></museScore>', encoding="utf-8")
+    chordnames.embed_chord_list(score, chords)
+    text = zipfile.ZipFile(score).read("s.mscx").decode()
+    assert "<a>1</a><ChordList><renderBase>/ :n :a</renderBase></ChordList></Style>" in text

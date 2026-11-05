@@ -735,6 +735,7 @@ def build_legacy(src: pathlib.Path, work: pathlib.Path, target: pathlib.Path, sp
     strip_title_frame(raw)
     legacy_signs(raw)
     big_signs(raw)
+    chordnames.embed_chord_list(raw, chordnames.chord_file(work))
     seen = work / f"{info.name}-legacy-seat.pdf"
 
     def render() -> None:
