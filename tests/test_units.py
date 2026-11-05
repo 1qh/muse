@@ -702,3 +702,10 @@ def test_2_jump_signs_in_1_bar_stand_side_by_side_and_a_lone_one_stays():
     alone = "<Measure><Jump><text/></Jump></Measure>"
     assert f'offset x="{port.SIGN_STEP}"' in port.beside_each_other(both)
     assert "offset" not in port.beside_each_other(alone)
+
+
+def test_a_target_sign_is_held_in_its_own_line_and_a_jump_is_not():
+    target = port.boxed_sign("<Marker><style>repeat_left</style><text><sym>segno</sym></text><label>segno</label></Marker>")
+    jump = port.boxed_sign("<Marker><style>repeat_right</style><text>To Coda</text><label>coda</label></Marker>")
+    assert port.TARGET_HOLD in target
+    assert port.TARGET_HOLD not in jump
