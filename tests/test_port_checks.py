@@ -47,3 +47,28 @@ def test_the_build_path_leaves_the_style_and_the_chord_list_stays(tmp_path):
     with zipfile.ZipFile(score) as z:
         assert z.read("chordlist.xml") == b"<chords/>"
         assert b"/build" not in z.read("s.mss")
+
+
+def bass_pdf(path, *parts):
+    doc = pymupdf.open()
+    page = doc.new_page()
+    for x, y, size, text in parts:
+        page.insert_text((x, y), text, fontsize=size)
+    doc.save(path)
+    return path
+
+
+def test_a_bass_on_the_roots_baseline_and_size_passes(tmp_path):
+    assert pdfcheck.bass_problems(bass_pdf(tmp_path / "b.pdf", (50, 100, 14, "A/C"))) == []
+
+
+def test_a_bass_set_apart_from_its_root_is_refused(tmp_path):
+    assert pdfcheck.bass_problems(bass_pdf(tmp_path / "b.pdf", (50, 100, 14, "A"), (70, 140, 10, "/C")))
+
+
+def test_a_lyric_label_with_a_slash_is_no_bass(tmp_path):
+    assert pdfcheck.bass_problems(bass_pdf(tmp_path / "b.pdf", (50, 100, 10, "/Perc"))) == []
+
+
+def test_the_chord_file_keeps_the_bass_level():
+    assert any("/ :n :a" in new for _, new in chordnames.CHORD_FILE_RENDERS)

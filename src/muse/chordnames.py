@@ -42,7 +42,11 @@ PLAYS = {
     "7b9": [1, 4, 7, 9, 10],
     "m7add4": [0, 2, 4, 7, 9],
 }
-CHORD_FILE_RENDERS = (("<render>circle</render>", "<render>\u00b0</render>"), ("<render>triangle</render>", "<render>\u0394</render>"))
+CHORD_FILE_RENDERS = (
+    ("<render>circle</render>", "<render>\u00b0</render>"),
+    ("<render>triangle</render>", "<render>\u0394</render>"),
+    ("<renderBase>m:-0.2:1 / m:0.2:1 :n :a m:0:-2</renderBase>", "<renderBase>/ :n :a</renderBase>"),  # the shipped form drops the bass below the root
+)
 SHIPPED_CHORD_FILE = pathlib.Path.home() / "Applications" / "MuseScore 3.app" / "Contents" / "Resources" / "styles" / "chords_std.xml"
 Runner = Callable[..., None]
 

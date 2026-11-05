@@ -275,3 +275,24 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
+BASS_CHORD = re.compile(r"^[A-G][^/]*/[A-G][\u266f\u266d]?$")
+BASS_ALONE = re.compile(r"^/[A-G][\u266f\u266d]?$")
+
+
+def bass_problems(pdf: pathlib.Path) -> list[str]:
+    """Slash chords whose bass does not share the root's baseline and size."""
+    problems = []
+    for number, page in enumerate(pymupdf.open(pdf), 1):
+        for block in page.get_text("rawdict")["blocks"]:
+            for line in block.get("lines", []):
+                text = "".join(c["c"] for span in line["spans"] for c in span["chars"]).strip()
+                if BASS_ALONE.match(text):
+                    problems.append(f"page {number}: bass {text} set apart from its root")
+                elif BASS_CHORD.match(text):
+                    heights = {round(c["origin"][1], 1) for span in line["spans"] for c in span["chars"] if c["c"].strip()}
+                    sizes = {round(span["size"], 1) for span in line["spans"]}
+                    if len(heights) > 1 or len(sizes) > 1:
+                        problems.append(f"page {number}: chord {text} baselines {sorted(heights)} sizes {sorted(sizes)}")
+    return problems

@@ -12,6 +12,7 @@ import sys
 import time
 import xml.etree.ElementTree as ET
 from collections.abc import Callable
+from functools import partial
 
 import pymupdf
 
@@ -33,7 +34,7 @@ def legacy_staff_problems(legacy: pathlib.Path, work: pathlib.Path, title: str) 
     pdf = work / f"{legacy.stem}-staves.pdf"
     subprocess.run([port.legacy_command(), "-o", str(pdf), str(legacy)], capture_output=True, check=True, timeout=240, stdin=subprocess.DEVNULL)
     subprocess.run([port.legacy_command(), "-o", str(pdf.with_suffix(".mpos")), str(legacy)], capture_output=True, check=True, timeout=240, stdin=subprocess.DEVNULL)
-    return chordseat.problems(legacy, pdf, chordseat.LEGACY_REACH) + pdfcheck.empty_staves(pdf) + [f"text on text: {c[2]}" for c in pdfcheck.text_collisions(pdf)] + pdfcheck.title_problems(pdf, title)
+    return chordseat.problems(legacy, pdf, chordseat.LEGACY_REACH) + pdfcheck.bass_problems(pdf) + pdfcheck.empty_staves(pdf) + [f"text on text: {c[2]}" for c in pdfcheck.text_collisions(pdf)] + pdfcheck.title_problems(pdf, title)
 
 
 def page_problems(path: pathlib.Path) -> list[str]:
@@ -227,6 +228,7 @@ def check_song(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> tupl
         notes.append(f"{final.name}: {len(pymupdf.open(final))} pages")
 
     for final in sorted({out / song.original_pdf, out / song.tone_pdf, out / song.piano_pdf}):
+        guarded(f"bass {final.name}", partial(pdfcheck.bass_problems, final))
         judge_pdf(final)
 
     def ties() -> list[str]:
