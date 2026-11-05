@@ -43,7 +43,7 @@ def test_piano_code_is_outside_the_other_sheets_key():
 
 def test_workers_follow_the_free_cores():
     assert port.free_workers(19, cores=10, load=55.0) == 1
-    assert port.free_workers(19, cores=10, load=4.0) == 3
+    assert port.free_workers(19, cores=10, load=4.0) == 6
     assert port.free_workers(2, cores=10, load=0.0) == 2
 
 
