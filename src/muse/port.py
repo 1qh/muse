@@ -40,6 +40,8 @@ SEAT_PASSES = 5
 FINAL_SPLITS = 4
 FINAL_STEPS = 3  # sizes to step down when the chosen layout fails its final checks
 SHEET_LAUNCH_CAP = 60
+PIANO_LAUNCH_CAP = 150
+PIANO_PACK = 0.7  # a piano line starts this much fuller than the estimate says, and the render corrects it
 SIZE_STEP = 0.05
 SIGN_CLEARANCE = 3.0  # spaces a chord moves right off a sign printed on its baseline
 SIGN_SIZE = 25  # a sign may exceed the chords: about 2.5 times the default sign
@@ -217,7 +219,7 @@ def line_room(bars: list[Bar], spatium: float, even_empty: bool) -> float:
     if not even_empty:
         return sum(bar_room(bar, spatium) for bar in bars)
     empty = [bar_room(bar, spatium) for bar in bars if not piano.has_notes(bar)]
-    return sum(bar_room(bar, spatium) for bar in bars if piano.has_notes(bar)) + max(empty, default=0.0) * len(empty)
+    return PIANO_PACK * (sum(bar_room(bar, spatium) for bar in bars if piano.has_notes(bar)) + max(empty, default=0.0) * len(empty))
 
 
 def break_cost(bars: list[Bar], stop: int, full: int) -> tuple[bool, float]:
@@ -659,7 +661,7 @@ def acceptable(laid: Score, variant: str) -> bool:
 def fit(src: pathlib.Path, work: pathlib.Path, variant: str, limit: int) -> tuple[Score, pathlib.Path, float, float, int] | None:
     """The largest notation of 1 sheet within a page limit and a launch cap; only the chosen layout is seated and checked in full."""
     tried: dict[tuple[float, float, bool], bool] = {}
-    SEARCH_CAP["at"] = LAUNCHES["count"] + SHEET_LAUNCH_CAP
+    SEARCH_CAP["at"] = LAUNCHES["count"] + (PIANO_LAUNCH_CAP if variant == PIANO else SHEET_LAUNCH_CAP)
 
     def fits(spatium: float, distance: float, compact: bool = True) -> bool:
         memo = (spatium, distance, compact)

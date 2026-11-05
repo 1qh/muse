@@ -450,8 +450,8 @@ def test_a_break_avoids_a_chordless_next_bar():
 def test_a_piano_line_prices_every_empty_bar_as_its_widest():
     narrow = Bar(1, 0, 0.0, 100.0, F(4), voices=[], chords=[parse_chord("A", None, 0)])
     broad = Bar(2, 0, 0.0, 100.0, F(4), voices=[], chords=[parse_chord("Ammmmmmmmm", None, 0)])
-    assert port.line_room([narrow, broad], 1.2, True) == 2 * port.bar_room(broad, 1.2)
-    assert port.line_room([narrow, broad], 1.2, False) < port.line_room([narrow, broad], 1.2, True)
+    assert port.line_room([narrow, broad], 1.2, True) == 2 * port.bar_room(broad, 1.2) * port.PIANO_PACK
+    assert port.line_room([broad, broad], 1.2, True) == 2 * port.bar_room(broad, 1.2) * port.PIANO_PACK
 
 
 def test_merging_asks_what_fits_and_respects_marks():
