@@ -645,13 +645,19 @@ def line_rule_breaks(score: Score) -> list[int]:
     return sorted({*inside, *bare})
 
 
+def chordless_opening(score: Score, base: pathlib.Path) -> list[int]:
+    """Lines the built score opens without a chord, with the gate's own reading; a section mark excuses its line."""
+    marks = {block[0] + 1 for block in sections(score)}
+    return [bar for bar in chordseat.chordless_starts(chordseat.score_text(base)[1]) if bar not in marks]
+
+
 def prove(src: pathlib.Path, work: pathlib.Path, variant: str, saved: dict[str, Any]) -> tuple[Score, pathlib.Path, float, float, int] | None:
     """Rebuild a saved decision once; None sends the sheet back to the search."""
     try:
         laid, base, probe = lay_out(src, work, float(saved["spatium"]), float(saved["distance"]), int(saved["pages"]), variant, list(saved["lines"]))
     except DoesNotFit:
         return None
-    if not acceptable(laid, variant) or line_rule_breaks(laid):
+    if not acceptable(laid, variant) or line_rule_breaks(laid) or chordless_opening(laid, base):
         return None
     return laid, base, float(saved["spatium"]), float(saved["distance"]), len(pymupdf.open(probe))
 

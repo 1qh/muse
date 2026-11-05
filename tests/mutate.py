@@ -11,7 +11,8 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 CONTROL_WORKERS = 8
 CONTROL_SECONDS = 180
 MUTATIONS = [
-    ("port.py", "if not acceptable(laid, variant) or line_rule_breaks(laid):", "if not acceptable(laid, variant):", "proof ignores line rules"),
+    ("port.py", "or line_rule_breaks(laid) or chordless_opening(laid, base):", "or line_rule_breaks(laid):", "proof ignores chordless lines"),
+    ("port.py", "or line_rule_breaks(laid) or chordless_opening(laid, base):", "or chordless_opening(laid, base):", "proof ignores line rules"),
     ("chordnames.py", 'f"<ChordList>{found[1]}</ChordList></Style>"', '"</Style>"', "chord list not embedded"),
     ("leland.py", "if r.width >= page.rect.width - 1:", "if False:", "page background is a beam"),
     ("leland.py", "and st[1] - 8 <= f[2] <= st[2] + 8:", ":", "flag of another staff"),

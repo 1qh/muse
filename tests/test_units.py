@@ -590,4 +590,13 @@ def test_prove_refuses_saved_lines_that_break_a_line_rule(monkeypatch, tmp_path)
     monkeypatch.setattr(port, "lay_out", lambda *a, **k: ("laid", tmp_path, tmp_path))
     monkeypatch.setattr(port, "acceptable", lambda *a: True)
     monkeypatch.setattr(port, "line_rule_breaks", lambda laid: [2])
+    monkeypatch.setattr(port, "chordless_opening", lambda laid, base: [])
+    assert port.prove(tmp_path, tmp_path, port.PIANO, {"spatium": 1.5, "distance": 11.0, "pages": 1, "lines": [0]}) is None
+
+
+def test_prove_refuses_a_built_line_opening_without_its_chord(monkeypatch, tmp_path):
+    monkeypatch.setattr(port, "lay_out", lambda *a, **k: ("laid", tmp_path, tmp_path))
+    monkeypatch.setattr(port, "acceptable", lambda *a: True)
+    monkeypatch.setattr(port, "line_rule_breaks", lambda laid: [])
+    monkeypatch.setattr(port, "chordless_opening", lambda laid, base: [17])
     assert port.prove(tmp_path, tmp_path, port.PIANO, {"spatium": 1.5, "distance": 11.0, "pages": 1, "lines": [0]}) is None
