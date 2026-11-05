@@ -11,6 +11,12 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 CONTROL_WORKERS = 8
 CONTROL_SECONDS = 180
 MUTATIONS = [
+    ("song.py", "if events and max(events) < chord.x - PAST_EVENT and", "if False and", "chord stays past its bar"),
+    ("song.py", "chord.x + name * CHORD_LETTER > bar.right + CROSSING", "True", "chord moved without crossing"),
+    ("piano.py", 'found = {bar.number for bar in score.bars if any(event.accent', 'found = {bar.number for bar in score.bars if False and any(event.accent', "accent dropped"),
+    ("piano.py", "if later.chords or later.rehearsal or later.final:", "if True:", "fill stops at its cue"),
+    ("port.py", 'return bare.replace(">", ">" + SIGN_BOX[kind], 1)', "return bare", "jump without box"),
+    ("scorefile.py", 'if element.findtext("frameType") != "1" or box is None:', "if False:", "box check off"),
     ("gate.py", "sorted(labels - opening - tied_in - after_mark)", "sorted(labels - opening - tied_in)", "label after mark refused"),
     ("port.py", "if len(line) <= 2 and len(above) >= BORROW_FROM", "if False and len(above) >= BORROW_FROM", "short line never borrows"),
     ("port.py", 'SHARE["limit"] = RELAXED_SHORT_SHARE', 'SHARE["limit"] = MAX_SHORT_SHARE', "share never widens"),
@@ -66,7 +72,7 @@ MUTATIONS = [
     ("musicxml.py", "chordnames.stored(chord.kind)", "chord.kind", "stored spelling"),
     ("port.py", "max(empty, default=0.0) * len(empty)", "sum(empty)", "even room"),
     ("port.py", "or previous.final or piano.label_of(bar))", "or previous.final)", "label starts a line"),
-    ("gate.py", 'for bar in sorted(labels - opening - tied_in)]', 'for bar in []]', "label inside a line"),
+    ("gate.py", 'for bar in sorted(labels - opening - tied_in - after_mark)]', 'for bar in []]', "label inside a line"),
     ("port.py", "if following in starts and following not in fixed and len(row) > 1:", "if False:", "hand bar on"),
     ("port.py", "found = prove(src, work, variant, saved) if saved and", "found = None if saved and", "saved layout ignored"),
     ("port.py", 'saved.get("searched", saved.get("rules")) if found and saved else layout_rules()', "layout_rules()", "owed search hidden"),

@@ -24,6 +24,9 @@ class Part:
     staff: int = 1
 
 
+HIT_CUE = re.compile(r"fill|tut+i", re.I)
+
+
 def label_of(bar: Bar) -> str:
     """The lyric label a bar opens, such as Chorus-a, or an empty string."""
     for text in [*bar.texts, *bar.texts2]:
@@ -240,9 +243,35 @@ def clean_ties(score: Score) -> None:
         opened.slur_start = False
 
 
+def hit_bars(score: Score) -> set[int]:
+    """Bars the pianist plays with: any accent, and a fill or tutti cue through the bars until the next chord change."""
+    found = {bar.number for bar in score.bars if any(event.accent for voices in (bar.voices, bar.voices2) for voice in voices for event in voice)}
+    for at, bar in enumerate(score.bars):
+        if any(HIT_CUE.search("".join(run[0] for run in text.runs)) for text in [*bar.texts, *bar.texts2]):
+            found.add(bar.number)
+            for later in score.bars[at + 1 :]:
+                if later.chords or later.rehearsal or later.final:
+                    break
+                found.add(later.number)
+    return found
+
+
+def kept_parts(score: Score) -> list[Part]:
+    """The intro, interlude and outro, plus every run of hit bars outside them."""
+    found = parts(score)
+    inside = {n for part in found for n in range(part.first, part.last + 1)}
+    extra: list[Part] = []
+    for number in sorted(hit_bars(score) - inside):
+        if extra and extra[-1].last == number - 1:
+            extra[-1].last = number
+        else:
+            extra.append(Part("hit", number, number))
+    return sorted([*found, *extra], key=lambda part: part.first)
+
+
 def reduce(score: Score) -> list[Part]:
     """Turn a score into the piano sheet in place, and name what kept its notes."""
-    found = parts(score)
+    found = kept_parts(score)
     keep = {n: part for part in found for n in range(part.first, part.last + 1)}
     for part in found:
         part.staff = staff_of([score.bars[n - 1] for n in range(part.first, part.last + 1)])

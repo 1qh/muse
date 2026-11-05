@@ -122,4 +122,15 @@ def builtin_sign_problems(path: pathlib.Path) -> list[str]:
             problems.append(f"{label} has no marker type, so it prints as an end-of-bar marker")
         if marker.find("family") is not None:
             problems.append(f"{label} forces a font")
+    for element in [*root.iter("Marker"), *root.iter("Jump")]:
+        found = element.find("text")
+        words = "".join([found.text or "", *(child.tail or "" for child in found)]).strip() if found is not None else ""
+        if words:
+            problems.append(f"jump sign carries words: {words}")
+        box = element.find("frameFgColor")
+        kind = {s.text or "" for s in element.iter("sym")}
+        if element.findtext("frameType") != "1" or box is None:
+            problems.append(f"jump sign {sorted(kind)} has no box")
+        elif (box.get("r") == "220") != ("segno" in kind) or (box.get("b") == "220") != ("coda" in kind):
+            problems.append(f"jump sign {sorted(kind)} has the wrong box color")
     return problems

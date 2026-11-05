@@ -55,8 +55,6 @@ SIGN_SIZE = 25  # a sign may exceed the chords: about 2.5 times the default sign
 MARKER_TYPES = {"segno": "segno", "coda": "codab"}
 LEGACY_SIGN_SIZE = 25  # MuseScore 3 sizes the sign as text
 LEGACY_ONLY_FONTS = ("staffFontFace", "systemFontFace", "beginFontFace", "continueFontFace", "endFontFace")  # its names for text styles
-JUMP_LIFT = -7  # clears the chord row it would otherwise touch
-JUMP_WORD_SIZE = 12  # below the chords
 MAX_SHORT_SHARE = 0.15  # readers find many 2-bar lines sparse; smaller notation is preferred
 SHARE = {"limit": MAX_SHORT_SHARE}  # the share in force for the sheet being searched
 MIDDLE_DISTANCE = 9.0
@@ -99,9 +97,11 @@ def run(*args: str) -> None:
 
 
 JUMPS = {
-    "To Coda": "<Marker><style>repeat_right</style><text>To Coda</text><label>coda</label><markerType>coda</markerType></Marker>",
-    "D.S. al Coda": "<Jump><text>D.S. al Coda</text><jumpTo>segno</jumpTo><playUntil>coda</playUntil><continueAt>codab</continueAt></Jump>",
+    "To Coda": "<Marker><style>repeat_right</style><text><sym>coda</sym></text><label>coda</label><markerType>coda</markerType><markerCenterOnSymbol>0</markerCenterOnSymbol><musicSymbolSize>25</musicSymbolSize></Marker>",
+    "D.S. al Coda": "<Jump><text><sym>segno</sym></text><jumpTo>segno</jumpTo><playUntil>coda</playUntil><continueAt>codab</continueAt></Jump>",
 }
+BOX = '<frameType>1</frameType><frameWidth>0.45</frameWidth><framePadding>0.4</framePadding><frameFgColor r="{}" g="{}" b="{}" a="255"/>'
+SIGN_BOX = {"segno": BOX.format(220, 0, 0), "coda": BOX.format(0, 0, 220)}
 
 
 def real_jumps(mscz: pathlib.Path, clear_chord: bool = False) -> None:
@@ -386,16 +386,23 @@ def styled(work: pathlib.Path, name: str, title: str, spatium: float, distance: 
     return path
 
 
+def boxed_sign(element: str) -> str:
+    """1 Marker or Jump as its sign alone in its colored box; the jump it performs is untouched."""
+    kind = "segno" if element.startswith("<Jump") or "<label>segno" in element else "coda"
+    bare = re.sub(r"<offset[^>]*/>", "", element)
+    bare = re.sub(r"<text>.*?</text>", f"<text><sym>{kind}</sym></text>", bare, flags=re.S)
+    if "</style>" in bare:
+        return bare.replace("</style>", "</style>" + SIGN_BOX[kind], 1)
+    return bare.replace(">", ">" + SIGN_BOX[kind], 1)
+
+
 def big_signs(mscz: pathlib.Path) -> None:
-    """The jump words must catch the eye in bold; the style sizes the signs."""
+    """Every jump sign in its box, with no words."""
     with zipfile.ZipFile(mscz) as z:
         items = {info.filename: z.read(info.filename) for info in z.infolist()}
     for name, data in items.items():
         if name.endswith(".mscx"):
-            text = data.decode("utf-8")
-            for words in ("To Coda", "D.S. al Coda"):
-                text = text.replace(f"<text>{words}</text>", f'<offset x="0" y="{JUMP_LIFT}"/><text><font size="{JUMP_WORD_SIZE}"/><b>{words}</b></text>')
-            items[name] = text.encode("utf-8")
+            items[name] = re.sub(r"<(Marker|Jump)>.*?</\1>", lambda m: boxed_sign(m[0]), data.decode("utf-8"), flags=re.S).encode("utf-8")
     with zipfile.ZipFile(mscz, "w", zipfile.ZIP_DEFLATED) as z:
         for key, data in items.items():
             z.writestr(key, data)
@@ -773,6 +780,7 @@ def build_legacy(src: pathlib.Path, work: pathlib.Path, target: pathlib.Path, sp
     strip_title_frame(raw)
     legacy_signs(raw)
     big_signs(raw)
+    legacy_sign_size(raw)
     chordnames.embed_chord_list(raw, chordnames.chord_file(work))
     seen = work / f"{info.name}-legacy-seat.pdf"
 
@@ -784,6 +792,21 @@ def build_legacy(src: pathlib.Path, work: pathlib.Path, target: pathlib.Path, sp
     render()
     seat_chords(raw, seen, render, f"{info.name}-legacy", {bar.number for bar in score.bars if piano.has_notes(bar)}, chordseat.LEGACY_REACH)
     target.write_bytes(raw.read_bytes())
+
+
+def legacy_sign_size(mscz: pathlib.Path) -> None:
+    """MuseScore 3 sizes a sign as text."""
+    with zipfile.ZipFile(mscz) as z:
+        items = {info.filename: z.read(info.filename) for info in z.infolist()}
+    for name, data in items.items():
+        if name.endswith(".mscx"):
+            text = data.decode("utf-8")
+            for sym in ("segno", "coda"):
+                text = text.replace(f"<text><sym>{sym}</sym></text>", f"<size>{LEGACY_SIGN_SIZE}</size><text><sym>{sym}</sym></text>")
+            items[name] = text.encode("utf-8")
+    with zipfile.ZipFile(mscz, "w", zipfile.ZIP_DEFLATED) as z:
+        for key, data in items.items():
+            z.writestr(key, data)
 
 
 def lift_idle_cues(score: Score) -> None:
@@ -804,8 +827,6 @@ def legacy_signs(mscz: pathlib.Path) -> None:
             text = text.replace("<hideEmptyStaves>1</hideEmptyStaves>", "<hideEmptyStaves>1</hideEmptyStaves>\n    <dontHidStavesInFirstSystm>0</dontHidStavesInFirstSystm>", 1)  # MuseScore 3 spells it this way
             for spelled, legacy_name in chordnames.LEGACY_SPELLING.items():
                 text = text.replace(f"<name>{spelled}</name>", f"<name>{legacy_name}</name>")
-            for sym in ("segno", "coda"):
-                text = text.replace(f"<text><sym>{sym}</sym></text>", f"<size>{LEGACY_SIGN_SIZE}</size><text><sym>{sym}</sym></text>")
             items[name] = text.encode("utf-8")
     with zipfile.ZipFile(mscz, "w", zipfile.ZIP_DEFLATED) as z:
         for key, data in items.items():

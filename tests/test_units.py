@@ -645,3 +645,53 @@ def test_a_saved_floor_layout_with_spare_height_skips_its_proof(monkeypatch, tmp
     monkeypatch.setattr(port, "prove", lambda *a: ("proved",))
     monkeypatch.setattr(port, "fit", lambda *a: ("laid", "base", 1.5, 11.0, 2))
     assert port.sheet(tmp_path, tmp_path, port.ORIGINAL, (2,), {"spatium": 1.2, "distance": 22.0})[2] == 1.5
+
+
+def _plain_bar(number, left=0.0, right=100.0, **extra):
+    extra.setdefault("voices", [])
+    return Bar(number, 0, left, right, F(4), **extra)
+
+
+def _chord(x, kind=""):
+    from muse.model import Chord
+
+    return Chord(x, "D", 0, kind)
+
+
+def test_a_long_chord_past_its_last_note_moves_over_the_barline():
+    from muse import song
+    from muse.model import Event, Score
+
+    held = _plain_bar(1, 0.0, 33.0, chords=[_chord(18.0, "m7(b5)")], voices=[[Event(6.0, [], F(4))]])
+    after = _plain_bar(2, 33.0, 70.0, chords=[_chord(60.0, "7")], voices=[[Event(40.0, [], F(4))]])
+    song.settle_chord_bars(Score([held, after], [], []))
+    assert not held.chords
+    assert [c.kind for c in after.chords] == ["m7(b5)", "7"]
+
+
+def test_a_short_chord_inside_its_bar_stays_past_its_last_note():
+    from muse import song
+    from muse.model import Event, Score
+
+    held = _plain_bar(1, 436.0, 494.0, chords=[_chord(481.0, "7")], voices=[[Event(472.0, [], F(4))]])
+    after = _plain_bar(2, 494.0, 550.0, voices=[[Event(500.0, [], F(4))]])
+    song.settle_chord_bars(Score([held, after], [], []))
+    assert len(held.chords) == 1
+
+
+def test_piano_keeps_accents_and_a_fill_until_the_next_chord():
+    from muse import piano
+    from muse.model import Event, Score
+
+    hit = Event(0.0, [], F(4))
+    hit.accent = True
+    bars = [_plain_bar(1, voices=[[hit]]), _plain_bar(2, chords=[_chord(0.0)]), _plain_bar(3, texts=[Text(0.0, 0.0, [("(Fill)", False, False)], False)]), _plain_bar(4), _plain_bar(5, chords=[_chord(0.0)]), _plain_bar(6)]
+    assert piano.hit_bars(Score(bars, [], [])) == {1, 3, 4}
+
+
+def test_a_jump_prints_only_its_boxed_sign():
+    out = port.boxed_sign("<Jump><text>D.S. al Coda</text><jumpTo>segno</jumpTo></Jump>")
+    assert "<sym>segno</sym>" in out and "D.S." not in out and '<frameFgColor r="220"' in out and "<jumpTo>segno</jumpTo>" in out
+    out = port.boxed_sign('<Marker>\n<style>Repeat Text Right</style><offset x="0" y="-7"/><text>To Coda</text><label>coda</label></Marker>')
+    assert "<sym>coda</sym>" in out and "offset" not in out and 'b="220"' in out
+    assert out.index("</style>") < out.index("<frameType>")

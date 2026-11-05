@@ -164,7 +164,7 @@ def withheld_songs() -> dict[str, str]:
 def piano_problems(src: pathlib.Path, sheet: pathlib.Path) -> list[str]:
     """1 staff, notes only in the kept parts, every other rest hidden, every chord present."""
     original = decode(src)
-    parts = piano.parts(original)
+    parts = piano.kept_parts(original)
     kept = {n for part in parts for n in range(part.first, part.last + 1)}
     root = scorefile.root_of(sheet)
     staves = scorefile.staves(root)

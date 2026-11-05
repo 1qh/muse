@@ -78,3 +78,19 @@ def test_a_bass_a_little_lower_on_its_own_line_is_refused(tmp_path):
     found = pdfcheck.bass_problems(bass_pdf(tmp_path / "b.pdf", (50, 100, 14, "A"), (58, 101.5, 14, "/C")))
     assert found
     assert "baselines" in found[0]
+
+
+def test_a_jump_without_its_box_or_with_words_is_refused(tmp_path):
+    import zipfile
+
+    from muse import scorefile
+
+    for body, found in (
+        ('<Jump><text>D.S.</text></Jump>', "words"),
+        ('<Jump><text><sym>segno</sym></text></Jump>', "no box"),
+        ('<Jump><frameType>1</frameType><frameFgColor r="0" g="0" b="220" a="255"/><text><sym>segno</sym></text></Jump>', "wrong box"),
+    ):
+        path = tmp_path / "s.mscz"
+        with zipfile.ZipFile(path, "w") as z:
+            z.writestr("s.mscx", f'<museScore version="4.70"><Score>{body}</Score></museScore>')
+        assert any(found in problem for problem in scorefile.builtin_sign_problems(path))

@@ -62,6 +62,11 @@ class Song:
         return {self.score_file, self.legacy_file, self.original_pdf, self.tone_pdf, self.piano_pdf}
 
 
+PAST_EVENT = 8.0  # points past a bar's last note or rest
+CHORD_LETTER = 5.5  # points a source chord letter takes
+CROSSING = 2.0  # points past the barline
+
+
 def sources(folders: pathlib.Path) -> list[pathlib.Path]:
     """Every source PDF of 1 folder, or of several joined by the path separator; a song name appears once."""
     found = sorted((pdf for folder in str(folders).split(os.pathsep) for pdf in pathlib.Path(folder).glob("*.pdf")), key=lambda p: p.name)
@@ -88,9 +93,24 @@ def encoding(path: pathlib.Path) -> str:
     raise UnknownEncoding(f"{path.name}: unknown music encoding, fonts {fonts}")
 
 
+def settle_chord_bars(score: Score) -> Score:
+    """A chord past every note and rest of its bar, whose name crosses the barline, serves the next bar's first note."""
+    for bar, following in zip(score.bars, score.bars[1:], strict=False):
+        if following.new_system or following.new_page:
+            continue
+        events = [event.x for voice in bar.voices for event in voice if not event.bar_rest]
+        for chord in list(bar.chords):
+            name = len(chord.root) + (1 if chord.root_alter else 0) + len(chord.kind) + (1 + len(chord.bass) if chord.bass else 0)
+            taken = bool(following.chords) and min(c.x for c in following.chords) - following.left < PAST_EVENT
+            if events and max(events) < chord.x - PAST_EVENT and chord.x + name * CHORD_LETTER > bar.right + CROSSING and not taken:
+                bar.chords.remove(chord)
+                following.chords.insert(0, chord)
+    return score
+
+
 def decode(path: pathlib.Path) -> Score:
     decoders = {"bravura": bravura.decode, "leland": leland.decode, "symbolfont": symbolfont.decode}
-    return decoders[encoding(path)](str(path))
+    return settle_chord_bars(decoders[encoding(path)](str(path)))
 
 
 def target_of(root: str, minor: bool) -> tuple[str, int, str, int]:
