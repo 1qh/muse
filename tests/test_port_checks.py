@@ -117,3 +117,18 @@ def test_a_jump_sign_above_its_chord_row_is_refused(tmp_path, monkeypatch):
 def test_a_sign_over_a_chord_letter_is_refused():
     assert pdfcheck.overlap((0, 0, 10, 10), (8, 2, 14, 9)) == 2
     assert pdfcheck.overlap((0, 0, 10, 10), (11, 2, 14, 9)) == 0
+
+
+def test_a_sign_drawn_over_a_chord_is_refused_and_one_beside_it_passes(tmp_path, monkeypatch):
+    monkeypatch.setattr(pdfcheck, "SIGNS", "S")
+
+    def page(path, sign_x, sign_y):
+        doc = pymupdf.open()
+        sheet = doc.new_page()
+        sheet.insert_text((100, 200), "Gm", fontsize=14)
+        sheet.insert_text((sign_x, sign_y), "S", fontsize=12)
+        doc.save(path)
+        return path
+
+    assert any("covers" in p for p in pdfcheck.sign_on_chord(page(tmp_path / "on.pdf", 106, 190)))
+    assert not any("covers" in p for p in pdfcheck.sign_on_chord(page(tmp_path / "off.pdf", 200, 190)))
