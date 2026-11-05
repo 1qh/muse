@@ -11,6 +11,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 CONTROL_WORKERS = 8
 CONTROL_SECONDS = 180
 MUTATIONS = [
+    ("gate.py", "sorted(labels - opening - tied_in - after_mark)", "sorted(labels - opening - tied_in)", "label after mark refused"),
     ("port.py", "if len(line) <= 2 and len(above) >= BORROW_FROM", "if False and len(above) >= BORROW_FROM", "short line never borrows"),
     ("port.py", 'SHARE["limit"] = RELAXED_SHORT_SHARE', 'SHARE["limit"] = MAX_SHORT_SHARE', "share never widens"),
     ("port.py", "if saved and not floor_gap_problems(variant, saved) else None", "if saved else None", "floor layout re-proved"),

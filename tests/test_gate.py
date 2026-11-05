@@ -224,3 +224,20 @@ def test_an_unpushed_commit_is_pushed_even_with_nothing_new(tmp_path):
 
     publish.publish(tmp_path, tmp_path, tmp_path, run, lambda *_: {})
     assert ("git", "push") in calls
+
+
+def test_a_piano_label_may_follow_a_mark_that_opens_its_line(monkeypatch, tmp_path):
+    from fractions import Fraction as F
+
+    from muse import chordseat
+    from muse.model import Bar, Chord, Score, Text
+
+    def bar(number, **extra):
+        return Bar(number, 0, 0.0, 100.0, F(4), voices=[], chords=[Chord(0.0, "A", 0, "")], **extra)
+
+    score = Score([bar(1), bar(2, rehearsal=["B"]), bar(3, texts=[Text(0.0, 0.0, [("End: words", True, True)], False)]), bar(4)], [], [])
+    monkeypatch.setattr(chordseat, "score_text", lambda path: (None, ""))
+    monkeypatch.setattr(chordseat, "chordless_starts", lambda text: [])
+    monkeypatch.setattr(chordseat, "bar_rows", lambda text: [[1], [2, 3, 4]])
+    assert gate.chord_starts(tmp_path / "x-piano-final.mscz", score) == []
+    assert gate.chord_starts(tmp_path / "x-original.mscz", score)
