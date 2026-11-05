@@ -487,7 +487,8 @@ def test_a_crowded_line_hands_its_last_bar_on_and_only_a_section_end_splits():
     assert 8 in held and len(held) == 3
 
 
-def test_a_stale_layout_is_searched_again_rather_than_started_from_its_earlier_size(monkeypatch, tmp_path):
+def test_a_saved_layout_that_fails_its_proof_is_searched(monkeypatch, tmp_path):
+    monkeypatch.setattr(port, "prove", lambda *a: None)
     monkeypatch.setattr(port, "finish", lambda *a: ("finished",))
     monkeypatch.setattr(port, "fit", lambda *a: ("searched",))
     for variant in (port.ORIGINAL, port.PIANO):
