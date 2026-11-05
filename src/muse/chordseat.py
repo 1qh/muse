@@ -168,10 +168,10 @@ def page_lines(pdf: pathlib.Path) -> list[dict[str, Any]]:
             rights: list[float] = []
             texts: list[str] = []
             for word in sorted(mine, key=lambda w: w[1]):
-                if word[4][0] in "ABCDEFG" and not (texts and texts[-1].endswith(("/", "("))):  # later pieces, such as what follows a flat or a slash, open no chord
+                if CHORD_SHAPE.match(word[4]) and not (texts and texts[-1].endswith(("/", "("))):  # later pieces, such as what follows a flat or a slash, open no chord
                     joined.append(ink_left(page, word[1], word[3], word[0]))
                     rights.append(word[2])
-                elif rights:
+                elif rights and word[4][0] not in "ABCDEFGHIJKLMNOPQRSTUVWXYZ":  # a cue at chord size is no piece of a chord
                     rights[-1] = word[2]
                 texts.append(word[4])
             row = sorted((m for m in systems if m["y"] == staff_top), key=lambda m: m["x"])

@@ -467,3 +467,8 @@ def test_a_crowded_line_gives_up_its_last_bars_avoiding_a_tie():
     tied = [False] * 16
     tied[11] = True
     assert port.split_at(0, 16, tied) in (11, 13)
+
+
+def test_a_cue_at_chord_size_is_no_chord():
+    assert chordseat.CHORD_SHAPE.match("Am7") and chordseat.CHORD_SHAPE.match("A") and chordseat.CHORD_SHAPE.match("Bb")
+    assert not chordseat.CHORD_SHAPE.match("AcousticGtr") and not chordseat.CHORD_SHAPE.match("After") and not chordseat.CHORD_SHAPE.match("Dizi")
