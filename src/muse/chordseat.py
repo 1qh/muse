@@ -33,7 +33,7 @@ MIN_STAFF_SPACE = 2.0
 MAX_STAFF_SPACE = 9.0
 SPACE_SLACK = 0.3
 FIRST_ELEMENT = re.compile(r"<Chord>|<Rest>|<location>")
-CHORD_SHAPE = re.compile(r"[A-G][#b♯♭]?(?:m|maj|sus|dim|add|aug|\d|\(|/|$)")
+CHORD_SHAPE = re.compile(r"[A-G][#b♯♭]?(?:m|maj|sus|dim|add|aug|\d|\(|/|[Δø°]|$)")
 SIGN_CHARS = "\ue047\ue048"
 MEASURE = re.compile(r"<Measure[^>]*>.*?</Measure>", re.S)
 

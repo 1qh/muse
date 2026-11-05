@@ -10,7 +10,7 @@ import xml.etree.ElementTree as ET
 import zipfile
 from fractions import Fraction as F
 
-from muse import scorefile
+from muse import chordnames, scorefile
 from muse.musicxml import chord_onsets, times
 from muse.pdfcheck import title_problems
 from muse.song import decode, song_of, sources
@@ -139,7 +139,7 @@ def check(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> list[str]
         for v, t in totals.items():
             if F(t, div) != bar.length:
                 problems.append(f"bar {bar.number} voice {v}: {F(t, div)} quarters vs {bar.length}")
-    if stored_chord_names(final) != sorted(c.kind for bar in score.bars for c in bar.chords if c.kind):
+    if stored_chord_names(final) != sorted(chordnames.stored(c.kind) for bar in score.bars for c in bar.chords if c.kind):
         problems.append("stored chord names differ from the source")
     print(f"{song}: bars {len(score.bars)} notes {notes} chords {chords} corrections {len(score.corrections)} flags {len(score.flags)} problems {len(problems)}")
     return problems

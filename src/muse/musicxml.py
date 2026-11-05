@@ -4,6 +4,7 @@ from __future__ import annotations
 from fractions import Fraction as F
 from xml.sax.saxutils import escape
 
+from muse import chordnames
 from muse.model import Bar, Chord, Event, Score, Text
 
 DIV = 48
@@ -23,7 +24,7 @@ def harmony(chord: Chord, onset: F) -> str:
         b_alter = f"<bass-alter>{chord.bass_alter}</bass-alter>" if chord.bass_alter else ""
         bass = f"<bass><bass-step>{chord.bass}</bass-step>{b_alter}</bass>"
     offset = f"<offset>{int(onset * DIV)}</offset>" if onset else ""
-    text = escape(chord.kind, {'"': "&quot;"})
+    text = escape(chordnames.stored(chord.kind), {'"': "&quot;"})
     return f'<harmony><root><root-step>{chord.root}</root-step>{alter}</root><kind text="{text}">{kind_value(chord.kind)}</kind>{bass}{offset}</harmony>'
 
 

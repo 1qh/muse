@@ -16,7 +16,7 @@ from typing import Any
 
 import pymupdf
 
-from muse import buildcache, chordseat, musicxml, pdfcheck, piano, scorefile
+from muse import buildcache, chordnames, chordseat, musicxml, pdfcheck, piano, scorefile
 from muse.model import Bar, Chord, Score
 from muse.song import Song, decode, song_of
 from muse.song import sources as song_sources
@@ -38,7 +38,7 @@ SIZE_FLOORS = (1.2, 1.15)  # below 1.2 only for a song that fits its pages no ot
 MAX_PAGES = 2
 MAX_WORKERS = 3  # another project shares this machine
 SEAT_PASSES = 5
-LAYOUT_RULES = 5  # raise when layout rules change, so a saved layout is searched again rather than re-proved
+LAYOUT_RULES = 6  # raise when layout rules change, so a saved layout is searched again rather than re-proved
 FINAL_SPLITS = 8
 FINAL_STEPS = 3  # sizes to step down when the chosen layout fails its final checks
 SHEET_LAUNCH_CAP = 60
@@ -209,7 +209,7 @@ def sections(score: Score) -> list[list[int]]:
 
 
 def chord_name_length(chord: Chord) -> int:
-    return len(chord.root) + bool(chord.root_alter) + len(chord.kind) + (len(chord.bass) + 1 + bool(chord.bass_alter) if chord.bass else 0)
+    return len(chord.root) + bool(chord.root_alter) + len(chordnames.stored(chord.kind)) + (len(chord.bass) + 1 + bool(chord.bass_alter) if chord.bass else 0)
 
 
 def bar_room(bar: Bar, spatium: float) -> float:
@@ -367,6 +367,7 @@ def styled(work: pathlib.Path, name: str, title: str, spatium: float, distance: 
         text, count = re.subn(rf"<{tag}>[^<]*</{tag}>", f"<{tag}>{value}</{tag}>", text)
         if count != 1:
             raise RuntimeError(f"style has no single {tag}")
+    text = text.replace("</Style>", f"<chordStyle>custom</chordStyle><chordDescriptionFile>{chordnames.chord_file(work)}</chordDescriptionFile></Style>")
     path = work / name
     path.write_text(text, encoding="utf-8")
     return path
@@ -746,6 +747,8 @@ def legacy_signs(mscz: pathlib.Path) -> None:
         if name.endswith(".mscx"):
             text = data.decode("utf-8")
             text = text.replace("<hideEmptyStaves>1</hideEmptyStaves>", "<hideEmptyStaves>1</hideEmptyStaves>\n    <dontHidStavesInFirstSystm>0</dontHidStavesInFirstSystm>", 1)  # MuseScore 3 spells it this way
+            for spelled, legacy_name in chordnames.LEGACY_SPELLING.items():
+                text = text.replace(f"<name>{spelled}</name>", f"<name>{legacy_name}</name>")
             for sym in ("segno", "coda"):
                 text = text.replace(f"<text><sym>{sym}</sym></text>", f"<size>{LEGACY_SIGN_SIZE}</size><text><sym>{sym}</sym></text>")
             items[name] = text.encode("utf-8")

@@ -15,7 +15,7 @@ from collections.abc import Callable
 
 import pymupdf
 
-from muse import buildcache, chordseat, inverse, navigate, pdfcheck, piano, port, scorefile, verify
+from muse import buildcache, chordnames, chordseat, inverse, navigate, pdfcheck, piano, port, scorefile, verify
 from muse.model import Score
 from muse.song import Song, decode, song_of, sources
 
@@ -321,11 +321,25 @@ def cached_check(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> tu
     return failures, notes, False
 
 
+def chord_name_problems(work: pathlib.Path) -> list[str]:
+    """Every short spelling plays as proved in both programs, and transposes in the latest, with the sheets' own style."""
+    style = port.styled(work, "chord-check.mss", "x", 1.5, 11.0)
+    legacy_style = work / "chord-check-legacy.mss"
+    legacy_style.write_text(style.read_text(encoding="utf-8").replace('version="4.70"', 'version="3.02"'), encoding="utf-8")
+    latest = shutil.which("mscore") or "mscore"
+    return [
+        *chordnames.playback_problems(latest, style, work, legacy=False, run=chordnames.checked_run),
+        *chordnames.playback_problems(port.legacy_command(), legacy_style, work, legacy=True, run=chordnames.checked_run),
+        *chordnames.transposes(latest, style, work, chordnames.checked_run),
+    ]
+
+
 def verdicts(src_dir: pathlib.Path, out: pathlib.Path, work: pathlib.Path, names: tuple[str, ...] = ()) -> dict[str, list[str]]:
     """Each song folder's own failures, its files included."""
     work.mkdir(parents=True, exist_ok=True)
     held_back = set(withheld_songs())
     found: dict[str, list[str]] = {}
+    chord_trouble = chord_name_problems(work)
     for src in sources(src_dir):
         info = song_of(src)
         if names and info.name not in names:
@@ -336,7 +350,7 @@ def verdicts(src_dir: pathlib.Path, out: pathlib.Path, work: pathlib.Path, names
         found[info.name] = [f"missing {name}" for name in sorted(files - held)] + [f"stray {name}" for name in sorted(held - files)]
         if not found[info.name]:
             try:
-                found[info.name] = cached_check(src, out, work)[0]
+                found[info.name] = chord_trouble + cached_check(src, out, work)[0]
             except Exception as error:  # a refused source blocks its song, never the run
                 found[info.name] = [f"refused: {error}"]
         print(f"{info.name}: {len(found[info.name])} failures", flush=True)

@@ -9,7 +9,7 @@ import pymupdf
 
 from muse import chordseat
 
-CHORD = re.compile(r"(?:[A-G][#b♯♭]?)?(?:maj|min|dim|sus|add|aug|m|\d|[#b♯♭()/ ]|[A-G][#b♯♭]?)*")
+CHORD = re.compile(r"(?:[A-G][#b♯♭]?)?(?:maj|min|dim|sus|add|aug|m|\d|[#b♯♭()/ Δø°]|[A-G][#b♯♭]?)*")
 MIN_CHORD_GAP = 0.75  # clear space between 2 chords, in chord font sizes
 MAX_TEXT_BOX = 40.0  # taller word boxes are music font symbols, and no footer is this tall
 RIGHT_LIMIT = 0.975  # the 0.3 inch right margin, with 2 points of tolerance

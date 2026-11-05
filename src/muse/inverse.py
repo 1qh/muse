@@ -7,6 +7,7 @@ import subprocess
 import sys
 import xml.etree.ElementTree as ET
 
+from muse import chordnames
 from muse.song import decode, song_of, sources
 from muse.verify import PC, bar_pitches, bar_roots, midi, stored_chord_names
 
@@ -40,7 +41,7 @@ def check(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> list[str]
                 want_c = sorted(((PC[c.root] + c.root_alter + semis) % 12, -1 if not c.bass else (PC[c.bass] + c.bass_alter + semis) % 12) for c in bar.chords)
                 if want_c != bar_roots(m):
                     problems.append(f"bar {bar.number}: chords {bar_roots(m)} vs {want_c}")
-    if stored_chord_names(moved) != sorted(c.kind for b in score.bars for c in b.chords if c.kind):
+    if stored_chord_names(moved) != sorted(chordnames.stored(c.kind) for b in score.bars for c in b.chords if c.kind):
         problems.append("stored chord names differ from the source")
     return problems
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 import dataclasses
 import re
 
+from muse import chordnames
 from muse.model import Bar, Event, Score, Text
 
 SUNG = re.compile(r"\s*(Verse|Pre-?\s?Chorus|Chorus|Rap|Bridge)[\w-]*\s*:", re.I)
@@ -142,7 +143,7 @@ def by_mark(score: Score, number: int) -> bool:
 
 def chord_letters(bar: Bar) -> int:
     """Room a bar's chord names ask for, in letters, with the gap each chord needs."""
-    return sum(len(c.root) + bool(c.root_alter) + len(c.kind) + (len(c.bass) + 1 if c.bass else 0) + CHORD_GAP_LETTERS for c in bar.chords)
+    return sum(len(c.root) + bool(c.root_alter) + len(chordnames.stored(c.kind)) + (len(c.bass) + 1 if c.bass else 0) + CHORD_GAP_LETTERS for c in bar.chords)
 
 
 def lone_lines(starts: list[int], total: int) -> list[int]:

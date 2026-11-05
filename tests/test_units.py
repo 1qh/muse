@@ -3,7 +3,7 @@ from fractions import Fraction as F
 
 import pymupdf
 
-from muse import chordseat, musicxml, pdfcheck, piano, port
+from muse import chordnames, chordseat, musicxml, pdfcheck, piano, port
 from muse.model import Bar, Chord, Event, Head, Score, Text
 from muse.navigate import expected_order
 from muse.pdfcheck import chord_collisions, foreign_fonts, idle_staves, margin_words, oversized_text, past_margin, title_problems
@@ -94,7 +94,7 @@ def test_writer_durations_and_chord_offset():
     b.chords = [Chord(10, "C", 0, "m(add2)"), Chord(55, "G", 0, "7")]
     xml = musicxml.write(Score([b], [], []))
     assert "<duration>192</duration>" in xml
-    assert 'kind text="m(add2)">other' in xml
+    assert 'kind text="m2">other' in xml
     assert "<offset>96</offset>" in xml
 
 
@@ -517,3 +517,19 @@ def test_no_chord_stretches_a_bar():
     import inspect
     source = inspect.getsource(port)
     assert "chord_stretch" not in source and "widen_chord_bars" not in source
+
+
+def test_every_short_spelling_has_proved_playback():
+    assert set(chordnames.SHORT.values()) | set(chordnames.LEGACY_SPELLING.values()) == set(chordnames.PLAYS)
+    assert chordnames.stored("maj7") == "^7" and chordnames.stored("m7") == "m7"
+    assert chordnames.same_chord("0", "07") and not chordnames.same_chord("o", "o7")
+
+
+def test_a_wrong_playback_is_found():
+    assert chordnames.wrong_playback(["^7", "o"], {0: [1, 4, 8, 9], 1: [0, 3, 9]}) == []
+    assert len(chordnames.wrong_playback(["^7", "o"], {0: [9], 1: [0, 3, 9]})) == 1
+
+
+def test_a_wrong_mapping_breaks_its_chord():
+    chord = parse_chord("Amaj7", None, 0)
+    assert 'text="^7"' in musicxml.harmony(chord, F(0))
