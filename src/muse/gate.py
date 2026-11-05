@@ -286,7 +286,7 @@ def measured(score_path: pathlib.Path, pdf: pathlib.Path, work: pathlib.Path, op
 
 def chord_starts(score_path: pathlib.Path, score: Score) -> list[str]:
     """A line starting on a bar without its chord fails; 1 a section mark holds there is listed."""
-    marks = {block[0] + 1 for block in port.sections(score)}
+    marks = {bar.number for at, bar in enumerate(score.bars) if port.must_start_line(bar, score.bars[at - 1] if at else None)}  # a mark tied into still opens its line
     found = chordseat.chordless_starts(chordseat.score_text(score_path)[1])
     held = [bar for bar in found if bar in marks]
     if held:
