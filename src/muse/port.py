@@ -236,7 +236,8 @@ def fill_block(bars: list[Bar], spatium: float, even_empty: bool) -> list[int]:
         while end < len(bars) and end - at < TRY_CEILING and line_room(bars[at:end + 1], spatium, even_empty) <= LINE_WIDTH:
             end += 1
 
-        at = min(range(max(at + 1, end - BACK_REACH), end + 1), key=lambda stop, full=end: break_cost(bars, stop, full))
+        options = [(break_cost(bars, stop, end), stop) for stop in range(max(at + 1, end - BACK_REACH), end + 1)]
+        at = min(options)[1]
     return starts
 
 
