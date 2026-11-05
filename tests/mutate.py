@@ -93,7 +93,7 @@ MUTATIONS = [
     ("gate.py", "run >= MIN_TIED_CHAIN", "run >= 0", "tie allowed"),
     ("gate.py", "share < MIN_HOMR_AGREEMENT", "False", "homr floor"),
     ("gate.py", "letters[-1] = step", "letters.append(step)", "homr chord"),
-    ("port.py", "<= cap:\n            joins.add", "<= 0:\n            joins.add", "merge pass"),
+    ("port.py", "if fits(lines[n] + lines[n + 1]):", "if False:", "merge pass"),
     ("port.py", "if missing:", "if False:", "missing font"),
     ("song.py", "if printed != table[root]:", "if False:", "key disagreement"),
     ("song.py", "semis = (PITCH[target_root] - pitch + 6) % 12 - 6", "semis = PITCH[target_root] - pitch", "nearest target"),
