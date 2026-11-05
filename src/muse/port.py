@@ -47,6 +47,8 @@ FINAL_LAUNCH_CAP = 600
 PIANO_LAUNCH_CAP = 500
 NEAR_REACH = 0.5  # how far above a saved size a seeded search looks
 SIZE_STEP = 0.05
+BORROW_FROM = 4  # bars a line must hold to lend its last one to a short line below
+RELAXED_SHORT_SHARE = 0.30  # for a song 15% would hold at the smallest size
 CLIMB_START, CLIMB_STEP, CLIMB_STEPS = 1.3, 0.1, 8
 SIGN_CLEARANCE = 3.0  # spaces a chord moves right off a sign printed on its baseline
 SIGN_SIZE = 25  # a sign may exceed the chords: about 2.5 times the default sign
@@ -56,6 +58,7 @@ LEGACY_ONLY_FONTS = ("staffFontFace", "systemFontFace", "beginFontFace", "contin
 JUMP_LIFT = -7  # clears the chord row it would otherwise touch
 JUMP_WORD_SIZE = 12  # below the chords
 MAX_SHORT_SHARE = 0.15  # readers find many 2-bar lines sparse; smaller notation is preferred
+SHARE = {"limit": MAX_SHORT_SHARE}  # the share in force for the sheet being searched
 MIDDLE_DISTANCE = 9.0
 LEGACY_TOP_BORDER = 15  # MuseScore 3 lifts jump words and voltas into the title otherwise
 TIGHT_DISTANCE = 6.0  # line gap only for a song that fits its pages no other way
@@ -413,6 +416,15 @@ def export_view(options: dict[str, Any] | None, base: pathlib.Path, target: path
             run("-o", str(out), str(base))
 
 
+def borrowings(lines: list[list[int]], fixed: set[int]) -> list[tuple[int]]:
+    """0-based starts of short lines that can take the last bar of a line above with bars to spare."""
+    found = []
+    for above, line in zip(lines, lines[1:], strict=False):
+        if len(line) <= 2 and len(above) >= BORROW_FROM and line[0] - 1 not in fixed:
+            found.append((line[0] - 1,))
+    return found
+
+
 def clear_lone_bars(starts: set[int], fixed: set[int], total: int, fits: Callable[[set[int]], bool]) -> set[int]:
     """Give every lone bar a neighbour, keeping the first arrangement that fits and strands nothing new."""
     for _ in range(total):
@@ -557,6 +569,11 @@ def lay_out(src: pathlib.Path, work: pathlib.Path, spatium: float, distance: flo
             starts |= undone
         if variant == PIANO:
             starts = clear_lone_bars(starts, fixed, len(score.bars), lambda trial: not trial_bad(trial))
+        for trial in borrowings(rows(score), fixed):
+            if trial[0] in starts and trial[0] - 1 not in starts:
+                moved = (starts - {trial[0]}) | {trial[0] - 1}
+                if not trial_bad(moved):
+                    starts = moved
         for _ in range(MAX_LAYOUT_ROUNDS):  # the last word on the lines is a clean measure, never an ignored one
             declared, bad = measure()
             if not bad:
@@ -666,7 +683,7 @@ def prove(src: pathlib.Path, work: pathlib.Path, variant: str, saved: dict[str, 
 def acceptable(laid: Score, variant: str) -> bool:
     if variant == PIANO:
         return not piano.lone_lines([row[0] for row in rows(laid)], len(laid.bars))
-    return short_line_share(rows(laid)) <= MAX_SHORT_SHARE
+    return short_line_share(rows(laid)) <= SHARE["limit"]
 
 
 def fit(src: pathlib.Path, work: pathlib.Path, variant: str, limit: int, near: float | None = None) -> tuple[Score, pathlib.Path, float, float, int] | None:
@@ -798,10 +815,22 @@ def legacy_signs(mscz: pathlib.Path) -> None:
 def sheet(src: pathlib.Path, work: pathlib.Path, variant: str, limits: tuple[int, ...], saved: dict[str, Any] | None) -> tuple[Score, pathlib.Path, float, float, int]:
     """A saved decision re-proved in 1 pass, or the search."""
     SEARCH_CAP["hit"] = 0
-    found = prove(src, work, variant, saved) if saved else None  # a finished search stays paid for
+    found = prove(src, work, variant, saved) if saved and not floor_gap_problems(variant, saved) else None  # a finished search stays paid for
     SEARCHED["rules"] = saved.get("searched", saved.get("rules")) if found and saved else layout_rules()
+    near = float(saved["spatium"]) if saved else None
     for limit in limits:
-        found = found or fit(src, work, variant, limit, float(saved["spatium"]) if saved else None)
+        found = found or fit(src, work, variant, limit, near)
+    if found is None or (variant != PIANO and found[2] <= SIZE_FLOORS[0] and found[3] > BASE_DISTANCE):
+        SHARE["limit"] = RELAXED_SHORT_SHARE  # bigger notes outrank fuller lines
+        try:
+            for limit in limits:
+                wider = fit(src, work, variant, limit, near)
+                if wider is not None:
+                    found = wider
+                    print(f"{src.stem} {variant}: more than {MAX_SHORT_SHARE:.0%} short lines allowed for size {wider[2]}", flush=True)
+                    break
+        finally:
+            SHARE["limit"] = MAX_SHORT_SHARE
     if found is None:
         cause = "a launch cap stopped the search" if SEARCH_CAP["hit"] else f"it is over {limits[-1]} pages at the smallest size"
         raise DoesNotFit(f"{src.stem}: the {variant} sheet has no passing layout: {cause}")

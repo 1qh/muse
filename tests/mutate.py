@@ -11,6 +11,9 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 CONTROL_WORKERS = 8
 CONTROL_SECONDS = 180
 MUTATIONS = [
+    ("port.py", "if len(line) <= 2 and len(above) >= BORROW_FROM", "if False and len(above) >= BORROW_FROM", "short line never borrows"),
+    ("port.py", 'SHARE["limit"] = RELAXED_SHORT_SHARE', 'SHARE["limit"] = MAX_SHORT_SHARE', "share never widens"),
+    ("port.py", "if saved and not floor_gap_problems(variant, saved) else None", "if saved else None", "floor layout re-proved"),
     ("port.py", "seeded = near is not None and fits(near, BASE_DISTANCE)", "seeded = False", "search ignores saved size"),
     ("port.py", "or line_rule_breaks(laid) or chordless_opening(laid, base):", "or line_rule_breaks(laid):", "proof ignores chordless lines"),
     ("port.py", "or line_rule_breaks(laid) or chordless_opening(laid, base):", "or chordless_opening(laid, base):", "proof ignores line rules"),
@@ -64,7 +67,7 @@ MUTATIONS = [
     ("port.py", "or previous.final or piano.label_of(bar))", "or previous.final)", "label starts a line"),
     ("gate.py", 'for bar in sorted(labels - opening - tied_in)]', 'for bar in []]', "label inside a line"),
     ("port.py", "if following in starts and following not in fixed and len(row) > 1:", "if False:", "hand bar on"),
-    ("port.py", "found = prove(src, work, variant, saved) if saved else None", "found = None", "saved layout ignored"),
+    ("port.py", "found = prove(src, work, variant, saved) if saved and", "found = None if saved and", "saved layout ignored"),
     ("port.py", 'saved.get("searched", saved.get("rules")) if found and saved else layout_rules()', "layout_rules()", "owed search hidden"),
     ("port.py", "* size * len(bar.chords)", "* size", "shared bar room"),
     ("port.py", "while end < len(bars) and end - at < TRY_CEILING and line_room(bars[at:end + 1], spatium) <= LINE_WIDTH:", "while False:", "line fill"),
