@@ -467,13 +467,15 @@ def test_chords_sharing_a_bar_each_ask_for_their_share():
     assert port.bar_room(pair, 1.2) == 2 * port.bar_room(lone, 1.2)
 
 
-def test_a_layout_saved_under_old_rules_is_searched_again(monkeypatch, tmp_path):
+def test_a_saved_layout_is_proved_before_any_search(monkeypatch, tmp_path):
     calls = []
     monkeypatch.setattr(port, "prove", lambda *a: calls.append("prove") or ("proved",))
     monkeypatch.setattr(port, "fit", lambda *a: calls.append("fit") or ("fitted",))
-    assert port.sheet(tmp_path, tmp_path, port.PIANO, (1,), {"rules": 1}) == ("fitted",)
-    assert port.sheet(tmp_path, tmp_path, port.PIANO, (1,), {"rules": port.layout_rules()}) == ("proved",)
-    assert calls == ["fit", "prove"]
+    assert port.sheet(tmp_path, tmp_path, port.PIANO, (1,), {"rules": "old"}) == ("proved",)
+    assert port.SEARCHED["rules"] == "old"
+    assert port.sheet(tmp_path, tmp_path, port.PIANO, (1,), None) == ("fitted",)
+    assert port.SEARCHED["rules"] == port.layout_rules()
+    assert calls == ["prove", "fit"]
 
 
 def test_a_crowded_line_hands_its_last_bar_on_and_only_a_section_end_splits():

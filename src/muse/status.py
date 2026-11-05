@@ -28,7 +28,8 @@ def main() -> None:
             recorded = entry.get("outputs", {})
             pushed = all((data := blob(out, "/".join(pathlib.Path(path).parts[-2:]))) is not None and hashlib.sha256(data).hexdigest() == digest for path, digest in recorded.items())
             ok = decision.get("rules") == rules and pushed
-            verdicts.append(f"{variant}:{'current' if ok else 'stale'}:{decision.get('spatium')}x{decision.get('pages')}p")
+            owes = "" if decision.get("searched") == rules else ":owes-search"
+            verdicts.append(f"{variant}:{'current' if ok else 'stale'}{owes}:{decision.get('spatium')}x{decision.get('pages')}p")
             current += ok
             stale += not ok
         if not state:

@@ -79,6 +79,7 @@ def require_font(folders: tuple[pathlib.Path, ...] = FONT_DIRS) -> None:
 
 
 LAUNCHES = {"count": 0}
+SEARCHED: dict[str, Any] = {"rules": None}  # the layout rules the sheet being built was last searched under
 SEARCH_CAP = {"at": 0, "hit": 0}  # launch count where a sheet's search stops, 0 leaving it open; and how often a cap stopped it
 
 
@@ -775,7 +776,8 @@ def legacy_signs(mscz: pathlib.Path) -> None:
 def sheet(src: pathlib.Path, work: pathlib.Path, variant: str, limits: tuple[int, ...], saved: dict[str, Any] | None) -> tuple[Score, pathlib.Path, float, float, int]:
     """A saved decision re-proved in 1 pass, or the search."""
     SEARCH_CAP["hit"] = 0
-    found = prove(src, work, variant, saved) if saved and saved.get("rules") == layout_rules() else None  # new layout rules owe a new search
+    found = prove(src, work, variant, saved) if saved else None  # a finished search stays paid for
+    SEARCHED["rules"] = saved.get("searched", saved.get("rules")) if found and saved else layout_rules()
     for limit in limits:
         found = found or fit(src, work, variant, limit)
     if found is None:
@@ -792,7 +794,7 @@ def floor_gap_problems(variant: str, saved: dict[str, Any] | None) -> list[str]:
 
 
 def decision(found: tuple[Score, pathlib.Path, float, float, int]) -> dict[str, Any]:
-    return {"rules": layout_rules(), "spatium": found[2], "distance": found[3], "pages": found[4], "lines": line_starts(found[0])}
+    return {"rules": layout_rules(), "searched": SEARCHED["rules"], "spatium": found[2], "distance": found[3], "pages": found[4], "lines": line_starts(found[0])}
 
 
 def port(src: pathlib.Path, out_dir: pathlib.Path, work: pathlib.Path) -> dict[str, object]:
