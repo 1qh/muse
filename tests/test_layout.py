@@ -185,3 +185,8 @@ def test_plan_breaks_a_soft_rule_rather_than_overflow_a_line() -> None:
     score = Score(bars, [], [])
     starts = layout.plan(score, [30.0] * 7, ROOM)
     assert len(starts) > 1  # 7 bars of 30 cannot share 1 line of 93
+
+
+def test_plan_never_strands_a_bar_its_grown_estimate_makes_wide() -> None:
+    score = Score([noted(n) for n in range(1, 6)], [], [])
+    assert 1 not in lines(layout.plan(score, [55.0, 20.0, 20.0, 20.0, 20.0], ROOM), 5)  # the wide first bar still takes a neighbour
