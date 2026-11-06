@@ -43,15 +43,8 @@ function start(measure) {
 }
 
 function above(segment) {
-    // the highest top of anything printed over the staff in a segment, chord symbols aside
+    // the highest top of the music in a segment: notes, rests and tuplet brackets; text moves above the chords instead
     var top = 1e9
-    var notes = segment.annotations
-    for (var i = 0; i < notes.length; i++) {
-        if (notes[i].type !== Element.HARMONY && notes[i].bbox) {
-            var y = notes[i].pagePos.y + notes[i].bbox.y
-            top = Math.min(top, y)
-        }
-    }
     for (var track = 0; track < 4; track++) {
         var held = segment.elementAt(track)
         if (held && held.bbox) top = Math.min(top, held.pagePos.y + held.bbox.y)
@@ -282,4 +275,37 @@ function main() {
     var remaining = shortfalls(all)
     curScore.setMetaTag("museSeatError", remaining.length ? "chords still crowd in " + remaining.length + " bars" : "")
     lift(all)
+    raiseText(all)
+}
+
+function raiseText(all) {
+    // any cue, mark or tempo reaching into its line's chord row moves up to sit above the chords
+    var rows = {}
+    for (var i = 0; i < all.length; i++) {
+        var c = all[i].chord
+        var key = lineKey(all[i].measure)
+        if (!rows[key]) rows[key] = []
+        rows[key].push({ x0: c.pagePos.x + c.bbox.x, x1: c.pagePos.x + c.bbox.x + c.bbox.width, top: c.pagePos.y + c.bbox.y })
+    }
+    curScore.startCmd()
+    var segment = curScore.firstSegment()
+    while (segment) {
+        var key2 = lineKey(segment.parent)
+        var row = rows[key2] || []
+        var notes = segment.annotations
+        for (var n = 0; n < notes.length; n++) {
+            var t = notes[n]
+            if (t.type === Element.HARMONY || !t.bbox || t.track !== 0) continue
+            var x0 = t.pagePos.x + t.bbox.x, x1 = x0 + t.bbox.width
+            var bottom = t.pagePos.y + t.bbox.y + t.bbox.height
+            var ceiling = 1e9
+            for (var r = 0; r < row.length; r++) if (row[r].x0 < x1 && x0 < row[r].x1) ceiling = Math.min(ceiling, row[r].top)
+            if (ceiling < 1e9 && bottom > ceiling - GAP) {
+                t.autoplace = false
+                t.offsetY = t.offsetY - (bottom - (ceiling - GAP))
+            }
+        }
+        segment = segment.next
+    }
+    curScore.endCmd()
 }

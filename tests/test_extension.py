@@ -112,3 +112,25 @@ def test_each_version_installs_apart(tmp_path: pathlib.Path, monkeypatch: pytest
     assert first != second
     held = {path.name for path in root.iterdir()}
     assert len(held) == 2 and all(name.startswith(layout.EXTENSION_FOLDER + "-") for name in held)
+
+
+def resting(number: int, chords: list[Chord], texts: list[object] | None = None) -> Bar:
+    """A bar holding only a whole rest, carrying the given chords and cues."""
+    return Bar(number, 0, 0.0, 100.0, F(4), voices=[[Event(0.0, [], F(4), bar_rest=True)]], chords=chords, texts=texts or [])  # type: ignore[arg-type]
+
+
+def test_a_cue_rises_above_the_chords_and_the_chords_stay_close_to_an_empty_staff(tmp_path: pathlib.Path) -> None:
+    from muse.model import Text
+
+    cue = Text(10.0, -20.0, [("Only Piano", True, True)], True, "cue", 10.0)
+    bars = [resting(1, [chord("C", "maj7")], [cue]), resting(2, [chord("A", "m")]), resting(3, [chord("F")]), resting(4, [chord("G")])]  # a name wide enough to reach over the cue
+    score_path = imported(tmp_path, bars, {1, 5})
+    pdf = score_path.with_suffix(".pdf")
+
+    def rendered() -> pathlib.Path:
+        BATCHER.render(score_path, [pdf, pdf.with_suffix(".mpos")], None)
+        return pdf
+
+    layout.seat_inked(score_path, rendered, lambda probe: True)
+    assert pdfcheck.seating_problems(pdf) == []
+    assert pdfcheck.text_collisions(pdf) == []

@@ -11,6 +11,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 CONTROL_WORKERS = 8
 CONTROL_SECONDS = 180
 MUTATIONS = [
+    ("extension/main.js", "    raiseText(all)\n", "\n", "cue left in the chord row"),
     ("layout.py", 'sorted(fit, key=lambda c: (c["lines"], -c["size"]))', 'sorted(fit, key=lambda c: -c["size"])', "piano sized for big notes"),
     ("extension/main.js", 'return page + ":" + Math.round(measure.pagePos.y)', 'return "0:" + Math.round(measure.pagePos.y)', "lines keyed without their page"),
     ("extension/main.js", "        if (lack > 0) {", "        if (false) {", "chord shortfall ignored"),
