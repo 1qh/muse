@@ -372,9 +372,10 @@ def seat(sheet: Sheet, score_path: pathlib.Path) -> pathlib.Path:
 def finish(src: pathlib.Path, work: pathlib.Path, variant: str, size: float) -> tuple[Score, pathlib.Path, float, float, int]:
     """1 size finished at the base line gap, then at wider gaps while text below 1 line meets the next line's chords."""
     refusal: port.DoesNotFit | None = None
+    learned: list[list[float]] = []  # widths a gap's replans settled on: a wider gap moves lines apart, never bars across them
     for step in range(GAP_STEPS):
         try:
-            return finish_at(src, work, variant, size, port.BASE_DISTANCE + step * GAP_STEP)
+            return finish_at(src, work, variant, size, port.BASE_DISTANCE + step * GAP_STEP, learned)
         except port.DoesNotFit as error:
             if "text on text" not in str(error):
                 raise
@@ -383,10 +384,12 @@ def finish(src: pathlib.Path, work: pathlib.Path, variant: str, size: float) -> 
     raise refusal
 
 
-def finish_at(src: pathlib.Path, work: pathlib.Path, variant: str, size: float, distance: float) -> tuple[Score, pathlib.Path, float, float, int]:
+def finish_at(src: pathlib.Path, work: pathlib.Path, variant: str, size: float, distance: float, learned: list[list[float]] | None = None) -> tuple[Score, pathlib.Path, float, float, int]:
     """1 size and line gap from plan to a seated sheet that passes every final check; a line that will not hold grows its estimate and the whole plan is made again."""
     sheet = Sheet(src, work, variant, size, distance)
     widths, room = measure(sheet)
+    if learned:
+        widths = learned[-1]
     score_path = sheet.path("final")
     tried: set[frozenset[int]] = set()
     for _ in range(REPLAN_ROUNDS):
@@ -413,6 +416,8 @@ def finish_at(src: pathlib.Path, work: pathlib.Path, variant: str, size: float, 
         else:
             raise port.DoesNotFit(f"{sheet.name} at {size}: bars {sorted(b + 1 for b in bad)} overflow and no plan can move them: {port.crowded_reasons(probe)[:3]}")
         widths = grown
+        if learned is not None:
+            learned.append(widths)
     else:
         raise port.DoesNotFit(f"{sheet.name} at {size}: lines still overflow after {REPLAN_ROUNDS} plans")
     problems = pdfcheck.all_problems(probe, sheet.title) + chordseat.problems(score_path, probe) + port.line_rule_breaks(sheet.score, sheet.variant)
