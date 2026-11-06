@@ -7,6 +7,7 @@ import pathlib
 import subprocess
 import tempfile
 import threading
+import time
 from collections.abc import Iterator
 from typing import Any
 
@@ -31,6 +32,7 @@ class Batcher:
         self.ticket = 0
         self.jobs = 0
         self.renders = 0
+        self.seconds = 0.0  # wall time spent inside MuseScore jobs
 
     @contextlib.contextmanager
     def worker(self) -> Iterator[None]:
@@ -61,10 +63,12 @@ class Batcher:
                     if not self.flushing and self.pending and self.waiting >= max(1, self.working):
                         batch, self.pending, self.flushing = self.pending, [], True
                         self.lock.release()
+                        began = time.monotonic()
                         try:
                             results = self.run(batch)
                         finally:
                             self.lock.acquire()
+                            self.seconds += time.monotonic() - began
                         self.done.update(results)
                         self.jobs += 1
                         self.renders += len(batch)
