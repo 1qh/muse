@@ -18,7 +18,7 @@ from typing import Any
 
 import pymupdf
 
-from muse import buildcache, chordnames, chordseat, musicxml, pdfcheck, piano, scorefile
+from muse import buildcache, chordnames, chordseat, musicxml, pdfcheck, pdftext, piano, scorefile
 from muse.model import Bar, Chord, Score
 from muse.render import BATCHER
 from muse.song import LEGACY_FILES, Song, decode, song_of
@@ -162,7 +162,7 @@ def strip_title_frame(mscz: pathlib.Path) -> None:
 def system_starts(pdf: pathlib.Path) -> list[int]:
     """The bar number printed at the start of every line, read from the exported PDF."""
     found = []
-    for page in pymupdf.open(pdf):
+    for page in pdftext.open(pdf):
         for block in page.get_text("dict")["blocks"]:
             for line in block.get("lines", []):
                 for span in line["spans"]:
@@ -194,7 +194,7 @@ def last_before(where: list[tuple[int, float, int]], page_no: int) -> int:
 def crowded_rows(pdf: pathlib.Path, firsts: list[int]) -> set[int]:
     """First bar of every line holding chords that run together, matched by page and height."""
     where = []
-    for page_no, page in enumerate(pymupdf.open(pdf)):
+    for page_no, page in enumerate(pdftext.open(pdf)):
         for block in page.get_text("dict")["blocks"]:
             for line in block.get("lines", []):
                 for span in line["spans"]:
@@ -339,7 +339,7 @@ def balanced_pages(heights: list[float], pages: int) -> list[int]:
 def line_heights(pdf: pathlib.Path, firsts: list[int]) -> tuple[list[float], int]:
     """Each line's height from where its bar number prints, the last on a page ending at the page's ink."""
     where: dict[int, tuple[int, float]] = {}
-    doc = pymupdf.open(pdf)
+    doc = pdftext.open(pdf)
     bottoms = []
     tops = []
     for page_no, page in enumerate(doc):
@@ -683,7 +683,7 @@ def lay_out(src: pathlib.Path, work: pathlib.Path, spatium: float, distance: flo
                 ease_line(starts, row, fixed, tied)
         else:
             raise DoesNotFit(f"{song}: saved lines no longer fit")
-    found = len(pymupdf.open(probe))
+    found = len(pdftext.open(probe))
     if pages is not None and found > pages:
         raise DoesNotFit(f"{song}: {found} pages, over {pages}")
     for _ in range(MAX_LAYOUT_ROUNDS if lines is None else 1):
@@ -697,8 +697,8 @@ def lay_out(src: pathlib.Path, work: pathlib.Path, spatium: float, distance: flo
             if row[0] in crowded and len(row) > 1:
                 starts.add(split_at(row[0] - 1, row[-1], tied))
         measure()
-    if len(pymupdf.open(probe)) != found:
-        raise DoesNotFit(f"{song}: even pages need {len(pymupdf.open(probe))} pages, not {found}")
+    if len(pdftext.open(probe)) != found:
+        raise DoesNotFit(f"{song}: even pages need {len(pdftext.open(probe))} pages, not {found}")
     if pdfcheck.sign_on_chord(probe):
         clearing["signs"] = True
         build()
@@ -763,7 +763,7 @@ def prove(src: pathlib.Path, work: pathlib.Path, variant: str, saved: dict[str, 
         return None
     if not acceptable(laid, variant) or line_rule_breaks(laid) or chordless_opening(laid, base):
         return None
-    return laid, base, float(saved["spatium"]), float(saved["distance"]), len(pymupdf.open(probe))
+    return laid, base, float(saved["spatium"]), float(saved["distance"]), len(pdftext.open(probe))
 
 
 def acceptable(laid: Score, variant: str) -> bool:
@@ -863,7 +863,7 @@ def finish_within_cap(src: pathlib.Path, work: pathlib.Path, variant: str, limit
                     continue
             else:
                 score, base, probe = lay_out(src, work, size, start_gap, limit, variant, line_starts(score))
-            return score, base, size, gap, len(pymupdf.open(probe))
+            return score, base, size, gap, len(pdftext.open(probe))
     return None
 
 

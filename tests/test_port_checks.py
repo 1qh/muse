@@ -132,3 +132,19 @@ def test_a_sign_drawn_over_a_chord_is_refused_and_one_beside_it_passes(tmp_path,
 
     assert any("covers" in p for p in pdfcheck.sign_on_chord(page(tmp_path / "on.pdf", 106, 190)))
     assert not any("covers" in p for p in pdfcheck.sign_on_chord(page(tmp_path / "off.pdf", 200, 190)))
+
+
+def test_a_pdf_is_parsed_once_until_it_changes(tmp_path):
+    from muse import pdftext
+
+    path = tmp_path / "a.pdf"
+    doc = pymupdf.open()
+    doc.new_page().insert_text((50, 50), "Am", fontsize=12)
+    doc.save(path)
+    first = pdftext.open(path)
+    assert pdftext.open(path) is first
+    assert first[0].get_text("dict") is first[0].get_text("dict")
+    doc = pymupdf.open()
+    doc.new_page().insert_text((50, 50), "Dm7", fontsize=12)
+    doc.save(path)
+    assert "Dm7" in pdftext.open(path)[0].get_text("text")

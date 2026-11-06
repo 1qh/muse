@@ -5,9 +5,7 @@ import pathlib
 import re
 import sys
 
-import pymupdf
-
-from muse import chordseat
+from muse import chordseat, pdftext
 
 CHORD = re.compile(r"(?:[A-G][#b♯♭]?)?(?:maj|min|dim|sus|add|aug|m|\d|[#b♯♭()/ Δø°]|[A-G][#b♯♭]?)*")
 MIN_CHORD_GAP = 0.75  # clear space between 2 chords, in chord font sizes
@@ -38,7 +36,7 @@ BOTTOM_BAND = 0.992  # no word reaches the bottom edge region: printable music e
 
 def margin_words(path: pathlib.Path) -> list[str]:
     found = []
-    for number, page in enumerate(pymupdf.open(path), 1):
+    for number, page in enumerate(pdftext.open(path), 1):
         height = page.rect.height
         for word in page.get_text("words"):
             y0, y1, text = word[1], word[3], word[4]
@@ -51,14 +49,14 @@ def margin_words(path: pathlib.Path) -> list[str]:
 
 def foreign_fonts(path: pathlib.Path) -> list[str]:
     """Any text font but the style's own means a letter fell back mid-word."""
-    names = {font[3].split("+")[-1] for page in pymupdf.open(path) for font in page.get_fonts()}
+    names = {font[3].split("+")[-1] for page in pdftext.open(path) for font in page.get_fonts()}
     return sorted(name for name in names if not name.startswith(MUSIC_FONTS + ("SFPro", "SF-Pro", "SF Pro")))
 
 
 def oversized_text(path: pathlib.Path) -> list[str]:
     """Words at or above the biggest chord size; chords must be the biggest text on the page."""
     spans = []
-    for page in pymupdf.open(path):
+    for page in pdftext.open(path):
         for block in page.get_text("dict")["blocks"]:
             for line in block.get("lines", []):
                 for span in line["spans"]:
@@ -72,7 +70,7 @@ def oversized_text(path: pathlib.Path) -> list[str]:
 def chord_collisions(path: pathlib.Path) -> list[tuple[int, float, str]]:
     """Chord roots with too little clear space before them, read per character: page, height, root."""
     found = []
-    for number, page in enumerate(pymupdf.open(path), 1):
+    for number, page in enumerate(pdftext.open(path), 1):
         chars = []
         for block in page.get_text("rawdict")["blocks"]:
             for line in block.get("lines", []):
@@ -95,7 +93,7 @@ def title_problems(path: pathlib.Path, title: str) -> list[str]:
     """The title prints exactly once in the top right corner of every page; lyrics may repeat its words."""
     problems = []
     spellings = {title, title.replace("Đ", "Ð")}  # SF Pro's text layer reports Đ as its look-alike
-    for number, page in enumerate(pymupdf.open(path), 1):
+    for number, page in enumerate(pdftext.open(path), 1):
         hits = [hit for spelling in spellings for hit in page.search_for(spelling)
                 if hit.x1 > page.rect.width * 0.7 and hit.y1 < page.rect.height * 0.06]
         if len(hits) != 1:
@@ -106,7 +104,7 @@ def title_problems(path: pathlib.Path, title: str) -> list[str]:
 def past_margin(path: pathlib.Path) -> list[tuple[int, float, str]]:
     """Text running past the right margin: page, height, word."""
     found = []
-    for number, page in enumerate(pymupdf.open(path), 1):
+    for number, page in enumerate(pdftext.open(path), 1):
         for word in page.get_text("words"):
             if word[2] > page.rect.width * RIGHT_LIMIT and word[3] - word[1] <= MAX_TEXT_BOX:
                 found.append((number - 1, word[1], word[4]))
@@ -121,7 +119,7 @@ def sign_sizes(path: pathlib.Path) -> tuple[list[float], float]:
     """Sizes of every printed segno and coda, and of the biggest chord text."""
     signs = []
     words = []
-    for page in pymupdf.open(path):
+    for page in pdftext.open(path):
         for block in page.get_text("rawdict")["blocks"]:
             for line in block.get("lines", []):
                 for span in line["spans"]:
@@ -136,7 +134,7 @@ def sign_sizes(path: pathlib.Path) -> tuple[list[float], float]:
 def sign_row_problems(path: pathlib.Path) -> list[str]:
     """A jump sign sits in the chord row of the line it belongs to: no higher than that line's chord baseline allows."""
     problems = []
-    for number, page in enumerate(pymupdf.open(path), 1):
+    for number, page in enumerate(pdftext.open(path), 1):
         ys = sorted({round(d["rect"].y0, 1) for d in page.get_drawings() if d["rect"].width > 100 and d["rect"].height < 1})
         staves = [(ys[i], ys[i + 4]) for i in range(0, len(ys) - 4) if all(abs((ys[i + k + 1] - ys[i + k]) - (ys[i + 1] - ys[i])) < 0.5 for k in range(4))]
         staves = [s for k, s in enumerate(staves) if not k or s[0] > staves[k - 1][1]]
@@ -165,7 +163,7 @@ def sign_problems(path: pathlib.Path) -> list[str]:
     """Signs must catch the eye: well above the chords. Jump words must be bold and below the chords."""
     signs, chords = sign_sizes(path)
     problems = [f"sign of {size:.1f} under {SIGN_OVER_CHORD} times chords of {chords:.1f}" for size in signs if size < chords * SIGN_OVER_CHORD]
-    for page in pymupdf.open(path):
+    for page in pdftext.open(path):
         for block in page.get_text("dict")["blocks"]:
             for line in block.get("lines", []):
                 for span in line["spans"]:
@@ -177,7 +175,7 @@ def sign_problems(path: pathlib.Path) -> list[str]:
 def sign_on_chord(path: pathlib.Path) -> list[str]:
     """A segno or coda on the baseline of the chord beside it, its ink running into the chord's first letter."""
     found = []
-    for number, page in enumerate(pymupdf.open(path), 1):
+    for number, page in enumerate(pdftext.open(path), 1):
         signs, chars, sign_boxes = [], [], []
         for block in page.get_text("rawdict")["blocks"]:
             for line in block.get("lines", []):
@@ -210,7 +208,7 @@ def sign_touches(x: float, y: float, size: float, chord_size: float, chord_lette
 def chord_seating(path: pathlib.Path) -> list[tuple[int, float, float, str]]:
     """Each chord's overhang left of a barline it crosses, and its height above the staff in staff spaces where the line has no notes: page, overhang, spaces, chord."""
     found = []
-    for number, page in enumerate(pymupdf.open(path), 1):
+    for number, page in enumerate(pdftext.open(path), 1):
         spans, heads = [], []
         for block in page.get_text("rawdict")["blocks"]:
             for line in block.get("lines", []):
@@ -247,7 +245,7 @@ def seating_problems(path: pathlib.Path) -> list[str]:
 def text_collisions(path: pathlib.Path) -> list[tuple[int, float, str]]:
     """Words printed on top of each other, or touching with no gap: page, height, the later word."""
     found = []
-    for number, page in enumerate(pymupdf.open(path), 1):
+    for number, page in enumerate(pdftext.open(path), 1):
         words = [w for w in page.get_text("words") if w[3] - w[1] <= MAX_TEXT_BOX and not all(0xE000 <= ord(c) <= 0xF8FF for c in w[4])]
         for i, a in enumerate(words):
             for b in words[i + 1:]:
@@ -262,7 +260,7 @@ def text_collisions(path: pathlib.Path) -> list[tuple[int, float, str]]:
 def empty_staves(path: pathlib.Path) -> list[str]:
     """A staff with no notehead sharing its line with another staff; a bar number starts each line after the first."""
     found = []
-    for number, page in enumerate(pymupdf.open(path), 1):
+    for number, page in enumerate(pdftext.open(path), 1):
         clefs: list[float] = []
         heads: list[float] = []
         starts: list[float] = []
@@ -323,7 +321,7 @@ BASS_ALONE = re.compile(r"^/[A-G][\u266f\u266d]?$")
 def bass_problems(pdf: pathlib.Path) -> list[str]:
     """Slash chords whose bass does not share the root's baseline and size."""
     problems = []
-    for number, page in enumerate(pymupdf.open(pdf), 1):
+    for number, page in enumerate(pdftext.open(pdf), 1):
         for block in page.get_text("rawdict")["blocks"]:
             for line in block.get("lines", []):
                 text = "".join(c["c"] for span in line["spans"] for c in span["chars"]).strip()

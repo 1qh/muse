@@ -5,7 +5,7 @@ from fractions import Fraction as F
 import pymupdf
 import pytest
 
-from muse import gate, pdfcheck, port, publish, song, symbolfont
+from muse import gate, pdfcheck, pdftext, port, publish, song, symbolfont
 from muse.model import Bar, Score, UnknownEncoding, UnknownGlyph
 
 
@@ -175,7 +175,7 @@ def test_signs_must_stand_above_the_chords(tmp_path) -> None:
 
 def test_small_sign_is_refused(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(pdfcheck, "sign_sizes", lambda path: ([10.0], 14.0))
-    monkeypatch.setattr(pymupdf, "open", lambda path: [])
+    monkeypatch.setattr(pdftext, "open", lambda path: [])
     assert pdfcheck.sign_problems(tmp_path / "x.pdf") == ["sign of 10.0 under 1.6 times chords of 14.0"]
     monkeypatch.setattr(pdfcheck, "sign_sizes", lambda path: ([25.0], 14.0))
     assert pdfcheck.sign_problems(tmp_path / "x.pdf") == []

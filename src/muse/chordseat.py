@@ -10,6 +10,8 @@ from typing import Any
 
 import pymupdf
 
+from muse import pdftext
+
 GAP = 0.0  # a beat-1 chord's ink starts exactly at the barline's right edge, or after a line's clef and signatures
 TOLERANCE = 0.4
 LEGACY_REACH = 1.7  # staff spaces: MuseScore 3 holds a mid-line chord about 1.5 after the barline whatever its offset
@@ -132,7 +134,7 @@ def page_lines(pdf: pathlib.Path) -> list[dict[str, Any]]:
     """Every staff carrying chords, in print order: its chord left edges, its barlines, where its signatures end, and its staff space."""
     lines = []
     measures = measure_boxes(pdf.with_suffix(".mpos"))
-    for page in pymupdf.open(pdf):
+    for page in pdftext.open(pdf):
         words, glyphs = [], []
         signs_here: list[tuple[float, float]] = []
         for block in page.get_text("rawdict")["blocks"]:
