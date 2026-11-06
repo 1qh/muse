@@ -248,3 +248,11 @@ def test_a_publish_commit_names_its_songs():
 
     assert publish.commit_message(["AnhKhongThaThu", "CauHenCauThe"]) == "feat: publish AnhKhongThaThu, CauHenCauThe"
     assert publish.commit_message([]) == "chore: refresh sheets"
+
+
+def test_a_purge_removes_only_sheet_versions_the_current_sheets_do_not_hold():
+    from muse import publish
+
+    tree = "100644 blob aaa\tSong/Song-Em.pdf\n100644 blob bbb\tSong/Song-Em.mscz\n"
+    history = "c0mmit\naaa Song/Song-Em.pdf\nbbb Song/Song-Em.mscz\nold Song/Song-Em.pdf\nolder Other/Other-Am.mscz\nnotes README.md\n"
+    assert publish.superseded(tree, history) == ["old", "older"]

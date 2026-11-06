@@ -53,6 +53,20 @@ def keep_last_good(out: pathlib.Path, song: str, run: Runner) -> None:
     run("git", "clean", "-fdq", "--", song, cwd=out)
 
 
+SHEET_SUFFIXES = (".pdf", ".mscz")
+
+
+def superseded(current_tree: str, history: str) -> list[str]:
+    """Blob ids of sheet files in history that the current sheets do not hold: the only versions a purge removes, so each commit keeps its current files."""
+    current = {line.split()[2] for line in current_tree.splitlines() if line.split()[1:2] == ["blob"]}
+    stale = set()
+    for line in history.splitlines():
+        blob, _, path = line.partition(" ")
+        if path.endswith(SHEET_SUFFIXES) and blob not in current:
+            stale.add(blob)
+    return sorted(stale)
+
+
 def commit_message(songs: list[str]) -> str:
     """Name what a publish brings, since the history purge leaves no earlier file to diff against."""
     return f"feat: publish {', '.join(songs)}" if songs else "chore: refresh sheets"
@@ -80,12 +94,16 @@ def publish(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path, run: Runne
     with tempfile.TemporaryDirectory() as tmp:
         mirror = pathlib.Path(tmp) / "mirror.git"
         run("git", "clone", "--mirror", url, str(mirror))
-        run("bfg", "--delete-files", "*.{pdf,mscz}", ".", cwd=mirror)
+        stale = superseded(run("git", "ls-tree", "-r", "HEAD", cwd=mirror), run("git", "rev-list", "--objects", "--all", cwd=mirror))
+        if stale:
+            listed = pathlib.Path(tmp) / "superseded.txt"
+            listed.write_text("\n".join(stale) + "\n", encoding="utf-8")
+            run("git", "filter-repo", "--strip-blobs-with-ids", str(listed), "--force", cwd=mirror)
         run("git", "reflog", "expire", "--expire=now", "--all", cwd=mirror)
         run("git", "gc", "--prune=now", "--aggressive", cwd=mirror)
         if run("git", "rev-parse", "HEAD^{tree}", cwd=mirror) != tree:
             raise Refused("purge changed the current files; nothing force-pushed")
-        pushed(run, ("git", "push", "--force"), mirror)
+        pushed(run, ("git", "push", "--force", url, "refs/heads/*:refs/heads/*"), mirror)  # the rewrite drops the mirror's remote, so the push names it
     run("git", "fetch", "origin", cwd=out)
     run("git", "reset", "--hard", "origin/HEAD", cwd=out)
     run("git", "reflog", "expire", "--expire=now", "--all", cwd=out)
@@ -96,8 +114,8 @@ def publish(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path, run: Runne
 
 
 def main() -> None:
-    if not shutil.which("bfg"):
-        raise SystemExit("bfg not found")
+    if not shutil.which("git-filter-repo"):
+        raise SystemExit("git-filter-repo not found")
     src, out, work = map(pathlib.Path, sys.argv[1:4])
     try:
         blocked = publish(src, out, work, names=tuple(sys.argv[4:]))
