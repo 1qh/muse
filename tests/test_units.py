@@ -562,3 +562,12 @@ def test_an_import_is_rebuilt_when_what_it_came_from_changes(tmp_path, monkeypat
     assert port.imported(score, tmp_path, "x", style, False) != first and len(made) == 2
 
 
+
+
+def test_a_staff_whose_line_pair_rounds_short_is_still_found():
+    import pymupdf
+
+    from muse import chordseat
+
+    lines = [pymupdf.Rect(40, y, 560, y + 0.1) for y in (164.4, 170.0, 175.7, 181.4, 187.1)]  # spacing 5.675, the first pair rounds to 5.6
+    assert chordseat.staves_of(lines) == [[164.4, 170.0, 175.7, 181.4, 187.1]]

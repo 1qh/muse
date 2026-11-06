@@ -97,7 +97,9 @@ def staves_of(shapes: list[pymupdf.Rect]) -> list[list[float]]:
     for top in rules:
         if top in used:
             continue
-        for step in (y - top for y in rules if MIN_STAFF_SPACE < y - top < MAX_STAFF_SPACE):
+        for guess in (y - top for y in rules if MIN_STAFF_SPACE < y - top < MAX_STAFF_SPACE):
+            bottom = next((y for y in rules if abs(y - (top + guess * 4)) < guess / 4), None)  # the 5th line near where the guess puts it
+            step = (bottom - top) / 4 if bottom is not None else guess  # spacing measured over the whole staff: 1 rounded pair drifts 4 times over
             five = [next((y for y in rules if abs(y - (top + step * k)) < SPACE_SLACK), None) for k in range(5)]
             if None not in five:  # a stray long line among them is left out rather than breaking the staff
                 staves.append([float(y) for y in five if y is not None])
