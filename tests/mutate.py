@@ -16,7 +16,6 @@ MUTATIONS = [
     ("build.py", "buildcache.code_files(skip=skip), mode.label())", "buildcache.code_files(skip=skip))", "print build reused as strict"),
     ("pdfcheck.py", 'if span["text"].strip() and (x0 < box.x0 or y0 < box.y0 or x1 > box.x1 or y1 > box.y1):', 'if span["text"].strip() and (x0 < box.x0 or x1 > box.x1):', "ink above the page passes"),
     ("extension/main.js", "            item.text.offsetY = item.text.offsetY - rise  // placement", "            item.text.autoplace = false\n            item.text.offsetY = item.text.offsetY - rise  // placement", "raised text leaves no room"),
-    ("extension/main.js", 'if (out && !(writeScore(curScore, out + ".pdf", "pdf")', 'if (false && !(writeScore(curScore, out + ".pdf", "pdf")', "round not rendered in launch"),
     ("layout.py", "return port.imported(self.score, self.work, self.name, self.import_style, False)", "return port.imported(self.score, self.work, self.name, self.style, False)", "1 import per size"),
     ("extension/main.js", "        placed[item.key].push({ x0: item.x0, x1: item.x1, top: top })\n", "\n", "raised texts overprint"),
     ("port.py", "    for page_no, y, _ in pdfcheck.past_margin(pdf):", "    for page_no, y, _ in [*pdfcheck.past_margin(pdf), *pdfcheck.text_collisions(pdf)]:", "text overlap replans"),

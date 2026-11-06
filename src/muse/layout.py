@@ -323,23 +323,15 @@ def overflowing(sheet: Sheet, probe: pathlib.Path, seated: bool) -> set[int]:
     return {bar - 1 for row in port.rows(sheet.score) if row[0] in crowded or any(row[0] < bar <= row[-1] for bar in extra) for bar in row}
 
 
-def seat_inked(score_path: pathlib.Path, rendered: Callable[[], pathlib.Path], holds: Callable[[pathlib.Path], bool], out: pathlib.Path | None = None) -> pathlib.Path:
+def seat_inked(score_path: pathlib.Path, rendered: Callable[[], pathlib.Path], holds: Callable[[pathlib.Path], bool]) -> pathlib.Path:
     """The extension fits each bar's chords, evens empty bars and seats chords; each round passes it every chord's measured ink offset and ink width, until the ink sits on target."""
     bias: list[float] = []
     inks: list[float] = []  # each chord's ink width in staff spaces, known after the first round
     probe = score_path
     for _ in range(INK_ROUNDS):
-        tags = {"museChordGap": f"{CLEAR_SPACES:.4f}", "museInkBias": ",".join(f"{b:.4f}" for b in bias), "museInkWidth": ",".join(f"{w:.4f}" for w in inks)}
-        if out is not None:  # the extension writes this round's PDF and positions in its own launch
-            tags["museOut"] = str(out.with_suffix(""))  # the extension adds .pdf and .mpos
-            for suffix in (".pdf", ".mpos"):
-                out.with_suffix(suffix).unlink(missing_ok=True)
-        set_tags(score_path, tags)
+        set_tags(score_path, {"museChordGap": f"{CLEAR_SPACES:.4f}", "museInkBias": ",".join(f"{b:.4f}" for b in bias), "museInkWidth": ",".join(f"{w:.4f}" for w in inks)})
         run_extension(score_path, score_path)
-        failed = read_tag(score_path, "museSeatError")
-        if failed.startswith("could not write"):
-            raise port.DoesNotFit(f"{score_path.name}: {failed}")
-        probe = out if out is not None else rendered()
+        probe = rendered()  # a fresh render of the saved score: the layout inside the launch is not what prints
         if not holds(probe):
             return probe  # widening wrapped a line; the caller plans again
         _, text = chordseat.score_text(score_path)
@@ -355,10 +347,8 @@ def seat_inked(score_path: pathlib.Path, rendered: Callable[[], pathlib.Path], h
 
 
 def seat(sheet: Sheet, score_path: pathlib.Path) -> pathlib.Path:
-    """A sheet's final score seated in place, each round rendered inside the extension's launch, then rendered once by itself so the checks judge exactly what the saved score prints."""
-    rounds = score_path.with_name(score_path.stem + "-round.pdf")  # a real suffix: a size such as 1.95 in the name must never read as one
-    seat_inked(score_path, lambda: render(sheet, "final", seated=True)[1], lambda probe: sheet.starts() == sorted({1, *port.system_starts(probe)}), rounds)
-    return render(sheet, "final", seated=True)[1]
+    """A sheet's final score seated in place, every round judged on a fresh render of the saved score."""
+    return seat_inked(score_path, lambda: render(sheet, "final", seated=True)[1], lambda probe: sheet.starts() == sorted({1, *port.system_starts(probe)}))
 
 
 def finish(src: pathlib.Path, work: pathlib.Path, variant: str, size: float) -> tuple[Score, pathlib.Path, float, float, int]:

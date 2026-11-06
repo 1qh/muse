@@ -276,8 +276,6 @@ function main() {
     curScore.setMetaTag("museSeatError", remaining.length ? "chords still crowd in " + remaining.length + " bars" : "")
     lift(all)
     raiseText(all)
-    var out = curScore.metaTag("museOut")
-    if (out && !(writeScore(curScore, out + ".pdf", "pdf") && writeScore(curScore, out + ".mpos", "mpos"))) curScore.setMetaTag("museSeatError", "could not write " + out)
 }
 
 function raiseText(all) {

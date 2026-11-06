@@ -153,20 +153,6 @@ def test_cues_sharing_a_place_stack_above_the_chords_and_never_overprint(tmp_pat
     assert pdfcheck.seating_problems(pdf) == []
 
 
-def test_a_round_renders_inside_the_extension_launch(tmp_path: pathlib.Path) -> None:
-    crowded = [chord("C", "maj7"), chord("D", "m7"), chord("E", "m7"), chord("F", "maj7")]
-    bars = [held(1, [chord("C")]), held(2, crowded), held(3, [chord("G")]), held(4, [chord("A", "m")])]
-    score_path = imported(tmp_path, bars, {1, 5})
-    out = tmp_path / "Song-tone-1.95-final-round.pdf"  # a size in the name must never read as a suffix
-
-    def never() -> pathlib.Path:
-        raise AssertionError("a round rendered outside the extension")
-
-    probe = layout.seat_inked(score_path, never, lambda probe: True, out)
-    assert probe == out and out.exists() and out.with_suffix(".mpos").exists()
-    assert pdfcheck.chord_collisions(probe) == []
-
-
 def test_cues_over_the_first_line_stay_on_the_page(tmp_path: pathlib.Path) -> None:
     from muse.model import Text
 
