@@ -169,3 +169,12 @@ def test_finish_widens_the_line_gap_while_text_meets_text(monkeypatch: pytest.Mo
     monkeypatch.setattr(layout, "finish_at", lambda *a: (_ for _ in ()).throw(port.DoesNotFit("lines still wrap")))
     with pytest.raises(port.DoesNotFit, match="wrap"):
         layout.finish(tmp_path, tmp_path, port.ORIGINAL, 2.0)
+
+
+def test_a_piano_label_may_sit_second_after_a_mark_bar_opening_its_line() -> None:
+    bars = [noted(1), empty(2, rehearsal=["A"]), empty(3, texts=[lyric("Chorus")]), empty(4)]
+    score = Score(bars, [], [])
+    for bar in score.bars:
+        bar.new_system = bar.number == 2
+    assert port.line_rule_breaks(score, port.PIANO) == []
+    assert port.line_rule_breaks(score, port.ORIGINAL) == [3]
