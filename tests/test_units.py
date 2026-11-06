@@ -713,3 +713,16 @@ def test_a_floor_layout_with_spare_height_is_searched_and_a_proof_keeps_its_owed
     assert port.SEARCHED["rules"] == port.layout_rules()
     assert port.sheet(tmp_path, tmp_path, port.ORIGINAL, {"spatium": 1.5, "distance": 11.0, "searched": "old"})[0] == "proved"
     assert port.SEARCHED["rules"] == "old"
+
+
+def test_a_song_no_size_holds_to_15_percent_takes_the_wider_share(monkeypatch, tmp_path):
+    from muse.model import Score
+
+    lines = [[1, 2, 3, 4], [5, 6, 7, 8], [9, 10], [11, 12, 13, 14], [15, 16], [17, 18, 19], [20, 21, 22]]  # 2 of 7 short: over 15%, within 30%
+    monkeypatch.setattr(port, "rows", lambda laid: lines)
+    monkeypatch.setattr(port, "trials", lambda src, work, variant, limit, pairs: {pair: Score([], [], []) for pair in pairs})
+    monkeypatch.setattr(port, "finish", lambda src, work, variant, limit, size, gap: size)
+    assert port.fit(tmp_path, tmp_path, port.ORIGINAL) == port.SIZE_CAP
+    lines.append([23])
+    lines.append([24])
+    assert port.fit(tmp_path, tmp_path, port.ORIGINAL) is None

@@ -63,7 +63,7 @@ MARKER_TYPES = {"segno": "segno", "coda": "codab"}
 LEGACY_SIGN_SIZE = 25  # MuseScore 3 sizes the sign as text
 LEGACY_ONLY_FONTS = ("staffFontFace", "systemFontFace", "beginFontFace", "continueFontFace", "endFontFace")  # its names for text styles
 MAX_SHORT_SHARE = 0.15  # readers find many 2-bar lines sparse; smaller notation is preferred
-SHARE = {"limit": MAX_SHORT_SHARE}  # the share in force for the sheet being searched
+RELAXED_SHORT_SHARE = 0.30  # when no size holds a song to the base share
 MIDDLE_DISTANCE = 9.0
 LEGACY_TOP_BORDER = 15  # MuseScore 3 lifts jump words and voltas into the title otherwise
 TIGHT_DISTANCE = 6.0  # line gap only for a song that fits its pages no other way
@@ -757,10 +757,10 @@ def prove(src: pathlib.Path, work: pathlib.Path, variant: str, saved: dict[str, 
     return laid, base, float(saved["spatium"]), float(saved["distance"]), len(pdftext.open(probe))
 
 
-def acceptable(laid: Score, variant: str) -> bool:
+def acceptable(laid: Score, variant: str, share: float = MAX_SHORT_SHARE) -> bool:
     if variant == PIANO:
         return not piano.lone_lines([row[0] for row in rows(laid)], len(laid.bars))
-    return short_line_share(rows(laid)) <= SHARE["limit"]
+    return short_line_share(rows(laid)) <= share
 
 
 TRIALS: dict[tuple[str, str, int | None, float, float], Score | None] = {}
@@ -805,9 +805,15 @@ def fit(src: pathlib.Path, work: pathlib.Path, variant: str) -> tuple[Score, pat
     """The largest notation up to the cap whose lines fill every page they need, every size laid out side by side; only the chosen 1 is seated."""
     pairs = [(size, BASE_DISTANCE) for size in sizes_between(SIZE_FLOORS[-1], SIZE_CAP)]
     found = trials(src, work, variant, None, pairs)
-    good = [pair for pair, laid in found.items() if laid is not None and acceptable(laid, variant)]
-    full = [pair for pair in good if FILLS.get((str(src), variant, *pair), 0.0) >= PAGE_FILL]
-    chosen = max(full or good, default=None)
+    chosen = None
+    for share in (MAX_SHORT_SHARE, RELAXED_SHORT_SHARE):  # bigger notes outrank fuller lines, within the wider share
+        good = [pair for pair, laid in found.items() if laid is not None and acceptable(laid, variant, share)]
+        full = [pair for pair in good if FILLS.get((str(src), variant, *pair), 0.0) >= PAGE_FILL]
+        chosen = max(full or good, default=None)
+        if chosen is not None:
+            if share != MAX_SHORT_SHARE:
+                print(f"{src.stem} {variant}: more than {MAX_SHORT_SHARE:.0%} short lines allowed for size {chosen[0]}", flush=True)
+            break
     if chosen is None:
         return None
     return finish(src, work, variant, None, chosen[0], chosen[1])

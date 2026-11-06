@@ -11,6 +11,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 CONTROL_WORKERS = 8
 CONTROL_SECONDS = 180
 MUTATIONS = [
+    ("port.py", "for share in (MAX_SHORT_SHARE, RELAXED_SHORT_SHARE):", "for share in (MAX_SHORT_SHARE,):", "wider share lost"),
     ("pdfcheck.py", "if any(overlap(box, letter) > COVER_SLACK for letter in letters)]", "if False]", "sign over chord unchecked"),
     ("port.py", 'f"<Measure{m[1]}><stretch>{SIGN_BAR_STRETCH}</stretch>"', 'f"<Measure{m[1]}>"', "2-sign bar not widened"),
     ("pdfcheck.py", "if y < min(row, default=below[0][0]) - ROW_SLACK:", "if False:", "sign row unchecked"),
