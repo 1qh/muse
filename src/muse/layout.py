@@ -390,5 +390,6 @@ def lay(src: pathlib.Path, work: pathlib.Path, variant: str) -> tuple[Score, pat
             return finish(src, work, variant, size)
         except port.DoesNotFit as error:
             refusals.append(str(error))
+            print(f"refused {error}", flush=True)  # each refused size and its reason, as it happens
     raise port.DoesNotFit(f"{src.stem} {variant}: no size passes: {refusals[:3]}")
 
