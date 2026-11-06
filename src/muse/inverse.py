@@ -3,11 +3,10 @@ from __future__ import annotations
 
 import json
 import pathlib
-import subprocess
 import sys
 import xml.etree.ElementTree as ET
 
-from muse import chordnames
+from muse import chordnames, launch
 from muse.song import decode, song_of, sources
 from muse.verify import PC, bar_pitches, bar_roots, midi, stored_chord_names
 
@@ -19,11 +18,11 @@ def check(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> list[str]
     moved = work / f"{song}-moved.mscz"
     if semis:
         options = {"mode": "to_key", "direction": info.direction, "targetKey": fifths, "transposeKeySignatures": True, "transposeChordNames": True, "useDoubleSharpsFlats": False, "transposeInterval": 0}
-        subprocess.run(["mscore", "-o", str(moved), "--transpose", json.dumps(options), str(final)], capture_output=True, check=True, timeout=240)
+        launch.mscore(["-o", str(moved), "--transpose", json.dumps(options), str(final)], 240, check=True)
     else:
         moved.write_bytes(final.read_bytes())
     xml = work / f"{song}-moved.musicxml"
-    subprocess.run(["mscore", "-o", str(xml), str(moved)], capture_output=True, check=True, timeout=240)
+    launch.mscore(["-o", str(xml), str(moved)], 240, check=True)
     root = ET.parse(xml).getroot()
     score = decode(src)
     problems = []

@@ -5,7 +5,6 @@ import hashlib
 import os
 import pathlib
 import re
-import subprocess
 import threading
 import zipfile
 from collections.abc import Callable
@@ -13,7 +12,7 @@ from typing import Any
 
 import pymupdf
 
-from muse import buildcache, chordnames, chordseat, musicxml, pdfcheck, pdftext, piano
+from muse import buildcache, chordnames, chordseat, launch, musicxml, pdfcheck, pdftext, piano
 from muse.model import Bar, Score
 from muse.song import Song, decode
 
@@ -23,6 +22,7 @@ SIZE_FLOORS = (1.2, 1.15)  # below 1.2 only for a song that fits its pages no ot
 SIZE_CAP = 2.0  # the largest notation any sheet takes
 PAGE_FILL = 0.85  # how far down every page the music must reach
 MAX_WORKERS = 10
+LAUNCH_SECONDS = 240  # 1 import or export, counted from when its launch slot frees
 SEAT_PASSES = 5
 SIZE_STEP = 0.05
 CLIMB_START, CLIMB_STEP, CLIMB_STEPS = 1.3, 0.1, 8
@@ -57,16 +57,10 @@ def require_font(folders: tuple[pathlib.Path, ...] = FONT_DIRS) -> None:
         raise MissingFont(f"SF Pro Display is missing {missing}; install it from Apple into {folders[0]}")
 
 
-LAUNCHES = {"count": 0}
-SEARCH_CAP = {"at": 0, "hit": 0}  # launch count where a sheet's search stops, 0 leaving it open; and how often a cap stopped it
 
 
 def run(*args: str) -> None:
-    if SEARCH_CAP["at"] and LAUNCHES["count"] >= SEARCH_CAP["at"]:
-        SEARCH_CAP["hit"] += 1
-        raise DoesNotFit("the search reached its launch cap")
-    LAUNCHES["count"] += 1
-    done = subprocess.run(["mscore", *args], capture_output=True, text=True, timeout=240)
+    done = launch.mscore(list(args), LAUNCH_SECONDS)
     if done.returncode:
         raise RuntimeError(f"mscore {args}: {done.stderr[-400:]}")
 
@@ -292,7 +286,9 @@ def styled(work: pathlib.Path, name: str, title: str, spatium: float, distance: 
             raise RuntimeError(f"style has no single {tag}")
     text = text.replace("</Style>", f"<chordStyle>custom</chordStyle><chordDescriptionFile>{chordnames.chord_file(work)}</chordDescriptionFile></Style>")
     path = work / name
-    path.write_text(text, encoding="utf-8")
+    fresh = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+    fresh.write_text(text, encoding="utf-8")
+    fresh.replace(path)  # atomic: a parallel import never reads half a style
     return path
 
 
@@ -486,7 +482,7 @@ def build_legacy(src: pathlib.Path, work: pathlib.Path, target: pathlib.Path, sp
     style.write_text(re.sub(r"<staffUpperBorder>[^<]*</staffUpperBorder>", f"<staffUpperBorder>{LEGACY_TOP_BORDER}</staffUpperBorder>", style.read_text(encoding="utf-8")), encoding="utf-8")
     xml = work / f"{info.name}-{ORIGINAL}.musicxml"
     raw = work / f"{info.name}-legacy.mscz"
-    done = subprocess.run([legacy_command(), "-S", str(style), "-o", str(raw), str(xml)], capture_output=True, text=True, timeout=240, stdin=subprocess.DEVNULL)
+    done = launch.mscore(["-S", str(style), "-o", str(raw), str(xml)], LAUNCH_SECONDS, legacy_command())
     if done.returncode:
         raise RuntimeError(f"MuseScore 3: {done.stderr[-300:]}")
     strip_title_frame(raw)
@@ -497,9 +493,8 @@ def build_legacy(src: pathlib.Path, work: pathlib.Path, target: pathlib.Path, sp
     seen = work / f"{info.name}-legacy-seat.pdf"
 
     def render() -> None:
-        LAUNCHES["count"] += 1
         for out in (seen, seen.with_suffix(".mpos")):
-            subprocess.run([legacy_command(), "-o", str(out), str(raw)], capture_output=True, check=True, timeout=240, stdin=subprocess.DEVNULL)
+            launch.mscore(["-o", str(out), str(raw)], LAUNCH_SECONDS, legacy_command(), check=True)
 
     render()
     seat_chords(raw, seen, render, f"{info.name}-legacy", {bar.number for bar in score.bars if piano.has_notes(bar)}, chordseat.LEGACY_REACH)

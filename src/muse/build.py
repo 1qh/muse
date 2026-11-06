@@ -12,7 +12,7 @@ import sys
 import time
 from typing import Any
 
-from muse import buildcache, chordnames, layout, piano, port, publish, scorefile
+from muse import buildcache, chordnames, launch, layout, piano, port, publish, scorefile
 from muse.model import Score
 from muse.song import LEGACY_FILES, decode, song_of
 from muse.song import sources as song_sources
@@ -32,7 +32,7 @@ def decision(found: tuple[Score, pathlib.Path, float, float, int]) -> dict[str, 
 def song(src: pathlib.Path, out_dir: pathlib.Path, work: pathlib.Path) -> dict[str, object]:
     """Every out-of-date file of 1 song's folder; returns what was built for the report."""
     began = time.monotonic()
-    port.LAUNCHES["count"] = 0
+    launch.LAUNCHES["count"] = 0
     info = song_of(src)
     work.mkdir(parents=True, exist_ok=True)
     (out_dir / info.name).mkdir(parents=True, exist_ok=True)
@@ -91,7 +91,7 @@ def song(src: pathlib.Path, out_dir: pathlib.Path, work: pathlib.Path) -> dict[s
     probe_score = decode(src)
     report["parts"] = [(p.name, p.first, p.last, piano.staff_of([probe_score.bars[n - 1] for n in range(p.first, p.last + 1)])) for p in found_parts]
     report["built"] = built
-    report["launches"] = port.LAUNCHES["count"]
+    report["launches"] = launch.LAUNCHES["count"]
     report["seconds"] = round(time.monotonic() - began, 1)
     (work / f"{info.name}-report.json").write_text(json.dumps(report, ensure_ascii=False), encoding="utf-8")
     return report
@@ -137,7 +137,9 @@ def main() -> None:
     reports = []
     refused = []
     blocked = []
-    with concurrent.futures.ProcessPoolExecutor(max_workers=free_workers(len(sources))) as pool:
+    workers = free_workers(len(sources))
+    os.environ[launch.SLOTS_VARIABLE] = str(max(1, (os.cpu_count() or 1) // workers))  # each song worker's share of the cores, read as it starts
+    with concurrent.futures.ProcessPoolExecutor(max_workers=workers) as pool:
         jobs = {pool.submit(song, src, stage, work): src for src in sources}
         for job in concurrent.futures.as_completed(jobs):
             src = jobs[job]

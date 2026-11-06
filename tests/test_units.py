@@ -374,20 +374,6 @@ def test_a_stray_long_line_inside_a_staff_does_not_hide_it():
     assert chordseat.staves_of(shapes) == [[60.0, 64.0, 68.0, 72.0, 76.0]]
 
 
-def test_the_launch_cap_stops_a_search_and_only_a_search(monkeypatch):
-    calls = []
-    monkeypatch.setattr(port.subprocess, "run", lambda *a, **k: calls.append(a) or port.subprocess.CompletedProcess(a, 0, "", ""))
-    port.LAUNCHES["count"] = 10
-    port.SEARCH_CAP["at"] = 11
-    port.run("x")
-    import pytest
-    with pytest.raises(port.DoesNotFit):
-        port.run("x")
-    port.SEARCH_CAP["at"] = 0
-    port.run("x")
-    assert len(calls) == 2
-
-
 def test_a_chordless_line_start_is_found(monkeypatch):
     monkeypatch.setattr(chordseat, "bar_rows", lambda _: [[1, 2], [3, 4], [5, 6]])
     monkeypatch.setattr(chordseat, "rows_of", lambda _: [[(0, True)], [(1, True)], [(0, True)]])

@@ -10,7 +10,7 @@ import xml.etree.ElementTree as ET
 import zipfile
 from fractions import Fraction as F
 
-from muse import chordnames, scorefile
+from muse import chordnames, launch, scorefile
 from muse.musicxml import chord_onsets, times
 from muse.pdfcheck import title_problems
 from muse.song import decode, song_of, sources
@@ -101,7 +101,7 @@ def check(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> list[str]
     final = out / info.score_file
     score = decode(src)
     xml = work / f"{song}-final.musicxml"
-    subprocess.run(["mscore", "-o", str(xml), str(final)], capture_output=True, check=True, timeout=240)
+    launch.mscore(["-o", str(xml), str(final)], 240, check=True)
     root = ET.parse(xml).getroot()
     problems = []
     parts = root.findall("part")

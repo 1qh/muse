@@ -2,10 +2,10 @@
 from __future__ import annotations
 
 import pathlib
-import subprocess
 import sys
 import xml.etree.ElementTree as ET
 
+from muse import launch
 from muse.model import Bar, Score
 from muse.song import decode, song_of, sources
 from muse.verify import midi
@@ -62,7 +62,7 @@ def check(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> tuple[int
     song, semis = info.name, 0
     final = out / info.score_file
     mscx = work / f"{song}-unrolled.mscx"
-    subprocess.run(["mscore", "--unroll-repeats", "-o", str(mscx), str(final)], capture_output=True, check=True, timeout=240)
+    launch.mscore(["--unroll-repeats", "-o", str(mscx), str(final)], 240, check=True)
     root = ET.parse(mscx).getroot()
     staves = [st for st in root.iter("Staff") if st.find("Measure") is not None]
     played: list[list[int]] = []

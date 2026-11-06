@@ -141,3 +141,15 @@ def test_choose_packs_a_piano_sheet_into_the_fewest_lines_then_the_largest_notes
     found = [candidate(2.0, lines=30), candidate(1.6, lines=22), candidate(1.5, lines=20), candidate(1.4, lines=20)]
     assert layout.choose(found, port.PIANO)[0] == 1.5
     assert layout.choose([candidate(1.5, lines=20, share=0.4), candidate(1.8, lines=24)], port.PIANO)[0] == 1.8  # short lines still bound a piano sheet
+
+
+def test_every_size_of_a_sheet_shares_1_import(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    score = Score([noted(1)], [], [])
+    monkeypatch.setattr(layout, "decode", lambda src: score)
+    monkeypatch.setattr(layout, "song_of", lambda src, decoded=None: types.SimpleNamespace(title="T", name="Song"))
+    monkeypatch.setattr(layout.port, "transpose_options", lambda info: None)
+    styles = []
+    monkeypatch.setattr(layout.port, "imported", lambda decoded, work, name, style, clear: styles.append(style.read_text()) or work / "import.mscz")
+    for size in (1.3, 1.8):
+        layout.Sheet(tmp_path / "Song-Em.pdf", tmp_path, port.ORIGINAL, size).imported()
+    assert len(styles) == 2 and styles[0] == styles[1]

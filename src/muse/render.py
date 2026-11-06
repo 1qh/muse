@@ -11,6 +11,8 @@ import time
 from collections.abc import Iterator
 from typing import Any
 
+from muse import launch
+
 JOB_SECONDS = 900
 
 
@@ -88,7 +90,7 @@ class Batcher:
             json.dump([item["entry"] for item in batch], handle)
             job = pathlib.Path(handle.name)
         try:
-            done = subprocess.run([self.command, "-j", str(job)], capture_output=True, text=True, timeout=JOB_SECONDS, stdin=subprocess.DEVNULL, check=False)
+            done = launch.mscore(["-j", str(job)], JOB_SECONDS, self.command)
             note = done.stderr[-300:]
         except subprocess.TimeoutExpired:
             note = f"job of {len(batch)} renders passed {JOB_SECONDS} seconds"

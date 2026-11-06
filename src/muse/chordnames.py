@@ -5,9 +5,10 @@ import json
 import pathlib
 import re
 import struct
-import subprocess
 import zipfile
 from collections.abc import Callable
+
+from muse import launch
 
 SHORT = {
     "maj7": "^7",
@@ -28,6 +29,7 @@ SHORT = {
     "m7(add4)": "m7add4",
 }
 LEGACY_SPELLING = {"0": "07"}  # a bare half-diminished does not parse in MuseScore 3
+CHECK_SECONDS = 240  # 1 playback check run
 # pitch classes on a root of A, each proved against the long form in both programs
 PLAYS = {
     "^7": [1, 4, 8, 9],
@@ -200,4 +202,5 @@ def transposes(command: str, style: pathlib.Path, work: pathlib.Path, run: Runne
 
 
 def checked_run(arguments: list[str]) -> None:
-    subprocess.run(arguments, capture_output=True, check=True, timeout=240, stdin=subprocess.DEVNULL)
+    """1 MuseScore run through the shared launch slots; a failed run raises."""
+    launch.heavy(arguments, CHECK_SECONDS, check=True)

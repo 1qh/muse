@@ -84,3 +84,12 @@ def test_songs_build_in_the_owners_priority_order_then_by_name(tmp_path, monkeyp
     monkeypatch.setattr(build, "song_of", lambda src: types.SimpleNamespace(name=src.stem.split("-")[0]))
     sources = [pathlib.Path(f"{name}-Em.pdf") for name in ("Alpha", "Beta", "Gamma", "Zeta")]
     assert [src.stem.split("-")[0] for src in build.ordered(sources)] == ["Zeta", "Beta", "Alpha", "Gamma"]
+
+
+def test_a_build_gives_each_song_worker_its_share_of_launch_slots(monkeypatch) -> None:
+    from muse import launch
+
+    monkeypatch.setenv(launch.SLOTS_VARIABLE, "3")
+    assert launch.slots() == 3
+    monkeypatch.delenv(launch.SLOTS_VARIABLE)
+    assert launch.slots() >= 1

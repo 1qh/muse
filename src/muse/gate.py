@@ -7,7 +7,6 @@ import json
 import os
 import pathlib
 import shutil
-import subprocess
 import sys
 import time
 import xml.etree.ElementTree as ET
@@ -16,13 +15,14 @@ from functools import partial
 
 import pymupdf
 
-from muse import buildcache, chordnames, chordseat, inverse, navigate, pdfcheck, piano, port, scorefile, verify
+from muse import buildcache, chordnames, chordseat, inverse, launch, navigate, pdfcheck, piano, port, scorefile, verify
 from muse.model import Score
 from muse.song import Song, decode, song_of, sources
 
 A4 = (595.0, 842.0)
 A4_TOLERANCE = 1.5
 EDGE = 8.0  # points of clear paper on every side
+HOMR_SECONDS = 1500  # 1 page through the optical cross-check, counted from when its slot frees
 MIN_TIED_CHAIN = 4  # a tied run of this many bars may not fit 1 line
 MIN_HOMR_AGREEMENT = 0.6  # below this the independent reading has stopped agreeing about the song
 LOW_DPI = 72
@@ -32,8 +32,8 @@ WITHHELD = "withheld.json"
 def legacy_staff_problems(legacy: pathlib.Path, work: pathlib.Path, title: str) -> list[str]:
     """Render the file in MuseScore 3 itself and refuse an empty staff on a shared line."""
     pdf = work / f"{legacy.stem}-staves.pdf"
-    subprocess.run([port.legacy_command(), "-o", str(pdf), str(legacy)], capture_output=True, check=True, timeout=240, stdin=subprocess.DEVNULL)
-    subprocess.run([port.legacy_command(), "-o", str(pdf.with_suffix(".mpos")), str(legacy)], capture_output=True, check=True, timeout=240, stdin=subprocess.DEVNULL)
+    launch.mscore(["-o", str(pdf), str(legacy)], port.LAUNCH_SECONDS, port.legacy_command(), check=True)
+    launch.mscore(["-o", str(pdf.with_suffix(".mpos")), str(legacy)], port.LAUNCH_SECONDS, port.legacy_command(), check=True)
     return chordseat.problems(legacy, pdf, chordseat.LEGACY_REACH) + pdfcheck.bass_problems(pdf) + pdfcheck.empty_staves(pdf) + [f"text on text: {c[2]}" for c in pdfcheck.text_collisions(pdf)] + pdfcheck.title_problems(pdf, title)
 
 
@@ -121,7 +121,7 @@ def homr_reading(src: pathlib.Path, page_no: int, work: pathlib.Path, command: s
     result = image.with_suffix(".musicxml")
     if not result.exists():
         pymupdf.open(src)[page_no].get_pixmap(dpi=300).save(image)
-        subprocess.run([command, image.name], cwd=folder, capture_output=True, check=True, timeout=1500, stdin=subprocess.DEVNULL)
+        launch.heavy([command, image.name], HOMR_SECONDS, check=True, cwd=folder)
     return result
 
 

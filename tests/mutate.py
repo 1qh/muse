@@ -11,6 +11,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 CONTROL_WORKERS = 8
 CONTROL_SECONDS = 180
 MUTATIONS = [
+    ("layout.py", "return port.imported(self.score, self.work, self.name, self.import_style, False)", "return port.imported(self.score, self.work, self.name, self.style, False)", "1 import per size"),
     ("extension/main.js", "        placed[item.key].push({ x0: item.x0, x1: item.x1, top: top })\n", "\n", "raised texts overprint"),
     ("port.py", "    for page_no, y, _ in pdfcheck.past_margin(pdf):", "    for page_no, y, _ in [*pdfcheck.past_margin(pdf), *pdfcheck.text_collisions(pdf)]:", "text overlap replans"),
     ("extension/main.js", "    raiseText(all)\n", "\n", "cue left in the chord row"),
@@ -96,7 +97,6 @@ MUTATIONS = [
     ("port.py", "or previous.final or piano.label_of(bar))", "or previous.final)", "label starts a line"),
     ("gate.py", 'for bar in sorted(labels - opening - tied_in - after_mark)]', 'for bar in []]', "label inside a line"),
     ("chordseat.py", "if numbers and numbers[0] != 1 and not (chords and chords[0][0] == 0):", "if False:", "chordless start found"),
-    ("port.py", 'if SEARCH_CAP["at"] and LAUNCHES["count"] >= SEARCH_CAP["at"]:', "if False:", "launch cap"),
     ("chordseat.py", "units = MPOS_UNITS if extent > LEGACY_EXTENT else LEGACY_MPOS_UNITS", "units = MPOS_UNITS", "position units"),
     ("chordseat.py", "return any(abs(x - left) < STEM_REACH or abs(x - right) < STEM_REACH for left, right in heads)", "return False", "stem as barline"),
     ("chordseat.py", "        if not is_signature(glyph[3]):\n            break\n", "        if not is_signature(glyph[3]):\n            continue\n", "signature run"),

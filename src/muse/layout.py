@@ -8,14 +8,13 @@ import os
 import pathlib
 import re
 import shutil
-import subprocess
 import xml.etree.ElementTree as ET
 import zipfile
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from muse import chordseat, pdfcheck, pdftext, piano, port
+from muse import chordseat, launch, pdfcheck, pdftext, piano, port
 from muse.model import Score
 from muse.render import BATCHER
 from muse.song import decode, song_of
@@ -23,6 +22,7 @@ from muse.song import decode, song_of
 LINE_SHARE = 0.93  # of a line's width a plan fills; the rest is the clef and key each line carries
 WIDE_PAGE = 200.0  # inches: wide enough that a whole song prints on 1 line at its natural width
 REPLAN_ROUNDS = 8
+IMPORT_SIZE = 1.5  # the staff space the shared import is made at; each size sets its own on an edited copy
 LONE_COST = 1.0  # a lone bar outweighs any evenness gained by it
 SHORT_COST = 0.15  # a 2-bar line is allowed, but a fuller arrangement of as many lines wins
 LONE_FILL = 0.5  # of a line a single bar must fill to stand alone without cost
@@ -65,8 +65,7 @@ def install_extension() -> str:
 def run_extension(source: pathlib.Path, target: pathlib.Path) -> None:
     """1 MuseScore launch: open the score, seat its chords by measuring its own layout, save it."""
     uri = install_extension()
-    port.LAUNCHES["count"] += 1
-    done = subprocess.run(["mscore", "--extension", uri, "-o", str(target), str(source)], capture_output=True, text=True, timeout=EXTENSION_SECONDS, stdin=subprocess.DEVNULL, check=False)
+    done = launch.mscore(["--extension", uri, "-o", str(target), str(source)], EXTENSION_SECONDS)
     if done.returncode or not target.exists():
         raise port.DoesNotFit(f"{source.name}: the seating extension failed: {done.stderr[-300:]}")
 
@@ -111,6 +110,7 @@ class Sheet:
     title: str = field(init=False)
     options: dict[str, Any] | None = field(init=False)
     style: pathlib.Path = field(init=False)
+    import_style: pathlib.Path = field(init=False)
     name: str = field(init=False)
 
     def __post_init__(self) -> None:
@@ -123,12 +123,13 @@ class Sheet:
         self.options = None if self.variant == port.ORIGINAL else port.transpose_options(info)
         self.name = f"{info.name}-{self.variant}"
         self.style = port.styled(self.work, f"{self.name}-{self.size:g}.mss", info.title, self.size, self.distance)
+        self.import_style = port.styled(self.work, f"{self.name}-import.mss", info.title, IMPORT_SIZE, self.distance)  # every size edits 1 shared import
 
     def path(self, label: str) -> pathlib.Path:
         return self.work / f"{self.name}-{self.size:g}-{label}.mscz"
 
     def imported(self) -> pathlib.Path:
-        return port.imported(self.score, self.work, self.name, self.style, False)
+        return port.imported(self.score, self.work, self.name, self.import_style, False)
 
     def starts(self) -> list[int]:
         """1-based bars that open a line."""
