@@ -158,7 +158,7 @@ def test_every_size_of_a_sheet_shares_1_import(tmp_path: pathlib.Path, monkeypat
 def test_finish_widens_the_line_gap_while_text_meets_text(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
     tried = []
 
-    def finish_at(src: object, work: object, variant: object, size: float, distance: float) -> tuple[object, ...]:
+    def finish_at(src: object, work: object, variant: object, size: float, distance: float, learned: object = None) -> tuple[object, ...]:
         tried.append(distance)
         if len(tried) < 3:
             raise port.DoesNotFit("s at 2.0: ['text on text: B']")
@@ -190,3 +190,19 @@ def test_plan_breaks_a_soft_rule_rather_than_overflow_a_line() -> None:
 def test_plan_never_strands_a_bar_its_grown_estimate_makes_wide() -> None:
     score = Score([noted(n) for n in range(1, 6)], [], [])
     assert 1 not in lines(layout.plan(score, [55.0, 20.0, 20.0, 20.0, 20.0], ROOM), 5)  # the wide first bar still takes a neighbour
+
+
+def test_every_line_gap_retry_starts_from_the_widths_the_last_one_learned(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
+    seen: list[object] = []
+
+    def finish_at(src: object, work: object, variant: object, size: float, distance: float, learned: list[list[float]] | None = None) -> tuple[object, ...]:
+        seen.append(learned)
+        assert learned is not None
+        learned.append([float(len(seen))])
+        if len(seen) < 3:
+            raise port.DoesNotFit("s at 2.0: ['text on text: B']")
+        return ("score", "path", size, distance, 1)
+
+    monkeypatch.setattr(layout, "finish_at", finish_at)
+    layout.finish(tmp_path, tmp_path, port.ORIGINAL, 2.0)  # type: ignore[arg-type]
+    assert len(seen) == 3 and all(record is seen[0] for record in seen)
