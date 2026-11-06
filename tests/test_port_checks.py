@@ -17,6 +17,7 @@ def blank_pdf(path, pages=2):
 def test_a_fault_on_a_page_with_no_bar_number_lands_on_the_last_numbered_line(tmp_path, monkeypatch):
     pdf = blank_pdf(tmp_path / "p.pdf")
     monkeypatch.setattr(pdfcheck, "chord_collisions", lambda _: [(1, 100.0, "x")])
+    monkeypatch.setattr(pdfcheck, "sign_chord_hits", lambda _: [])
     monkeypatch.setattr(pdfcheck, "past_margin", lambda _: [])
     monkeypatch.setattr(pdfcheck, "text_collisions", lambda _: [])
     assert port.crowded_rows(pdf, [1]) == {1}
@@ -25,6 +26,7 @@ def test_a_fault_on_a_page_with_no_bar_number_lands_on_the_last_numbered_line(tm
 def test_text_on_text_is_never_a_width_fault(tmp_path, monkeypatch):
     pdf = blank_pdf(tmp_path / "p.pdf")
     monkeypatch.setattr(pdfcheck, "chord_collisions", lambda _: [])
+    monkeypatch.setattr(pdfcheck, "sign_chord_hits", lambda _: [])
     monkeypatch.setattr(pdfcheck, "past_margin", lambda _: [])
     monkeypatch.setattr(pdfcheck, "text_collisions", lambda _: [(0, 100.0, "x")])
     assert port.crowded_rows(pdf, [1]) == set()
@@ -33,6 +35,7 @@ def test_text_on_text_is_never_a_width_fault(tmp_path, monkeypatch):
 def test_a_margin_fault_on_a_page_with_no_bar_number_lands_on_the_last_numbered_line(tmp_path, monkeypatch):
     pdf = blank_pdf(tmp_path / "p.pdf")
     monkeypatch.setattr(pdfcheck, "chord_collisions", lambda _: [])
+    monkeypatch.setattr(pdfcheck, "sign_chord_hits", lambda _: [])
     monkeypatch.setattr(pdfcheck, "past_margin", lambda _: [(1, 100.0, "x")])
     monkeypatch.setattr(pdfcheck, "text_collisions", lambda _: [])
     assert port.crowded_rows(pdf, [1]) == {1}
@@ -150,3 +153,11 @@ def test_a_pdf_is_parsed_once_until_it_changes(tmp_path):
     doc.new_page().insert_text((50, 50), "Dm7", fontsize=12)
     doc.save(path)
     assert "Dm7" in pdftext.open(path)[0].get_text("text")
+
+
+def test_a_sign_over_a_chord_marks_its_line_for_a_wider_plan(tmp_path, monkeypatch):
+    pdf = blank_pdf(tmp_path / "p.pdf")
+    monkeypatch.setattr(pdfcheck, "chord_collisions", lambda _: [])
+    monkeypatch.setattr(pdfcheck, "past_margin", lambda _: [])
+    monkeypatch.setattr(pdfcheck, "sign_chord_hits", lambda _: [(1, 100.0, "sign covers a chord")])
+    assert port.crowded_rows(pdf, [1]) == {1}

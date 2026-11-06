@@ -188,6 +188,11 @@ def sign_problems(path: pathlib.Path) -> list[str]:
 
 def sign_on_chord(path: pathlib.Path) -> list[str]:
     """A segno or coda on the baseline of the chord beside it, its ink running into the chord's first letter."""
+    return [f"p{page + 1}: {what}" for page, _, what in sign_chord_hits(path)]
+
+
+def sign_chord_hits(path: pathlib.Path) -> list[tuple[int, float, str]]:
+    """Each sign touching or covering a chord: page, height, what; the height lets a layout find the line."""
     found = []
     for number, page in enumerate(pdftext.open(path), 1):
         signs, chars, sign_boxes = [], [], []
@@ -202,9 +207,9 @@ def sign_on_chord(path: pathlib.Path) -> list[str]:
                             chars.append((ch, span["size"]))
         top = chordseat.chord_size(path)
         boxes = [(ch["bbox"][0], ch["bbox"][2], ch["origin"][1]) for ch, size in chars if abs(size - top) < 0.05]
-        found += [f"p{number}: sign touches a chord" for (x, y), size in signs if sign_touches(x, y, size, top, boxes)]
+        found += [(number - 1, y, "sign touches a chord") for (x, y), size in signs if sign_touches(x, y, size, top, boxes)]
         letters = [ch["bbox"] for ch, size in chars if abs(size - top) < 0.05]
-        found += [f"p{number}: sign covers a chord" for box in sign_boxes if any(overlap(box, letter) > COVER_SLACK for letter in letters)]
+        found += [(number - 1, box[3], "sign covers a chord") for box in sign_boxes if any(overlap(box, letter) > COVER_SLACK for letter in letters)]
     return found
 
 
