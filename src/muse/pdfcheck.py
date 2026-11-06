@@ -252,7 +252,8 @@ def chord_seating(path: pathlib.Path) -> list[tuple[int, float, float, str]]:
             bars = [r.x0 for r in drawings if r.width < 3 and abs(r.y0 - staff[0]) < 1 and abs(r.y1 - staff[4]) < 1]
             overhang = max((bar - left for bar in bars if left < bar < right), default=0.0)
             noted = any(staff[0] - STAFF_REACH <= y <= staff[4] + STAFF_REACH for _, y in heads)
-            found.append((number - 1, overhang, -1.0 if noted else (staff[0] - base) / gap, text))
+            floor = min((r.y0 for r in drawings if base < r.y0 < staff[0] - 0.5), default=staff[0])  # a bracket or hairpin under the chord row lifts the line's 1 shared chord baseline by right
+            found.append((number - 1, overhang, -1.0 if noted else (floor - base) / gap, text))
     return found
 
 
