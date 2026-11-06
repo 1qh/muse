@@ -331,7 +331,7 @@ def seat_inked(score_path: pathlib.Path, rendered: Callable[[], pathlib.Path], h
     for _ in range(INK_ROUNDS):
         tags = {"museChordGap": f"{CLEAR_SPACES:.4f}", "museInkBias": ",".join(f"{b:.4f}" for b in bias), "museInkWidth": ",".join(f"{w:.4f}" for w in inks)}
         if out is not None:  # the extension writes this round's PDF and positions in its own launch
-            tags["museOut"] = str(out)
+            tags["museOut"] = str(out.with_suffix(""))  # the extension adds .pdf and .mpos
             for suffix in (".pdf", ".mpos"):
                 out.with_suffix(suffix).unlink(missing_ok=True)
         set_tags(score_path, tags)
@@ -339,7 +339,7 @@ def seat_inked(score_path: pathlib.Path, rendered: Callable[[], pathlib.Path], h
         failed = read_tag(score_path, "museSeatError")
         if failed.startswith("could not write"):
             raise port.DoesNotFit(f"{score_path.name}: {failed}")
-        probe = out.with_suffix(".pdf") if out is not None else rendered()
+        probe = out if out is not None else rendered()
         if not holds(probe):
             return probe  # widening wrapped a line; the caller plans again
         _, text = chordseat.score_text(score_path)
@@ -356,7 +356,7 @@ def seat_inked(score_path: pathlib.Path, rendered: Callable[[], pathlib.Path], h
 
 def seat(sheet: Sheet, score_path: pathlib.Path) -> pathlib.Path:
     """A sheet's final score seated in place, each round rendered inside the extension's launch, then rendered once by itself so the checks judge exactly what the saved score prints."""
-    rounds = score_path.with_name(score_path.stem + "-round")
+    rounds = score_path.with_name(score_path.stem + "-round.pdf")  # a real suffix: a size such as 1.95 in the name must never read as one
     seat_inked(score_path, lambda: render(sheet, "final", seated=True)[1], lambda probe: sheet.starts() == sorted({1, *port.system_starts(probe)}), rounds)
     return render(sheet, "final", seated=True)[1]
 

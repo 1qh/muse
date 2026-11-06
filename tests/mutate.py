@@ -142,7 +142,7 @@ MUTATIONS = [
     ("navigate.py", 'if bar.volta == "1" and second_time:', "if False:", "volta order"),
     ("navigate.py", "after_jump = False  # a repeat", "after_jump = True  # a repeat", "coda repeat"),
     ("pdfcheck.py", "y1 > height * BOTTOM_BAND", "y1 > height * 2", "margin band"),
-    ("pdfcheck.py", "MIN_CHORD_GAP = 0.75", "MIN_CHORD_GAP = 0.0", "chord gap"),
+    ("chordseat.py", "CHORD_GAP = mode.pick(0.75, 0.5)", "CHORD_GAP = mode.pick(0.0, 0.0)", "chord gap"),
     ("pdfcheck.py", "if len(hits) != 1:", "if len(hits) > 99:", "title"),
     ("pdfcheck.py", 'if not name.startswith(MUSIC_FONTS + ("SFPro", "SF-Pro", "SF Pro"))', "if False", "font"),
     ("pdfcheck.py", "and not CHORD.fullmatch(text)", "and False", "chord biggest"),

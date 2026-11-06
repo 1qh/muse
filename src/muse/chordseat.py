@@ -27,7 +27,6 @@ STEM_REACH = 1.0
 HEAD_CODES = (0xE0A0, 0xE0FF)
 INK_REACH = 0.8  # points a letter's ink can start left of its text box; further left is a neighbour
 SIGN_INK_WIDTH = 0.75  # the printed part of a segno or coda, in sign font sizes
-SIGN_REACH = 0.5  # of the chord size: a sign this near the chord baseline shares its row
 EQUAL_TOLERANCE = mode.pick(1.5, 4.0)  # points an empty bar may differ from its line's mean
 CHORD_GAP = mode.pick(0.75, 0.5)  # clear space between 2 chords, in chord sizes
 MIN_STAFF_WIDTH = 60.0  # a short last line is left unfilled, and is still a staff
@@ -197,9 +196,8 @@ def page_lines(pdf: pathlib.Path) -> list[dict[str, Any]]:
             heads = [(g[0], g[2]) for g in near if HEAD_CODES[0] <= g[3] <= HEAD_CODES[1]]
             # a repeat sign opening the line stands right after the signatures
             start = max([start, *(r.x1 for r in shapes if r.width < 3 and abs(r.y0 - staff_top) < 1 and r.y1 >= bottom - 1 and start <= r.x0 < start + OPENING_REPEAT_REACH and not is_stem(r.x0, heads))])
-            base = mine[0][3]
             # a sign printed on the chord row takes the place right after the clef, so the chord follows it
-            start = max([start, *(end for end, y in signs_here if abs(y - base) < top * SIGN_REACH and end < start + top * 2)])
+            start = max([start, *(end for end, y in signs_here if above + space * 4 < y <= staff_top + 1 and end < start + top * 2)])  # any sign in this line's own band, as the extension judges it
             lines.append({"chords": joined, "bars": bars, "start": start, "space": space, "rights": rights, "lefts": lefts, "size": top})
     return lines
 
