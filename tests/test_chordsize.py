@@ -51,3 +51,15 @@ def test_text_past_any_page_edge_is_found(tmp_path: pathlib.Path) -> None:
     path = tmp_path / "e.pdf"
     document.save(path)
     assert [word for _, _, word in pdfcheck.off_page(path)] == ["off the page: Tempo"]
+
+
+def test_a_triplet_number_low_on_a_page_is_no_page_number(tmp_path: pathlib.Path) -> None:
+    from muse import pdfcheck
+
+    document = pymupdf.open()
+    for _ in range(3):
+        document.new_page()
+    document[2].insert_text((206, 795), "3", fontsize=10.3, fontname="helv")
+    path = tmp_path / "f.pdf"
+    document.save(path)
+    assert pdfcheck.margin_words(path) == ["p3:3"]  # an upright 3 there reads as a page number
