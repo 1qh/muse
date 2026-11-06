@@ -117,6 +117,8 @@ function lift(all) {
 
 var GAP = 0.5  // spaces between a line's chords and the highest thing below them
 
+var TEXT_SLACK = 1.0  // spaces of room text placement keeps: it reads positions inside the launch, which differ a little from what prints
+
 var CLEAR = 0  // spaces of clear gap between 2 chords, passed by the caller
 
 var BIAS = []
@@ -344,16 +346,16 @@ function raiseText(all) {
         var item = texts[k]
         var row = placed[item.key] || []
         var ceiling = 1e9
-        for (var r = 0; r < row.length; r++) if (row[r].x0 < item.x1 && item.x0 < row[r].x1) ceiling = Math.min(ceiling, row[r].top)
-        if (ends[item.key] !== undefined && item.x1 > ends[item.key]) {  // a cue on a line's last bar runs past the margin: it ends at the line's end instead
-            var back = item.x1 - ends[item.key]
+        for (var r = 0; r < row.length; r++) if (row[r].x0 - TEXT_SLACK < item.x1 && item.x0 < row[r].x1 + TEXT_SLACK) ceiling = Math.min(ceiling, row[r].top)
+        if (ends[item.key] !== undefined && item.x1 > ends[item.key] - TEXT_SLACK) {  // a cue on a line's last bar runs past the margin: it ends inside the line's end instead
+            var back = item.x1 - (ends[item.key] - TEXT_SLACK)
             item.text.offsetX = item.text.offsetX - back
             item.x0 -= back
             item.x1 -= back
         }
         var top = item.top
-        if (ceiling < 1e9 && item.top + item.height > ceiling - GAP) {
-            var rise = item.top + item.height - (ceiling - GAP)
+        if (ceiling < 1e9 && item.top + item.height > ceiling - GAP - TEXT_SLACK) {
+            var rise = item.top + item.height - (ceiling - GAP - TEXT_SLACK)
             item.text.offsetY = item.text.offsetY - rise  // placement stays automatic: MuseScore stacks texts and makes room above the line
             top = item.top - rise
         }
