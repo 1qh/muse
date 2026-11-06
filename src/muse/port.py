@@ -434,11 +434,7 @@ def transpose_options(song: Song) -> dict[str, Any] | None:
 
 def export_view(options: dict[str, Any] | None, base: pathlib.Path, target: pathlib.Path, positions: bool = True) -> None:
     """Export a score, in the sheet's tone when it has its own: chord names, and so their widths, differ by key."""
-    for out in (target, target.with_suffix(".mpos")) if positions else (target,):  # the positions are the program's own record of this same layout
-        if options:
-            run("-o", str(out), "--transpose", json.dumps(options), str(base))
-        else:
-            run("-o", str(out), str(base))
+    BATCHER.render(base, [target, target.with_suffix(".mpos")] if positions else [target], options)  # the positions are the program's own record of this same layout
 
 
 def borrowings(lines: list[list[int]], fixed: set[int]) -> list[tuple[int]]:
@@ -574,9 +570,8 @@ def lay_out(src: pathlib.Path, work: pathlib.Path, spatium: float, distance: flo
         piano.reduce(score)
     lift_idle_cues(score)
     options = None if variant == ORIGINAL else transpose_options(info)
-    song = f"{info.name}-{variant}" if seated else f"{info.name}-{variant}-{spatium:g}-{distance:g}"  # a search trial owns its files, so trials run side by side
+    song = f"{info.name}-{variant}-{spatium:g}-{distance:g}{'' if seated else '-trial'}"  # every layout owns its files, so layouts run side by side
     style = styled(work, f"{song}.mss", info.title, spatium, distance)
-    xml = work / f"{song}.musicxml"
     base = work / f"{song}.mscz"
     probe = work / f"{song}-layout.pdf"
     starts = set(opening_lines(score, variant, spatium)) if lines is None else set(lines)
@@ -589,16 +584,8 @@ def lay_out(src: pathlib.Path, work: pathlib.Path, spatium: float, distance: flo
     clearing = {"signs": False}
 
     def build() -> None:
-        if not seated:  # a search trial edits 1 import and renders in the shared job
-            edited(imported(score, work, f"{info.name}-{variant}", style, clearing["signs"]), base, spatium, distance, score)
-            BATCHER.render(base, [probe, probe.with_suffix(".mpos")], options)
-            return
-        xml.write_text(musicxml.write(score), encoding="utf-8")
-        run("-S", str(style), "-o", str(base), str(xml))
-        strip_title_frame(base)
-        real_jumps(base, clearing["signs"])
-        big_signs(base)
-        export_view(options, base, probe, seated)
+        edited(imported(score, work, f"{info.name}-{variant}", style, clearing["signs"]), base, spatium, distance, score)  # every layout edits 1 import
+        export_view(options, base, probe)
         if seated:  # a search trial stops here: only the chosen layout pays to be measured
             noted = {bar.number for bar in score.bars if piano.has_notes(bar)}
             seat_chords(base, probe, lambda: export_view(options, base, probe), song, noted)
@@ -841,10 +828,10 @@ def finish(src: pathlib.Path, work: pathlib.Path, variant: str, limit: int, spat
 
 
 def finish_within_cap(src: pathlib.Path, work: pathlib.Path, variant: str, limit: int, spatium: float, distance: float) -> tuple[Score, pathlib.Path, float, float, int] | None:
-    for step in range(FINAL_STEPS):
-        size = round(spatium - step * SIZE_STEP, 2)
-        if size < SIZE_FLOORS[-1]:
-            break
+    """The chosen size and the few below it seated side by side; the largest that passes in full wins."""
+    sizes = [size for size in (round(spatium - step * SIZE_STEP, 2) for step in range(FINAL_STEPS)) if size >= SIZE_FLOORS[-1]]
+
+    def one(size: float) -> tuple[Score, pathlib.Path, float, float, int] | None:
         for start_gap in sorted({distance, MIDDLE_DISTANCE, TIGHT_DISTANCE}, reverse=True):  # a tighter line gap keeps the bigger notation
             if start_gap > distance:
                 continue
@@ -855,12 +842,17 @@ def finish_within_cap(src: pathlib.Path, work: pathlib.Path, variant: str, limit
             gaps = [start_gap * 2, start_gap * 1.5, start_gap]  # the line gap changes height alone, so the lines hold at every gap
             widened = held_lines(src, work, variant, limit, size, gaps, lines)
             for gap in [g for g in gaps if widened[g]]:
-                try:
-                    score, base, probe = lay_out(src, work, size, gap, limit, variant, lines)
-                except DoesNotFit:
-                    continue
+                with BATCHER.worker():
+                    try:
+                        score, base, probe = lay_out(src, work, size, gap, limit, variant, lines)
+                    except DoesNotFit:
+                        continue
                 return score, base, size, gap, len(pdftext.open(probe))
-    return None
+        return None
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(sizes)) as pool:
+        done = [found for found in pool.map(one, sizes) if found is not None]
+    return max(done, key=lambda found: found[2]) if done else None
 
 
 def held_lines(src: pathlib.Path, work: pathlib.Path, variant: str, limit: int, size: float, gaps: list[float], lines: list[int]) -> dict[float, bool]:
@@ -1018,7 +1010,7 @@ def port(src: pathlib.Path, out_dir: pathlib.Path, work: pathlib.Path) -> dict[s
     if not ready:
         found = sheet(src, work, ORIGINAL, (MAX_PAGES,), old(ORIGINAL))
         (out_dir / info.score_file).write_bytes(found[1].read_bytes())
-        shutil.copyfile(work / f"{info.name}-{ORIGINAL}-layout.pdf", out_dir / info.original_pdf)
+        shutil.copyfile(found[1].with_name(found[1].stem + "-layout.pdf"), out_dir / info.original_pdf)
         if LEGACY_FILES:
             # the legacy file reads the original tone's MusicXML, so it is built before anything overwrites it
             build_legacy(src, work, out_dir / info.legacy_file, found[2], found[3], info)
@@ -1034,18 +1026,20 @@ def port(src: pathlib.Path, out_dir: pathlib.Path, work: pathlib.Path) -> dict[s
             (out_dir / info.legacy_file).unlink(missing_ok=True)
         keep(ORIGINAL, key, outputs, found)
     if info.direction:
-        outputs = [out_dir / info.tone_pdf]
+        tone_score = work / f"{info.name}-{TONE}.mscz"  # the gate reads the tone sheet's own score
+        outputs = [out_dir / info.tone_pdf, tone_score]
         key, ready = current(TONE, shared, outputs)
         if not ready:
             found = sheet(src, work, TONE, (MAX_PAGES,), old(TONE))
-            shutil.copyfile(work / f"{info.name}-{TONE}-layout.pdf", out_dir / info.tone_pdf)
+            shutil.copyfile(found[1].with_name(found[1].stem + "-layout.pdf"), out_dir / info.tone_pdf)
+            shutil.copyfile(found[1], tone_score)
             keep(TONE, key, outputs, found)
     final = work / f"{info.name}-piano-final.mscz"
     outputs = [out_dir / info.piano_pdf, final]
     key, ready = current(PIANO, every, outputs)
     if not ready:
         found = sheet(src, work, PIANO, (1, MAX_PAGES), old(PIANO))
-        shutil.copyfile(work / f"{info.name}-{PIANO}-layout.pdf", out_dir / info.piano_pdf)
+        shutil.copyfile(found[1].with_name(found[1].stem + "-layout.pdf"), out_dir / info.piano_pdf)
         final.write_bytes(found[1].read_bytes())
         keep(PIANO, key, outputs, found)
     found_parts = piano.parts(decode(src))
