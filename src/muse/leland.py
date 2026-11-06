@@ -238,9 +238,10 @@ class Staff:
         self.glyphs = [g for g in self.all if min(middles, key=lambda m: abs(m - g[2])) == self.middle and abs(g[2] - self.middle) < STAFF_REACH]
 
     def follows(self, above: Staff) -> bool:
-        """A second staff of 1 system: its bar lines fall where the staff above has them."""
+        """A second staff of 1 system: every bar line it has falls on 1 of the staff above, and the 2 end together; it may start later."""
         mine, theirs = self.cols[1:-1], above.cols[1:-1]
-        return bool(mine) and len(mine) == len(theirs) and all(abs(a - b) < 1.5 for a, b in zip(mine, theirs, strict=True))
+        same_end = abs(self.right - above.right) < 1.5
+        return bool(mine) and same_end and all(any(abs(a - b) < 1.5 for b in theirs) for a in mine)  # a part entering later starts its staff later, on the same barlines
 
 
 def staff_tops(ys: list[float]) -> list[float]:
@@ -268,12 +269,14 @@ def decode(path: str) -> Score:
     all_ties: list[Any] = []
     for page_number, page in enumerate(doc):
         glyphs, spans = glyphs_and_text(page)
-        lines, stems, heavy, beams, boxes, walls = [], [], [], [], [], []
+        lines, rules, stems, heavy, beams, boxes, walls = [], [], [], [], [], [], []
         for d in page.get_drawings():
             kinds = "".join(i[0] for i in d["items"])
             r = d["rect"]
             if kinds == "l":
                 a, b = d["items"][0][1], d["items"][0][2]
+                if abs(a.y - b.y) < 0.1:
+                    rules.append((a.y, min(a.x, b.x), max(a.x, b.x)))  # every horizontal stroke: a staff drawn 1 bar at a time has short pieces
                 if abs(a.y - b.y) < 0.1 and r.width > 100:
                     lines.append((a.y, min(a.x, b.x), max(a.x, b.x)))
                 elif abs(a.x - b.x) < 0.1 and d["width"] > 0.9:
@@ -296,7 +299,7 @@ def decode(path: str) -> Score:
                 boxes.append(r)
         ys = sorted({round(y, 1) for y, _, _ in lines})
         tops = staff_tops(ys)
-        staves = [Staff(top, ys[ys.index(top) + 4], glyphs, lines, heavy, walls) for top in tops]
+        staves = [Staff(top, ys[ys.index(top) + 4], glyphs, rules, heavy, walls) for top in tops]  # long strokes find a staff; every stroke at its height bounds it
         for staff in staves:
             staff.claim([other.middle for other in staves])
         groups: list[list[Staff]] = []
