@@ -9,8 +9,13 @@ import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 CONTROL_WORKERS = 8
-CONTROL_SECONDS = 180
+CONTROL_SECONDS = 240  # the fast suite; a control planted in code MuseScore runs gets HEAVY_SECONDS
+HEAVY_SECONDS = 1500
+HEAVY = ("extension/", "layout.py", "launch.py", "render.py")  # code only the MuseScore-driven tests exercise
 MUTATIONS = [
+    ("pdfcheck.py", 'if span["text"].strip() and (x0 < box.x0 or y0 < box.y0 or x1 > box.x1 or y1 > box.y1):', 'if span["text"].strip() and (x0 < box.x0 or x1 > box.x1):', "ink above the page passes"),
+    ("extension/main.js", "            item.text.offsetY = item.text.offsetY - rise  // placement", "            item.text.autoplace = false\n            item.text.offsetY = item.text.offsetY - rise  // placement", "raised text leaves no room"),
+    ("extension/main.js", 'if (out && !(writeScore(curScore, out + ".pdf", "pdf")', 'if (false && !(writeScore(curScore, out + ".pdf", "pdf")', "round not rendered in launch"),
     ("layout.py", "return port.imported(self.score, self.work, self.name, self.import_style, False)", "return port.imported(self.score, self.work, self.name, self.style, False)", "1 import per size"),
     ("extension/main.js", "        placed[item.key].push({ x0: item.x0, x1: item.x1, top: top })\n", "\n", "raised texts overprint"),
     ("port.py", "    for page_no, y, _ in pdfcheck.past_margin(pdf):", "    for page_no, y, _ in [*pdfcheck.past_margin(pdf), *pdfcheck.text_collisions(pdf)]:", "text overlap replans"),
@@ -163,11 +168,11 @@ MUTATIONS = [
 ]
 
 
-def run(src: pathlib.Path) -> int:
+def run(src: pathlib.Path, heavy: bool = False) -> int:
     env = dict(os.environ, PYTHONPATH=str(src))
-    args = [sys.executable, "-m", "pytest", "-q", "-x", "-p", "no:cacheprovider", "-o", f"pythonpath={src}", str(ROOT / "tests")]
+    args = [sys.executable, "-m", "pytest", "-q", "-x", "-p", "no:cacheprovider", "-o", f"pythonpath={src}", str(ROOT / "tests")] + ([] if heavy else ["-m", "not musescore"])
     try:
-        return subprocess.run(args, env=env, cwd=ROOT, capture_output=True, timeout=CONTROL_SECONDS).returncode
+        return subprocess.run(args, env=env, cwd=ROOT, capture_output=True, timeout=HEAVY_SECONDS if heavy else CONTROL_SECONDS).returncode
     except subprocess.TimeoutExpired:  # a planted bug that hangs the suite is a bug the suite noticed
         return 1
 
@@ -183,7 +188,7 @@ def control(mutation: tuple[str, str, str, str]) -> str:
         if old not in text:
             return f"{label}: ANCHOR MISSING"
         path.write_text(text.replace(old, new))
-        return f"{label}: {'red' if run(base) else 'SURVIVED'}"
+        return f"{label}: {'red' if run(base, name.startswith(HEAVY)) else 'SURVIVED'}"
 
 
 def main() -> None:
@@ -204,7 +209,7 @@ def main() -> None:
             env = dict(os.environ, PYTHONPATH=str(base))
             args = [sys.executable, "-m", "pytest", "-q", "-x", "-p", "no:cacheprovider", "-o", f"pythonpath={base}", str(ROOT / "tests")]
             try:
-                done = subprocess.run(args, env=env, cwd=ROOT, capture_output=True, text=True, timeout=CONTROL_SECONDS)
+                done = subprocess.run(args, env=env, cwd=ROOT, capture_output=True, text=True, timeout=HEAVY_SECONDS)
             except subprocess.TimeoutExpired:
                 raise SystemExit(f"baseline did not finish in {CONTROL_SECONDS} seconds") from None
             if done.returncode:

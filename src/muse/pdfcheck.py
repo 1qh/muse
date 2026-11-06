@@ -101,6 +101,20 @@ def title_problems(path: pathlib.Path, title: str) -> list[str]:
     return problems
 
 
+def off_page(path: pathlib.Path) -> list[tuple[int, float, str]]:
+    """Text or a music glyph reaching past any edge of the page: page, height, what it is."""
+    found = []
+    for number, page in enumerate(pdftext.open(path), 1):
+        box = page.rect
+        for block in page.get_text("dict")["blocks"]:
+            for line in block.get("lines", []):
+                for span in line["spans"]:
+                    x0, y0, x1, y1 = span["bbox"]
+                    if span["text"].strip() and (x0 < box.x0 or y0 < box.y0 or x1 > box.x1 or y1 > box.y1):
+                        found.append((number - 1, y0, f"off the page: {span['text'].strip()[:20]}"))
+    return found
+
+
 def past_margin(path: pathlib.Path) -> list[tuple[int, float, str]]:
     """Text running past the right margin: page, height, word."""
     found = []
@@ -112,7 +126,7 @@ def past_margin(path: pathlib.Path) -> list[tuple[int, float, str]]:
 
 
 def text_problems(path: pathlib.Path) -> list[str]:
-    return margin_words(path) + foreign_fonts(path) + oversized_text(path) + [c[2] for c in chord_collisions(path)] + [w[2] for w in past_margin(path)]
+    return margin_words(path) + foreign_fonts(path) + oversized_text(path) + [c[2] for c in chord_collisions(path)] + [w[2] for w in past_margin(path)] + [w[2] for w in off_page(path)]
 
 
 def sign_sizes(path: pathlib.Path) -> tuple[list[float], float]:

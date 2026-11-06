@@ -20,6 +20,7 @@ mypy_path = "src"
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
+markers = ["musescore: drives MuseScore itself; planted-bug controls run these only when they plant in code MuseScore runs"]
 pythonpath = ["src"]
 testpaths = ["tests"]
 

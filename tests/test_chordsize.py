@@ -39,3 +39,15 @@ def test_collisions_judge_chords_beside_a_larger_mark(tmp_path: pathlib.Path) ->
     path = tmp_path / "c.pdf"
     document.save(path)
     assert [root for _, _, root in pdfcheck.chord_collisions(path)] == ["A"]
+
+
+def test_text_past_any_page_edge_is_found(tmp_path: pathlib.Path) -> None:
+    from muse import pdfcheck
+
+    document = pymupdf.open()
+    page = document.new_page()
+    page.insert_text((40, 6), "Tempo", fontsize=12)  # its box rises above the top edge
+    page.insert_text((40, 300), "Fine", fontsize=12)
+    path = tmp_path / "e.pdf"
+    document.save(path)
+    assert [word for _, _, word in pdfcheck.off_page(path)] == ["off the page: Tempo"]

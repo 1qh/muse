@@ -9,7 +9,7 @@ from muse import chordseat, layout, pdfcheck, port
 from muse.model import Bar, Chord, Event, Head, Score
 from muse.render import BATCHER
 
-pytestmark = pytest.mark.skipif(shutil.which("mscore") is None, reason="MuseScore runs only where it is installed; CI installs it")
+pytestmark = [pytest.mark.musescore, pytest.mark.skipif(shutil.which("mscore") is None, reason="MuseScore runs only where it is installed; CI installs it")]
 
 
 def chord(root: str, kind: str = "") -> Chord:
@@ -151,3 +151,35 @@ def test_cues_sharing_a_place_stack_above_the_chords_and_never_overprint(tmp_pat
     layout.seat_inked(score_path, rendered, lambda probe: True)
     assert pdfcheck.text_collisions(pdf) == []
     assert pdfcheck.seating_problems(pdf) == []
+
+
+def test_a_round_renders_inside_the_extension_launch(tmp_path: pathlib.Path) -> None:
+    crowded = [chord("C", "maj7"), chord("D", "m7"), chord("E", "m7"), chord("F", "maj7")]
+    bars = [held(1, [chord("C")]), held(2, crowded), held(3, [chord("G")]), held(4, [chord("A", "m")])]
+    score_path = imported(tmp_path, bars, {1, 5})
+    out = tmp_path / "round"
+
+    def never() -> pathlib.Path:
+        raise AssertionError("a round rendered outside the extension")
+
+    probe = layout.seat_inked(score_path, never, lambda probe: True, out)
+    assert probe == out.with_suffix(".pdf") and out.with_suffix(".mpos").exists()
+    assert pdfcheck.chord_collisions(probe) == []
+
+
+def test_cues_over_the_first_line_stay_on_the_page(tmp_path: pathlib.Path) -> None:
+    from muse.model import Text
+
+    cues = [Text(10.0, -20.0, [(words, True, True)], True, "cue", 10.0) for words in ("PIANO ONLY", "Ballad", "BAND IN")]
+    bars = [resting(1, [chord("C", "maj7")], cues), resting(2, [chord("A", "m")])] + [resting(n, [chord("F")]) for n in range(3, 9)]
+    score_path = imported(tmp_path, bars, {1, 3, 5, 7})
+    pdf = score_path.with_suffix(".pdf")
+
+    def rendered() -> pathlib.Path:
+        BATCHER.render(score_path, [pdf, pdf.with_suffix(".mpos")], None)
+        return pdf
+
+    layout.seat_inked(score_path, rendered, lambda probe: True)
+    rendered()
+    assert pdfcheck.off_page(pdf) == []
+    assert pdfcheck.text_collisions(pdf) == []

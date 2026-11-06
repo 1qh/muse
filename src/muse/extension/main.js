@@ -276,10 +276,12 @@ function main() {
     curScore.setMetaTag("museSeatError", remaining.length ? "chords still crowd in " + remaining.length + " bars" : "")
     lift(all)
     raiseText(all)
+    var out = curScore.metaTag("museOut")
+    if (out && !(writeScore(curScore, out + ".pdf", "pdf") && writeScore(curScore, out + ".mpos", "mpos"))) curScore.setMetaTag("museSeatError", "could not write " + out)
 }
 
 function raiseText(all) {
-    // a line's cues, marks and tempi, in reading order, each placed above every chord and every text already placed over the same span: they stack and never overprint
+    // a line's cues, marks and tempi, in reading order, each started above every chord and every text already placed over the same span; automatic placement then stacks them and reserves their height
     var placed = {}
     for (var i = 0; i < all.length; i++) {
         var c = all[i].chord
@@ -308,8 +310,7 @@ function raiseText(all) {
         var top = item.top
         if (ceiling < 1e9 && item.top + item.height > ceiling - GAP) {
             var rise = item.top + item.height - (ceiling - GAP)
-            item.text.autoplace = false
-            item.text.offsetY = item.text.offsetY - rise
+            item.text.offsetY = item.text.offsetY - rise  // placement stays automatic: MuseScore stacks texts and makes room above the line
             top = item.top - rise
         }
         if (!placed[item.key]) placed[item.key] = []
