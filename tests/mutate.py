@@ -11,6 +11,12 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 CONTROL_WORKERS = 8
 CONTROL_SECONDS = 180
 MUTATIONS = [
+    ("layout.py", "        if len(line) == 1 and not lone_allowed and used < cap * LONE_FILL:\n            cost += LONE_COST", "        if False:\n            cost += LONE_COST", "plan strands lone bars"),
+    ("layout.py", "+ (not ends_block and tied[line[-1]])", "", "plan breaks a tie"),
+    ("layout.py", "+ (not opens_block and not chorded[line[0]])", "", "plan opens on a chordless bar"),
+    ("layout.py", "if previous is not None and len(previous) == 1 and piano.label_of(score.bars[block[0]]):", "if False:", "piano label never second"),
+    ("layout.py", "cost = ((cap - used) / cap) ** 2 if used <= cap else 0.0", "cost = 0.0", "plan ignores evenness"),
+    ("layout.py", "widest = max((widths[i] for i in line if empty[i]), default=0.0)\n        return sum(widest if empty[i] else", "widest = 0.0\n        return sum(widest if False else", "plan ignores evened empty bars"),
     ("pdfcheck.py", "        top = chordseat.chord_size(path)\n        ordered", "        top = max(c[0] for c in chars)\n        ordered", "collisions sized by largest"),
     ("buildcache.py", 'CODE_SUFFIXES = (".py", ".js", ".json")', 'CODE_SUFFIXES = (".py",)', "extension outside build key"),
     ("layout.py", "    if seated and not score_path.exists():\n", "    if False:\n", "seated edits silently rebuilt"),

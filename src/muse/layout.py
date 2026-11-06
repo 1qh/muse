@@ -19,8 +19,11 @@ from muse.song import decode, song_of
 
 LINE_SHARE = 0.93  # of a line's width a plan fills; the rest is the clef and key each line carries
 WIDE_PAGE = 200.0  # inches: wide enough that a whole song prints on 1 line at its natural width
-WRAP_ROUNDS = 6
-SPLIT_ROUNDS = 3
+REPLAN_ROUNDS = 8
+LONE_COST = 1.0  # a lone bar outweighs any evenness gained by it
+SHORT_COST = 0.15  # a 2-bar line is allowed, but a fuller arrangement of as many lines wins
+LONE_FILL = 0.5  # of a line a single bar must fill to stand alone without cost
+GROW = 1.06  # share a bar's width estimate grows each time its line will not hold
 INK_ROUNDS = 3
 EXTENSION = pathlib.Path(__file__).parent / "extension"
 EXTENSION_URI = "extension://muse/seat"
@@ -186,32 +189,64 @@ def chord_shares(natural: pathlib.Path, bars: int) -> list[float]:
     return shares
 
 
-def plan(score: Score, widths: list[float], room: float) -> set[int]:
-    """1-based line starts: each section block packed to a share of the line, a tied bar kept with its tie, no stranded last bar, no line opening without its chord."""
+def blocks_of(score: Score, variant: str | None) -> list[list[int]]:
+    """0-based bars of each section; on a piano sheet a lone mark bar joins the label block after it, so the label sits second."""
+    blocks = [list(block) for block in port.sections(score)]
+    if variant != port.PIANO:
+        return blocks
+    joined: list[list[int]] = []
+    for block in blocks:
+        previous = joined[-1] if joined else None
+        if previous is not None and len(previous) == 1 and piano.label_of(score.bars[block[0]]):
+            previous.extend(block)
+        else:
+            joined.append(block)
+    return joined
+
+
+def plan(score: Score, widths: list[float], room: float, variant: str | None = None) -> set[int]:
+    """1-based line starts: per section, the break set with fewest rule breaks, then fewest lines, then the most even fill."""
     cap = room * LINE_SHARE
     tied = [port.tied_out(bar) for bar in score.bars]
-    starts: set[int] = set()
     empty = [not piano.has_notes(bar) for bar in score.bars]
+    chorded = [bool(bar.chords) for bar in score.bars]
 
-    def cost(line: list[int]) -> float:
+    def width(line: list[int]) -> float:
         """A line's width once its empty bars are evened to the widest of them, as they will be."""
         widest = max((widths[i] for i in line if empty[i]), default=0.0)
         return sum(widest if empty[i] else widths[i] for i in line)
 
-    for block in port.sections(score):
-        lines: list[list[int]] = [[block[0]]]
-        for index in block[1:]:
-            if cost([*lines[-1], index]) > cap and not tied[index - 1]:
-                lines.append([index])
-            else:
-                lines[-1].append(index)
-        if len(lines) > 1 and len(lines[-1]) == 1 and len(lines[-2]) > 2:  # a stranded last bar takes 1 from the line above
-            lines[-1].insert(0, lines[-2].pop())
-        starts |= {line[0] for line in lines}
-    chorded = {index for index, bar in enumerate(score.bars) if bar.chords}
-    fixed = {block[0] for block in port.sections(score)}
-    settled = port.settle_chord_starts(starts, chorded, fixed, len(score.bars))
-    return {index + 1 for index in settled}
+    def judged(line: list[int], opens_block: bool, ends_block: bool, lone_allowed: bool) -> tuple[int, float]:
+        used = width(line)
+        breaks = (used > cap and len(line) > 1) + (not opens_block and not chorded[line[0]]) + (not ends_block and tied[line[-1]])
+        cost = ((cap - used) / cap) ** 2 if used <= cap else 0.0
+        if len(line) == 1 and not lone_allowed and used < cap * LONE_FILL:
+            cost += LONE_COST
+        elif len(line) == 2:
+            cost += SHORT_COST
+        return breaks, cost
+
+    starts: set[int] = set()
+    for block in blocks_of(score, variant):
+        count = len(block)
+        best: list[tuple[int, int, float, int] | None] = [None] * (count + 1)  # rule breaks, lines, cost, where the last line starts
+        best[0] = (0, 0, 0.0, -1)
+        for end in range(1, count + 1):
+            for begin in range(end):
+                before = best[begin]
+                if before is None:
+                    continue
+                breaks, cost = judged(block[begin:end], begin == 0, end == count, count == 1)
+                option = (before[0] + breaks, before[1] + 1, before[2] + cost, begin)
+                if best[end] is None or option[:3] < best[end][:3]:  # type: ignore[index]
+                    best[end] = option
+        at = count
+        while at > 0:
+            chosen = best[at]
+            assert chosen is not None
+            starts.add(block[chosen[3]])
+            at = chosen[3]
+    return {index + 1 for index in starts}
 
 
 def render(sheet: Sheet, label: str, seated: bool = False) -> tuple[pathlib.Path, pathlib.Path]:
@@ -232,7 +267,7 @@ def candidate(src: pathlib.Path, work: pathlib.Path, variant: str, size: float) 
     with BATCHER.worker():
         sheet = Sheet(src, work, variant, size)
         widths, room = measure(sheet)
-        sheet.set_lines(plan(sheet.score, widths, room))
+        sheet.set_lines(plan(sheet.score, widths, room, sheet.variant))
         _, probe = render(sheet, "plan")
         wanted = sheet.starts()
         held = sorted({1, *port.system_starts(probe)}) == wanted
@@ -253,20 +288,12 @@ def choose(found: list[dict[str, Any]], variant: str) -> list[float]:
     return order
 
 
-def correct_lines(sheet: Sheet) -> pathlib.Path:
-    """Render the plan; a line the program wrapped hands its last bar down, until every line holds."""
-    for _ in range(WRAP_ROUNDS):
-        _, probe = render(sheet, "final")
-        wanted, got = sheet.starts(), sorted({1, *port.system_starts(probe)})
-        extra = sorted(set(got) - set(wanted))
-        if not extra:  # crowding is judged once chords are seated, never here
-            return probe
-        starts = set(wanted)
-        for row in port.rows(sheet.score):
-            if any(row[0] < bar <= row[-1] for bar in extra) and len(row) > 1:
-                starts.add(row[-1])
-        sheet.set_lines(starts)
-    raise port.DoesNotFit(f"{sheet.name} at {sheet.size}: lines still wrap")
+def overflowing(sheet: Sheet, probe: pathlib.Path, seated: bool) -> set[int]:
+    """0-based bars of every line the render wrapped, and once seated, every line still crowded."""
+    wanted, got = sheet.starts(), sorted({1, *port.system_starts(probe)})
+    extra = set(got) - set(wanted)
+    crowded = port.crowded_rows(probe, wanted) if seated and not extra else set()
+    return {bar - 1 for row in port.rows(sheet.score) if row[0] in crowded or any(row[0] < bar <= row[-1] for bar in extra) for bar in row}
 
 
 def seat(sheet: Sheet, score_path: pathlib.Path, probe: pathlib.Path) -> pathlib.Path:
@@ -290,27 +317,28 @@ def seat(sheet: Sheet, score_path: pathlib.Path, probe: pathlib.Path) -> pathlib
 
 
 def finish(src: pathlib.Path, work: pathlib.Path, variant: str, size: float) -> tuple[Score, pathlib.Path, float, float, int]:
-    """1 size from plan to a seated sheet that passes every final check; DoesNotFit when it cannot."""
+    """1 size from plan to a seated sheet that passes every final check; a line that will not hold grows its estimate and the whole plan is made again."""
     sheet = Sheet(src, work, variant, size)
     widths, room = measure(sheet)
-    sheet.set_lines(plan(sheet.score, widths, room))
-    probe = correct_lines(sheet)
-    if port.balance(sheet.score, probe):
-        probe = correct_lines(sheet)
     score_path = sheet.path("final")
-    for _ in range(SPLIT_ROUNDS):  # evening bars or seating chords can tip a line the plan judged clear
-        probe = seat(sheet, score_path, probe)
-        wanted, got = sheet.starts(), sorted({1, *port.system_starts(probe)})
-        crowded = port.crowded_rows(probe, wanted) if wanted == got else set()
-        tipped = {row[-1] for row in port.rows(sheet.score) if len(row) > 1 and (row[0] in crowded or any(row[0] < bar <= row[-1] for bar in set(got) - set(wanted)))}
+    for _ in range(REPLAN_ROUNDS):
+        sheet.set_lines(plan(sheet.score, widths, room, sheet.variant))
+        _, probe = render(sheet, "final")
+        bad = overflowing(sheet, probe, seated=False)
+        if not bad:
+            if port.balance(sheet.score, probe):
+                _, probe = render(sheet, "final")
+                bad = overflowing(sheet, probe, seated=False)
+            if not bad:
+                probe = seat(sheet, score_path, probe)
+                bad = overflowing(sheet, probe, seated=True)
         if os.environ.get("MUSE_LAYOUT_TRACE"):
-            print(f"{sheet.name} {size}: wanted {wanted} got {got} crowded {sorted(crowded)} tipped {sorted(tipped)}", flush=True)
-        if not tipped:
+            print(f"{sheet.name} {size}: starts {sheet.starts()} overflowing {sorted(b + 1 for b in bad)}", flush=True)
+        if not bad:
             break
-        sheet.set_lines(set(wanted) | tipped)
-        probe = correct_lines(sheet)
+        widths = [width * GROW if index in bad else width for index, width in enumerate(widths)]
     else:
-        raise port.DoesNotFit(f"{sheet.name} at {size}: lines still tip after seating")
+        raise port.DoesNotFit(f"{sheet.name} at {size}: lines still overflow after {REPLAN_ROUNDS} plans")
     problems = pdfcheck.all_problems(probe, sheet.title) + chordseat.problems(score_path, probe) + port.line_rule_breaks(sheet.score)
     if problems:
         raise port.DoesNotFit(f"{sheet.name} at {size}: {problems[:3]}")
