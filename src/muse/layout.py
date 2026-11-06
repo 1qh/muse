@@ -22,7 +22,7 @@ from muse.song import decode, song_of
 
 LINE_SHARE = 0.93  # of a line's width a plan fills; the rest is the clef and key each line carries
 WIDE_PAGE = 200.0  # inches: wide enough that a whole song prints on 1 line at its natural width
-REPLAN_ROUNDS = 8
+REPLAN_ROUNDS = 16
 IMPORT_SIZE = 1.5  # the staff space the shared import is made at; each size sets its own on an edited copy
 OVERFLOW_BREAKS = 1000  # a line too wide cannot print at all, so it outweighs every soft line rule
 LONE_COST = 1.0  # a lone bar outweighs any evenness gained by it
@@ -391,8 +391,10 @@ def finish_at(src: pathlib.Path, work: pathlib.Path, variant: str, size: float, 
     sheet = Sheet(src, work, variant, size, distance)
     widths, room = measure(sheet)
     score_path = sheet.path("final")
+    tried: set[frozenset[int]] = set()
     for _ in range(REPLAN_ROUNDS):
         sheet.set_lines(plan(sheet.score, widths, room, sheet.variant))
+        tried.add(frozenset(sheet.starts()))
         _, probe = render(sheet, "final")
         bad = overflowing(sheet, probe, seated=False)
         if not bad:
@@ -409,7 +411,7 @@ def finish_at(src: pathlib.Path, work: pathlib.Path, variant: str, size: float, 
         grown = widths
         for _ in range(GROW_STEPS):  # widen those bars until the plan actually changes; 1 step is often too little to cross a break
             grown = [width * GROW if index in bad else width for index, width in enumerate(grown)]
-            if plan(sheet.score, grown, room, sheet.variant) != set(sheet.starts()):
+            if frozenset(plan(sheet.score, grown, room, sheet.variant)) not in tried:  # a plan already rendered would only repeat its fault
                 break
         else:
             raise port.DoesNotFit(f"{sheet.name} at {size}: bars {sorted(b + 1 for b in bad)} overflow and no plan can move them: {port.crowded_reasons(probe)[:3]}")

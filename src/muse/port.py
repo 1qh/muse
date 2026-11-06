@@ -155,7 +155,7 @@ def last_before(where: list[tuple[int, float, int]], page_no: int) -> int:
 
 def crowded_reasons(pdf: pathlib.Path) -> list[str]:
     """What makes a line overflow, in words, for a refusal a reader can act on."""
-    return [f"chords too close at {root}" for _, _, root in pdfcheck.chord_collisions(pdf)] + [f"past the margin: {word}" for _, _, word in pdfcheck.past_margin(pdf)]
+    return [f"chords too close at {root}" for _, _, root in pdfcheck.chord_collisions(pdf)] + [what for _, _, what in pdfcheck.sign_chord_hits(pdf)] + [f"past the margin: {word}" for _, _, word in pdfcheck.past_margin(pdf)]
 
 
 def crowded_rows(pdf: pathlib.Path, firsts: list[int]) -> set[int]:
@@ -169,7 +169,7 @@ def crowded_rows(pdf: pathlib.Path, firsts: list[int]) -> set[int]:
                         where.append((page_no, span["bbox"][1], int(span["text"])))
     where.append((0, 0.0, 1))
     crowded = set()
-    for page_no, y, _ in pdfcheck.chord_collisions(pdf):
+    for page_no, y, _ in [*pdfcheck.chord_collisions(pdf), *pdfcheck.sign_chord_hits(pdf)]:  # a wider bar moves a chord off a sign at its end as it moves 2 chords apart
         same_page = [item for item in where if item[0] == page_no]
         crowded.add(min(same_page, key=lambda item: abs(item[1] - y))[2] if same_page else last_before(where, page_no))
     for page_no, y, _ in pdfcheck.past_margin(pdf):
