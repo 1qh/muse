@@ -415,7 +415,7 @@ def finish_at(src: pathlib.Path, work: pathlib.Path, variant: str, size: float, 
         widths = grown
     else:
         raise port.DoesNotFit(f"{sheet.name} at {size}: lines still overflow after {REPLAN_ROUNDS} plans")
-    problems = pdfcheck.all_problems(probe, sheet.title) + chordseat.problems(score_path, probe) + port.line_rule_breaks(sheet.score)
+    problems = pdfcheck.all_problems(probe, sheet.title) + chordseat.problems(score_path, probe) + port.line_rule_breaks(sheet.score, sheet.variant)
     if problems:
         raise port.DoesNotFit(f"{sheet.name} at {size}: {problems[:3]}")
     return sheet.score, score_path, size, sheet.distance, len(pdftext.open(probe))
