@@ -178,3 +178,10 @@ def test_a_piano_label_may_sit_second_after_a_mark_bar_opening_its_line() -> Non
         bar.new_system = bar.number == 2
     assert port.line_rule_breaks(score, port.PIANO) == []
     assert port.line_rule_breaks(score, port.ORIGINAL) == [3]
+
+
+def test_plan_breaks_a_soft_rule_rather_than_overflow_a_line() -> None:
+    bars = [noted(1)] + [noted(n, chords=False) for n in range(2, 8)]  # only bar 1 has a chord, so every split opens a line without one
+    score = Score(bars, [], [])
+    starts = layout.plan(score, [30.0] * 7, ROOM)
+    assert len(starts) > 1  # 7 bars of 30 cannot share 1 line of 93

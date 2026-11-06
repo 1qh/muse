@@ -24,6 +24,7 @@ LINE_SHARE = 0.93  # of a line's width a plan fills; the rest is the clef and ke
 WIDE_PAGE = 200.0  # inches: wide enough that a whole song prints on 1 line at its natural width
 REPLAN_ROUNDS = 8
 IMPORT_SIZE = 1.5  # the staff space the shared import is made at; each size sets its own on an edited copy
+OVERFLOW_BREAKS = 1000  # a line too wide cannot print at all, so it outweighs every soft line rule
 LONE_COST = 1.0  # a lone bar outweighs any evenness gained by it
 SHORT_COST = 0.15  # a 2-bar line is allowed, but a fuller arrangement of as many lines wins
 LONE_FILL = 0.5  # of a line a single bar must fill to stand alone without cost
@@ -247,7 +248,7 @@ def plan(score: Score, widths: list[float], room: float, variant: str | None = N
 
     def judged(line: list[int], opens_block: bool, ends_block: bool, lone_allowed: bool) -> tuple[int, float]:
         used = width(line)
-        breaks = (used > cap and len(line) > 1) + (not opens_block and not chorded[line[0]]) + (not ends_block and tied[line[-1]])
+        breaks = OVERFLOW_BREAKS * (used > cap and len(line) > 1) + (not opens_block and not chorded[line[0]]) + (not ends_block and tied[line[-1]])
         cost = ((cap - used) / cap) ** 2 if used <= cap else 0.0
         if len(line) == 1 and not lone_allowed and used < cap * LONE_FILL:
             cost += LONE_COST
