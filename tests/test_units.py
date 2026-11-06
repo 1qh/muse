@@ -721,3 +721,22 @@ def test_the_second_wave_finds_a_size_between_2_spread_sizes(monkeypatch, tmp_pa
     monkeypatch.setattr(port, "acceptable", lambda *a: True)
     found = port.waves(tmp_path, tmp_path, port.ORIGINAL, 2, 1.2, 3.0)
     assert max(found)[0] == 1.75
+
+
+def test_an_import_is_rebuilt_when_what_it_came_from_changes(tmp_path, monkeypatch):
+    from muse.model import Score
+
+    made = []
+    import pathlib
+
+    monkeypatch.setattr(port, "run", lambda *a: made.append(a) or pathlib.Path(a[3]).write_bytes(b"PK"))
+    monkeypatch.setattr(port, "strip_title_frame", lambda p: None)
+    monkeypatch.setattr(port, "real_jumps", lambda p, c: None)
+    monkeypatch.setattr(port, "big_signs", lambda p: None)
+    style = tmp_path / "s.mss"
+    style.write_text("<Style>1</Style>", encoding="utf-8")
+    score = Score([], [], [])
+    first = port.imported(score, tmp_path, "x", style, False)
+    assert port.imported(score, tmp_path, "x", style, False) == first and len(made) == 1
+    style.write_text("<Style>2</Style>", encoding="utf-8")
+    assert port.imported(score, tmp_path, "x", style, False) != first and len(made) == 2

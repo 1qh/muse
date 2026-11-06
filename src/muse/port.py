@@ -511,18 +511,22 @@ IMPORTS_LOCK = threading.Lock()
 
 def imported(score: Score, work: pathlib.Path, sheet: str, style: pathlib.Path, clear: bool) -> pathlib.Path:
     """1 import of a sheet with no line breaks, its signs set; every trial edits a copy of it."""
-    path = work / f"{sheet}-import{int(clear)}.mscz"
+    flags = [(bar.new_system, bar.new_page) for bar in score.bars]
+    for bar in score.bars:
+        bar.new_system = bar.new_page = False
+    text = musicxml.write(score)
+    for bar, (line, page) in zip(score.bars, flags, strict=True):
+        bar.new_system, bar.new_page = line, page
+    whole = hashlib.sha256()
+    for part in (text, style.read_text(encoding="utf-8"), str(clear), *(file.read_text(encoding="utf-8") for file in sorted(pathlib.Path(__file__).parent.glob("*.py")))):
+        whole.update(part.encode("utf-8"))
+    path = work / f"{sheet}-import-{whole.hexdigest()[:12]}.mscz"  # keyed on what it was built from, so a stale import is never reused
     with IMPORTS_LOCK:
         lock = IMPORTS.setdefault(str(path), threading.Lock())
     with lock:
         if not path.exists():
-            flags = [(bar.new_system, bar.new_page) for bar in score.bars]
-            for bar in score.bars:
-                bar.new_system = bar.new_page = False
             xml = path.with_suffix(".musicxml")
-            xml.write_text(musicxml.write(score), encoding="utf-8")
-            for bar, (line, page) in zip(score.bars, flags, strict=True):
-                bar.new_system, bar.new_page = line, page
+            xml.write_text(text, encoding="utf-8")
             fresh = path.with_name(path.stem + "-fresh.mscz")
             run("-S", str(style), "-o", str(fresh), str(xml))
             strip_title_frame(fresh)
