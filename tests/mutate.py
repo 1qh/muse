@@ -13,6 +13,7 @@ CONTROL_SECONDS = 240  # the fast suite; a control planted in code MuseScore run
 HEAVY_SECONDS = 1500
 HEAVY = ("extension/", "layout.py", "launch.py", "render.py")  # code only the MuseScore-driven tests exercise
 MUTATIONS = [
+    ("layout.py", "OVERFLOW_BREAKS = 1000", "OVERFLOW_BREAKS = 1", "overflow weighs as a soft rule"),
     ("chordseat.py", "            step = (bottom - top) / 4 if bottom is not None else guess", "            step = guess", "staff spacing from 1 pair"),
     ("chordseat.py", '    edges = [line["opening"], *line["bars"]]', '    edges = [line["start"], *line["bars"]]', "sign counted as bar width"),
     ("layout.py", '            if "text on text" not in str(error):\n                raise', '            if True:\n                raise', "line gap never widened"),
