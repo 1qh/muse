@@ -80,7 +80,7 @@ def chord_collisions(path: pathlib.Path) -> list[tuple[int, float, str]]:
                             chars.append((span["size"], ch["origin"][1], ch["bbox"][0], ch["bbox"][2], ch["c"]))
         if not chars:
             continue
-        top = max(c[0] for c in chars)
+        top = chordseat.chord_size(path)
         ordered = sorted((c for c in chars if abs(c[0] - top) < 0.05), key=lambda c: (round(c[1], 0), c[2]))
         for before, after in zip(ordered, ordered[1:], strict=False):
             is_root = after[4] in "ABCDEFG" and before[4] != "/"
@@ -216,7 +216,7 @@ def chord_seating(path: pathlib.Path) -> list[tuple[int, float, float, str]]:
                     heads += [c["origin"] for c in span["chars"] if HEAD_CODES[0] <= ord(c["c"]) <= HEAD_CODES[1]]
         if not spans:
             continue
-        top = max(item[0] for item in spans)
+        top = chordseat.chord_size(path)
         drawings = chordseat.segments(page)
         staves = chordseat.staves_of(drawings)
         for size, left, right, base, text in spans:

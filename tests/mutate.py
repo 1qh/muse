@@ -11,6 +11,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 CONTROL_WORKERS = 8
 CONTROL_SECONDS = 180
 MUTATIONS = [
+    ("pdfcheck.py", "        top = chordseat.chord_size(path)\n        ordered", "        top = max(c[0] for c in chars)\n        ordered", "collisions sized by largest"),
     ("buildcache.py", 'CODE_SUFFIXES = (".py", ".js", ".json")', 'CODE_SUFFIXES = (".py",)', "extension outside build key"),
     ("layout.py", "    if seated and not score_path.exists():\n", "    if False:\n", "seated edits silently rebuilt"),
     ("chordseat.py", "return shaped.most_common(1)[0][0] if shaped else None", "return max(shaped) if shaped else None", "chord size by largest"),
