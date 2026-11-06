@@ -11,6 +11,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 CONTROL_WORKERS = 8
 CONTROL_SECONDS = 180
 MUTATIONS = [
+    ("layout.py", 'sorted(fit, key=lambda c: (c["lines"], -c["size"]))', 'sorted(fit, key=lambda c: -c["size"])', "piano sized for big notes"),
     ("extension/main.js", 'return page + ":" + Math.round(measure.pagePos.y)', 'return "0:" + Math.round(measure.pagePos.y)', "lines keyed without their page"),
     ("extension/main.js", "        if (lack > 0) {", "        if (false) {", "chord shortfall ignored"),
     ("extension/main.js", "return item.index < INK.length ?", "return false ?", "ink widths ignored"),
@@ -19,7 +20,7 @@ MUTATIONS = [
     ("layout.py", "spaces = [chordseat.space_points(score_path)] * len(gaps)", "spaces = chordseat.spaces_of(rows, lines)", "space measured off the PDF"),
     ("build.py", "return sorted(sources, key=lambda src: (rank.get(song_of(src).name, len(rank)), song_of(src).name))", "return sorted(sources, key=lambda src: song_of(src).name)", "priority ignored"),
     ("layout.py", "for share in (port.MAX_SHORT_SHARE, port.RELAXED_SHORT_SHARE):", "for share in (port.MAX_SHORT_SHARE,):", "choose never widens the share"),
-    ("layout.py", 'full = sorted((c["size"] for c in fit if c["fill"] >= port.PAGE_FILL), reverse=True)', 'full = sorted((c["size"] for c in fit), reverse=True)', "choose ignores fill"),
+    ("layout.py", 'for c in fit if c["fill"] >= port.PAGE_FILL)', "for c in fit)", "choose ignores fill"),
     ("layout.py", "        elif len(line) == 2:\n            cost += SHORT_COST", "        elif False:\n            cost += SHORT_COST", "plan ignores short lines"),
     ("layout.py", "        if len(line) == 1 and not lone_allowed and used < cap * LONE_FILL:\n            cost += LONE_COST", "        if False:\n            cost += LONE_COST", "plan strands lone bars"),
     ("layout.py", "+ (not ends_block and tied[line[-1]])", "", "plan breaks a tie"),

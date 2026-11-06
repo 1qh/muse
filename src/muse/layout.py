@@ -294,18 +294,23 @@ def candidate(src: pathlib.Path, work: pathlib.Path, variant: str, size: float) 
         held = sorted({1, *port.system_starts(probe)}) == wanted
         lines = port.rows(sheet.score)
         good = held  # chords are seated, and so judged for crowding, only on the size that is finished
-        return {"size": size, "held": held, "share": port.short_line_share(lines), "fill": port.page_fill(probe), "good": good,
+        return {"size": size, "held": held, "share": port.short_line_share(lines), "fill": port.page_fill(probe), "good": good, "lines": len(lines),
                 "lone": bool(piano.lone_lines(wanted, len(sheet.score.bars))) if variant == port.PIANO else False}
 
 
+def ranked(fit: list[dict[str, Any]], variant: str) -> list[float]:
+    """A piano sheet's sizes by fewest lines, then largest; a band sheet's largest first, those filling their pages ahead."""
+    if variant == port.PIANO:
+        return [c["size"] for c in sorted(fit, key=lambda c: (c["lines"], -c["size"]))]
+    return sorted((c["size"] for c in fit if c["fill"] >= port.PAGE_FILL), reverse=True) + sorted((c["size"] for c in fit if c["fill"] < port.PAGE_FILL), reverse=True)
+
+
 def choose(found: list[dict[str, Any]], variant: str) -> list[float]:
-    """Sizes to finish, best first: the largest whose lines fill their pages within the base short-line share, then within the wider share."""
+    """Sizes to finish, best first, within the base short-line share, then the wider one: a band sheet's largest whose lines fill their pages; a piano sheet's fewest lines, then its largest of those, so a pianist sees the most chords at once."""
     order: list[float] = []
     for share in (port.MAX_SHORT_SHARE, port.RELAXED_SHORT_SHARE):
-        fit = [c for c in found if c["good"] and not c["lone"] and (variant == port.PIANO or c["share"] <= share)]
-        full = sorted((c["size"] for c in fit if c["fill"] >= port.PAGE_FILL), reverse=True)
-        rest = sorted((c["size"] for c in fit if c["fill"] < port.PAGE_FILL), reverse=True)
-        order += [size for size in full + rest if size not in order]
+        fit = [c for c in found if c["good"] and not c["lone"] and c["share"] <= share]
+        order += [size for size in ranked(fit, variant) if size not in order]
     return order
 
 

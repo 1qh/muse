@@ -93,8 +93,8 @@ def test_plan_prefers_the_even_split_of_as_many_lines() -> None:
     assert lines(layout.plan(score, [12.0] * 8, ROOM), 8) == [4, 4]  # 7 fit on a line; 5+3 is as legal and as short
 
 
-def candidate(size: float, share: float = 0.0, fill: float = 0.9, good: bool = True, lone: bool = False) -> dict[str, object]:
-    return {"size": size, "share": share, "fill": fill, "good": good, "lone": lone}
+def candidate(size: float, share: float = 0.0, fill: float = 0.9, good: bool = True, lone: bool = False, lines: int = 10) -> dict[str, object]:
+    return {"size": size, "share": share, "fill": fill, "good": good, "lone": lone, "lines": lines}
 
 
 def test_choose_takes_the_largest_size_that_fills_its_pages_first() -> None:
@@ -135,3 +135,9 @@ def test_space_points_reads_the_scores_own_staff_space(tmp_path: pathlib.Path) -
         archive.writestr("s.mscx", "<museScore><Score/></museScore>")
         archive.writestr("score_style.mss", "<museScore><Style><spatium>1.6</spatium></Style></museScore>")
     assert chordseat.space_points(score) == pytest.approx(1.6 * 72 / 25.4)
+
+
+def test_choose_packs_a_piano_sheet_into_the_fewest_lines_then_the_largest_notes() -> None:
+    found = [candidate(2.0, lines=30), candidate(1.6, lines=22), candidate(1.5, lines=20), candidate(1.4, lines=20)]
+    assert layout.choose(found, port.PIANO)[0] == 1.5
+    assert layout.choose([candidate(1.5, lines=20, share=0.4), candidate(1.8, lines=24)], port.PIANO)[0] == 1.8  # short lines still bound a piano sheet
