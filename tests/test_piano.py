@@ -206,6 +206,7 @@ def test_missing_and_stray_files_are_named(tmp_path):
     assert gate.folder_problems(tmp_path, [SONG], set()) == []
     (tmp_path / SONG.tone_pdf).unlink()
     assert gate.folder_problems(tmp_path, [SONG], set()) == [f"missing {SONG.tone_pdf}"]
+    (tmp_path / SONG.tone_pdf).write_text("x")
     assert gate.folder_problems(tmp_path, [SONG], {"Name"}) == []
     (tmp_path / "old.pdf").write_text("x")
     assert gate.folder_problems(tmp_path, [SONG], {"Name"}) == ["stray old.pdf"]
