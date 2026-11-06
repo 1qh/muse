@@ -31,7 +31,7 @@ GROW = 1.06  # share a bar's width estimate grows each time its line will not ho
 GAP_STEPS = 4  # line gaps tried before a size is refused for text meeting text
 GAP_STEP = 2.0  # staff spaces the line gap widens each try
 GROW_STEPS = 12  # up to about double, before a line that will not hold is called unmovable
-INK_ROUNDS = 4
+INK_ROUNDS = 6
 EXTENSION = pathlib.Path(__file__).parent / "extension"
 EXTENSION_URI = "extension://muse/seat"
 EXTENSION_FOLDER = "museseat"
@@ -337,8 +337,9 @@ def seat_inked(score_path: pathlib.Path, rendered: Callable[[], pathlib.Path], h
     probe = score_path
     for _ in range(INK_ROUNDS):
         tags = {"museChordGap": f"{CLEAR_SPACES:.4f}", "museInkBias": ",".join(f"{b:.4f}" for b in bias), "museInkWidth": ",".join(f"{w:.4f}" for w in inks)}
-        if noted is not None:
+        if noted is not None:  # the caller evens empty bars itself, from each fresh render, so the extension leaves them
             tags["museNoted"] = ",".join(str(i) for i in noted) or "-1"
+            tags["museEven"] = "0"
         set_tags(score_path, tags)
         run_extension(score_path, score_path)
         probe = rendered()  # a fresh render of the saved score: the layout inside the launch is not what prints
@@ -351,7 +352,8 @@ def seat_inked(score_path: pathlib.Path, rendered: Callable[[], pathlib.Path], h
         spaces = [chordseat.space_points(score_path)] * len(gaps)
         bias = [(bias[at] if at < len(bias) else 0.0) + (gap or 0.0) / space for at, (gap, space) in enumerate(zip(gaps, spaces, strict=True))]
         inks = [width / space for width, space in zip(chordseat.ink_widths(rows, lines), spaces, strict=True)]
-        if all(gap is None or abs(gap - chordseat.GAP) <= chordseat.TOLERANCE for gap in gaps) and not pdfcheck.chord_collisions(probe):
+        evened = noted is not None and chordseat.equalize(score_path, probe, {index + 1 for index in noted})  # measured on the print, both ways
+        if not evened and all(gap is None or abs(gap - chordseat.GAP) <= chordseat.TOLERANCE for gap in gaps) and not pdfcheck.chord_collisions(probe):
             break
     return probe
 

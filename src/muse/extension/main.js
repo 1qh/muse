@@ -336,7 +336,7 @@ function main() {
     for (; rounds < FIT_ROUNDS; rounds++) {
         seatStarts(all)
         var short = shortfalls(all)
-        var moved = even()
+        var moved = curScore.metaTag("museEven") === "0" ? 0 : even()  // the caller evens from a fresh render when it says so
         if (!short.length && !moved) break
         if (short.length) widen(short)
     }
