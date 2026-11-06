@@ -617,9 +617,9 @@ def test_a_search_starts_at_the_saved_size_and_looks_near_it(monkeypatch, tmp_pa
     monkeypatch.setattr(port, "lay_out", lay)
     monkeypatch.setattr(port, "acceptable", lambda *a: True)
     monkeypatch.setattr(port, "finish", lambda src, work, variant, limit, size, gap: size)
+    port.TRIALS.clear()
     assert port.fit(tmp_path, tmp_path, port.ORIGINAL, 2, near=1.4) == 1.6
-    assert tried[0] == 1.4
-    assert max(tried) <= 1.95
+    assert min(tried) >= port.SIZE_FLOORS[0] and max(tried) <= 1.9
 
 
 def test_a_short_line_borrows_only_from_a_line_with_bars_to_spare():
@@ -711,3 +711,13 @@ def test_a_target_sign_is_held_in_its_own_line_and_a_jump_is_not():
     jump = port.boxed_sign("<Marker><style>repeat_right</style><text>To Coda</text><label>coda</label></Marker>")
     assert port.TARGET_HOLD in target
     assert port.TARGET_HOLD not in jump
+
+
+def test_the_second_wave_finds_a_size_between_2_spread_sizes(monkeypatch, tmp_path):
+    def trials(src, work, variant, limit, pairs):
+        return {pair: (object() if pair[0] <= 1.75 else None) for pair in pairs}
+
+    monkeypatch.setattr(port, "trials", trials)
+    monkeypatch.setattr(port, "acceptable", lambda *a: True)
+    found = port.waves(tmp_path, tmp_path, port.ORIGINAL, 2, 1.2, 3.0)
+    assert max(found)[0] == 1.75

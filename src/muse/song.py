@@ -59,9 +59,10 @@ class Song:
 
     def files(self) -> set[str]:
         """Exactly what the song's folder holds."""
-        return {self.score_file, self.legacy_file, self.original_pdf, self.tone_pdf, self.piano_pdf}
+        return {self.score_file, self.original_pdf, self.tone_pdf, self.piano_pdf} | ({self.legacy_file} if LEGACY_FILES else set())
 
 
+LEGACY_FILES = False  # the owner defers MuseScore 3 files; the doc names the trigger to resume
 PAST_EVENT = 8.0  # points past a bar's last note or rest
 CHORD_LETTER = 5.5  # points a source chord letter takes
 CROSSING = 2.0  # points past the barline

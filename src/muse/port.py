@@ -10,6 +10,7 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 import time
 import zipfile
 from collections.abc import Callable
@@ -19,7 +20,8 @@ import pymupdf
 
 from muse import buildcache, chordnames, chordseat, musicxml, pdfcheck, piano, scorefile
 from muse.model import Bar, Chord, Score
-from muse.song import Song, decode, song_of
+from muse.render import BATCHER
+from muse.song import LEGACY_FILES, Song, decode, song_of
 from muse.song import sources as song_sources
 
 MAX_LAYOUT_ROUNDS = 40
@@ -47,6 +49,7 @@ FINAL_LAUNCH_CAP = 600
 PIANO_LAUNCH_CAP = 500
 NEAR_REACH = 0.5  # how far above a saved size a seeded search looks
 SIZE_STEP = 0.05
+WAVE = 8  # sizes laid out side by side in the first wave of a search
 BORROW_FROM = 4  # bars a line must hold to lend its last one to a short line below
 RELAXED_SHORT_SHARE = 0.30  # for a song 15% would hold at the smallest size
 CLIMB_START, CLIMB_STEP, CLIMB_STEPS = 1.3, 0.1, 8
@@ -506,6 +509,63 @@ def refuse_fixed(probe: pathlib.Path, title: str, song: str) -> None:
         raise SheetRefused(f"{song}: {fixed_problems[:3]}")
 
 
+IMPORTS: dict[str, threading.Lock] = {}
+IMPORTS_LOCK = threading.Lock()
+
+
+def imported(score: Score, work: pathlib.Path, sheet: str, style: pathlib.Path, clear: bool) -> pathlib.Path:
+    """1 import of a sheet with no line breaks, its signs set; every trial edits a copy of it."""
+    path = work / f"{sheet}-import{int(clear)}.mscz"
+    with IMPORTS_LOCK:
+        lock = IMPORTS.setdefault(str(path), threading.Lock())
+    with lock:
+        if not path.exists():
+            flags = [(bar.new_system, bar.new_page) for bar in score.bars]
+            for bar in score.bars:
+                bar.new_system = bar.new_page = False
+            xml = path.with_suffix(".musicxml")
+            xml.write_text(musicxml.write(score), encoding="utf-8")
+            for bar, (line, page) in zip(score.bars, flags, strict=True):
+                bar.new_system, bar.new_page = line, page
+            fresh = path.with_name(path.stem + "-fresh.mscz")
+            run("-S", str(style), "-o", str(fresh), str(xml))
+            strip_title_frame(fresh)
+            real_jumps(fresh, clear)
+            big_signs(fresh)
+            fresh.replace(path)
+    return path
+
+
+def edited(source: pathlib.Path, target: pathlib.Path, spatium: float, distance: float, score: Score) -> None:
+    """A copy of an import at 1 size and line gap, breaking lines and pages where the score says."""
+    with zipfile.ZipFile(source) as old:
+        items = {name: old.read(name) for name in old.namelist()}
+    for name, data in items.items():
+        if not name.endswith((".mss", ".mscx")):
+            continue
+        text = data.decode("utf-8")
+        text = re.sub(r"<([Ss])patium>[^<]*</[Ss]patium>", lambda m: f"<{m[1]}patium>{spatium}</{m[1]}patium>", text)
+        for tag in ("minSystemDistance", "maxSystemDistance"):
+            text = re.sub(rf"<{tag}>[^<]*</{tag}>", f"<{tag}>{distance}</{tag}>", text)
+        if name.endswith(".mscx"):
+            text = re.sub(r"<LayoutBreak>.*?</LayoutBreak>\s*", "", text, flags=re.S)
+            pieces = re.split(r"(?=<Measure)", text)
+            count = 0
+            for at, piece in enumerate(pieces):
+                if piece.startswith("<Measure"):
+                    count += 1
+                    if count < len(score.bars) and score.bars[count].new_system:
+                        kind = "page" if score.bars[count].new_page else "line"
+                        pieces[at] = re.sub(r"(</Measure>)", rf"<LayoutBreak><subtype>{kind}</subtype></LayoutBreak>\1", piece, count=1)
+            text = "".join(pieces)
+        items[name] = text.encode("utf-8")
+    fresh = target.with_name(target.stem + "-edit.mscz")
+    with zipfile.ZipFile(fresh, "w", zipfile.ZIP_DEFLATED) as new:
+        for name, data in items.items():
+            new.writestr(name, data)
+    fresh.replace(target)
+
+
 def lay_out(src: pathlib.Path, work: pathlib.Path, spatium: float, distance: float, pages: int | None, variant: str = TONE, lines: list[int] | None = None, seated: bool = True) -> tuple[Score, pathlib.Path, pathlib.Path]:
     """Build 1 sheet of a song at 1 size: no line wraps on its own and lines spread evenly over its pages; given lines are proved, never searched."""
     score = decode(src)
@@ -514,7 +574,7 @@ def lay_out(src: pathlib.Path, work: pathlib.Path, spatium: float, distance: flo
         piano.reduce(score)
     lift_idle_cues(score)
     options = None if variant == ORIGINAL else transpose_options(info)
-    song = f"{info.name}-{variant}"
+    song = f"{info.name}-{variant}" if seated else f"{info.name}-{variant}-{spatium:g}-{distance:g}"  # a search trial owns its files, so trials run side by side
     style = styled(work, f"{song}.mss", info.title, spatium, distance)
     xml = work / f"{song}.musicxml"
     base = work / f"{song}.mscz"
@@ -529,6 +589,10 @@ def lay_out(src: pathlib.Path, work: pathlib.Path, spatium: float, distance: flo
     clearing = {"signs": False}
 
     def build() -> None:
+        if not seated:  # a search trial edits 1 import and renders in the shared job
+            edited(imported(score, work, f"{info.name}-{variant}", style, clearing["signs"]), base, spatium, distance, score)
+            BATCHER.render(base, [probe, probe.with_suffix(".mpos")], options)
+            return
         xml.write_text(musicxml.write(score), encoding="utf-8")
         run("-S", str(style), "-o", str(base), str(xml))
         strip_title_frame(base)
@@ -708,34 +772,62 @@ def acceptable(laid: Score, variant: str) -> bool:
     return short_line_share(rows(laid)) <= SHARE["limit"]
 
 
-def fit(src: pathlib.Path, work: pathlib.Path, variant: str, limit: int, near: float | None = None) -> tuple[Score, pathlib.Path, float, float, int] | None:
-    """The largest notation of 1 sheet within a page limit and a launch cap; only the chosen layout is seated and checked in full."""
-    tried: dict[tuple[float, float, bool], bool] = {}
-    SEARCH_CAP["at"] = LAUNCHES["count"] + (PIANO_LAUNCH_CAP if variant == PIANO else SHEET_LAUNCH_CAP)
+TRIALS: dict[tuple[str, str, int, float, float], Score | None] = {}
 
-    def fits(spatium: float, distance: float, compact: bool = True) -> bool:
-        memo = (spatium, distance, compact)
-        if memo not in tried:
+
+def trials(src: pathlib.Path, work: pathlib.Path, variant: str, limit: int, pairs: list[tuple[float, float]]) -> dict[tuple[float, float], Score | None]:
+    """Every size and line gap laid out side by side, their renders sharing jobs; None where it does not fit."""
+    wanted = [pair for pair in dict.fromkeys(pairs) if (str(src), variant, limit, *pair) not in TRIALS]
+
+    def one(pair: tuple[float, float]) -> tuple[tuple[float, float], Score | None]:
+        with BATCHER.worker():
             try:
-                laid, _, _ = lay_out(src, work, spatium, distance, limit, variant, seated=False)
-                tried[memo] = not compact or acceptable(laid, variant)
+                return pair, lay_out(src, work, pair[0], pair[1], limit, variant, seated=False)[0]
             except DoesNotFit:
-                tried[memo] = False
-        return tried[memo]
+                return pair, None
 
-    try:
-        floors = [(size, gap) for size in SIZE_FLOORS for gap in (BASE_DISTANCE, MIDDLE_DISTANCE, TIGHT_DISTANCE) if size == SIZE_FLOORS[0] or gap != BASE_DISTANCE]
-        climb = [(round(CLIMB_START + step * CLIMB_STEP, 2), BASE_DISTANCE) for step in range(CLIMB_STEPS)]  # text keeps its size, so the smallest notation can collide where a larger one fits
-        floors += climb
-        seeded = near is not None and fits(near, BASE_DISTANCE)
-        found = (float(near or 0), BASE_DISTANCE) if seeded else next((pair for pair in floors if fits(pair[0], pair[1], compact=False)), None)
-        if found is None:
+    if wanted:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(wanted)) as pool:
+            for pair, laid in pool.map(one, wanted):
+                TRIALS[(str(src), variant, limit, *pair)] = laid
+    return {pair: TRIALS[(str(src), variant, limit, *pair)] for pair in pairs}
+
+
+def sizes_between(low: float, high: float) -> list[float]:
+    return [round(low + step * SIZE_STEP, 2) for step in range(int(round((high - low) / SIZE_STEP)) + 1)]
+
+
+def waves(src: pathlib.Path, work: pathlib.Path, variant: str, limit: int, low: float, high: float) -> list[tuple[float, float]]:
+    """Fitting sizes at the base line gap, narrowed in waves: a spread of sizes, then every size between the largest fit and the next that failed."""
+    sizes = sizes_between(low, high)
+    spread = sorted({sizes[round(i * (len(sizes) - 1) / (WAVE - 1))] for i in range(WAVE)}) if len(sizes) > WAVE else sizes
+    found = trials(src, work, variant, limit, [(size, BASE_DISTANCE) for size in spread])
+    fits = [pair[0] for pair, laid in found.items() if laid is not None and acceptable(laid, variant)]
+    if fits:
+        top = max(fits)
+        above = min((size for size in spread if size > top), default=top)
+        found = trials(src, work, variant, limit, [(size, BASE_DISTANCE) for size in sizes_between(top, above)])
+        fits += [pair[0] for pair, laid in found.items() if laid is not None and acceptable(laid, variant)]
+    return [(size, BASE_DISTANCE) for size in sorted(set(fits))]
+
+
+def fit(src: pathlib.Path, work: pathlib.Path, variant: str, limit: int, near: float | None = None) -> tuple[Score, pathlib.Path, float, float, int] | None:
+    """The largest notation of 1 sheet within a page limit: every candidate size laid out side by side, only the chosen 1 seated and checked in full."""
+    low = SIZE_FLOORS[0] if near is None else max(SIZE_FLOORS[0], round(near - NEAR_REACH, 2))
+    high = MAX_SPATIUM if near is None else min(MAX_SPATIUM, round(near + NEAR_REACH, 2))
+    good = waves(src, work, variant, limit, low, high)
+    if not good and near is not None:
+        good = waves(src, work, variant, limit, SIZE_FLOORS[0], MAX_SPATIUM)
+    if not good:
+        floors = [(size, gap) for size in SIZE_FLOORS for gap in (BASE_DISTANCE, MIDDLE_DISTANCE, TIGHT_DISTANCE)]
+        laid_floors = trials(src, work, variant, limit, floors)
+        good = [pair for pair in floors if laid_floors[pair] is not None]
+        if not good:
             return None
-        ceiling = min(MAX_SPATIUM, found[0] + NEAR_REACH) if seeded else MAX_SPATIUM
-        spatium = largest_fit(found[0], SIZE_STEP, ceiling, lambda value: fits(value, found[1]))
-        distance = found[1]
-    finally:
-        SEARCH_CAP["at"] = 0
+        gap = good[0][1]
+        wider = trials(src, work, variant, limit, [(size, gap) for size in sizes_between(SIZE_FLOORS[-1], MAX_SPATIUM)])
+        good = [pair for pair, laid in wider.items() if laid is not None and acceptable(laid, variant)] or [good[0]]
+    spatium, distance = max(good)
     return finish(src, work, variant, limit, spatium, distance)
 
 
@@ -910,21 +1002,25 @@ def port(src: pathlib.Path, out_dir: pathlib.Path, work: pathlib.Path) -> dict[s
     def old(variant: str) -> dict[str, Any] | None:
         return state.get(variant, {}).get("decision")
 
-    outputs = [out_dir / info.score_file, out_dir / info.original_pdf, out_dir / info.legacy_file]
+    outputs = [out_dir / info.score_file, out_dir / info.original_pdf] + ([out_dir / info.legacy_file] if LEGACY_FILES else [])
     key, ready = current(ORIGINAL, shared, outputs)
     if not ready:
         found = sheet(src, work, ORIGINAL, (MAX_PAGES,), old(ORIGINAL))
         (out_dir / info.score_file).write_bytes(found[1].read_bytes())
         shutil.copyfile(work / f"{info.name}-{ORIGINAL}-layout.pdf", out_dir / info.original_pdf)
-        # the legacy file reads the original tone's MusicXML, so it is built before anything overwrites it
-        build_legacy(src, work, out_dir / info.legacy_file, found[2], found[3], info)
-        chordnames.drop_chord_path(out_dir / info.score_file)
-        chordnames.drop_chord_path(out_dir / info.legacy_file)
-        legacy_gap = scorefile.difference(out_dir / info.score_file, out_dir / info.legacy_file)
-        report["legacy"] = legacy_gap[:6]
-        if legacy_gap:
-            (out_dir / info.legacy_file).unlink()
-            outputs = outputs[:2]
+        if LEGACY_FILES:
+            # the legacy file reads the original tone's MusicXML, so it is built before anything overwrites it
+            build_legacy(src, work, out_dir / info.legacy_file, found[2], found[3], info)
+            chordnames.drop_chord_path(out_dir / info.score_file)
+            chordnames.drop_chord_path(out_dir / info.legacy_file)
+            legacy_gap = scorefile.difference(out_dir / info.score_file, out_dir / info.legacy_file)
+            report["legacy"] = legacy_gap[:6]
+            if legacy_gap:
+                (out_dir / info.legacy_file).unlink()
+                outputs = outputs[:2]
+        else:
+            chordnames.drop_chord_path(out_dir / info.score_file)
+            (out_dir / info.legacy_file).unlink(missing_ok=True)
         keep(ORIGINAL, key, outputs, found)
     if info.direction:
         outputs = [out_dir / info.tone_pdf]

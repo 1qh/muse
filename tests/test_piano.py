@@ -193,9 +193,10 @@ SONG = Song("Name", "Dm", -1, "Em", 1, "up", 2, "Name")
 SAME = Song("Same", "Em", 1, "Em", 1, "", 0, "Same")
 
 
-def test_a_folder_holds_5_files_or_4_when_the_original_is_the_tone():
-    assert len(SONG.files()) == 5
-    assert len(SAME.files()) == 4
+def test_a_folder_holds_4_files_or_3_when_the_original_is_the_tone():
+    assert len(SONG.files()) == 4
+    assert len(SAME.files()) == 3
+    assert SONG.legacy_file not in SONG.files()
 
 
 def test_missing_and_stray_files_are_named(tmp_path):
@@ -203,8 +204,8 @@ def test_missing_and_stray_files_are_named(tmp_path):
     for name in SONG.files():
         (tmp_path / name).write_text("x")
     assert gate.folder_problems(tmp_path, [SONG], set()) == []
-    (tmp_path / SONG.legacy_file).unlink()
-    assert gate.folder_problems(tmp_path, [SONG], set()) == [f"missing {SONG.legacy_file}"]
+    (tmp_path / SONG.tone_pdf).unlink()
+    assert gate.folder_problems(tmp_path, [SONG], set()) == [f"missing {SONG.tone_pdf}"]
     assert gate.folder_problems(tmp_path, [SONG], {"Name"}) == []
     (tmp_path / "old.pdf").write_text("x")
     assert gate.folder_problems(tmp_path, [SONG], {"Name"}) == ["stray old.pdf"]
