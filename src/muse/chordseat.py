@@ -27,6 +27,7 @@ STEM_REACH = 1.0
 HEAD_CODES = (0xE0A0, 0xE0FF)
 INK_REACH = 0.8  # points a letter's ink can start left of its text box; further left is a neighbour
 SIGN_INK_WIDTH = 0.75  # the printed part of a segno or coda, in sign font sizes
+SIGN_FRAME = (10.0, 60.0)  # points wide the coloured box around a sign can be
 EQUAL_TOLERANCE = mode.pick(1.5, 4.0)  # points an empty bar may differ from its line's mean
 CHORD_GAP = mode.pick(0.75, 0.5)  # clear space between 2 chords, in chord sizes
 MIN_STAFF_WIDTH = 60.0  # a short last line is left unfilled, and is still a staff
@@ -142,6 +143,13 @@ def measure_boxes(mpos: pathlib.Path) -> list[dict[str, float]]:
     return boxes
 
 
+def sign_end(char: dict[str, Any], size: float, frames: list[pymupdf.Rect]) -> float:
+    """Where a segno or coda stops taking room: the right edge of the coloured box drawn around it, else its printed glyph."""
+    middle = ((char["bbox"][0] + char["bbox"][2]) / 2, (char["bbox"][1] + char["bbox"][3]) / 2)
+    around = [frame.x1 for frame in frames if frame.x0 <= middle[0] <= frame.x1 and frame.y0 <= middle[1] <= frame.y1]
+    return float(max(around)) if around else float(char["origin"][0]) + size * SIGN_INK_WIDTH
+
+
 def page_lines(pdf: pathlib.Path) -> list[dict[str, Any]]:
     """Every staff carrying chords, in print order: its chord left edges, its barlines, where its signatures end, and its staff space."""
     lines = []
@@ -149,6 +157,7 @@ def page_lines(pdf: pathlib.Path) -> list[dict[str, Any]]:
     for page in pdftext.open(pdf):
         words, glyphs = [], []
         signs_here: list[tuple[float, float]] = []
+        frames = [d["rect"] for d in page.get_drawings() if d.get("color") and tuple(d["color"]) != (0.0, 0.0, 0.0) and SIGN_FRAME[0] < d["rect"].width < SIGN_FRAME[1]]
         for block in page.get_text("rawdict")["blocks"]:
             for line in block.get("lines", []):
                 for span in line["spans"]:
@@ -157,7 +166,7 @@ def page_lines(pdf: pathlib.Path) -> list[dict[str, Any]]:
                         continue
                     if all(0xE000 <= ord(c) <= 0xF8FF for c in text):
                         glyphs += [(c["origin"][0], c["origin"][1], c["bbox"][2], ord(c["c"])) for c in span["chars"]]
-                        signs_here += [(c["origin"][0] + span["size"] * SIGN_INK_WIDTH, c["origin"][1]) for c in span["chars"] if c["c"] in SIGN_CHARS]
+                        signs_here += [(sign_end(c, span["size"], frames), c["origin"][1]) for c in span["chars"] if c["c"] in SIGN_CHARS]
                     else:
                         words.append((span["size"], span["bbox"][0], span["bbox"][2], span["origin"][1], text))
         if not words:
