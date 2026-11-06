@@ -848,23 +848,34 @@ def finish_within_cap(src: pathlib.Path, work: pathlib.Path, variant: str, limit
         for start_gap in sorted({distance, MIDDLE_DISTANCE, TIGHT_DISTANCE}, reverse=True):  # a tighter line gap keeps the bigger notation
             if start_gap > distance:
                 continue
-            try:
-                laid, _, _ = lay_out(src, work, size, start_gap, limit, variant, seated=False)
-                score, base, probe = lay_out(src, work, size, start_gap, limit, variant, line_starts(laid))
-            except DoesNotFit:
+            laid = trials(src, work, variant, limit, [(size, start_gap)])[(size, start_gap)]
+            if laid is None:
                 continue
-            gap = start_gap
-            for wider in (start_gap * 2, start_gap * 1.5):  # the line gap changes height alone, so a seated layout keeps its lines
+            lines = line_starts(laid)
+            gaps = [start_gap * 2, start_gap * 1.5, start_gap]  # the line gap changes height alone, so the lines hold at every gap
+            widened = held_lines(src, work, variant, limit, size, gaps, lines)
+            for gap in [g for g in gaps if widened[g]]:
                 try:
-                    score, base, probe = lay_out(src, work, size, wider, limit, variant, line_starts(score))
-                    gap = wider
-                    break
+                    score, base, probe = lay_out(src, work, size, gap, limit, variant, lines)
                 except DoesNotFit:
                     continue
-            else:
-                score, base, probe = lay_out(src, work, size, start_gap, limit, variant, line_starts(score))
-            return score, base, size, gap, len(pdftext.open(probe))
+                return score, base, size, gap, len(pdftext.open(probe))
     return None
+
+
+def held_lines(src: pathlib.Path, work: pathlib.Path, variant: str, limit: int, size: float, gaps: list[float], lines: list[int]) -> dict[float, bool]:
+    """Whether the given lines fit their pages at each line gap, the gaps laid out side by side and unseated."""
+
+    def one(gap: float) -> tuple[float, bool]:
+        with BATCHER.worker():
+            try:
+                lay_out(src, work, size, gap, limit, variant, lines, seated=False)
+                return gap, True
+            except DoesNotFit:
+                return gap, False
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(gaps)) as pool:
+        return dict(pool.map(one, gaps))
 
 
 def legacy_command() -> str:
