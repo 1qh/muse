@@ -337,7 +337,7 @@ function main() {
         seatStarts(all)
         var short = shortfalls(all)
         var moved = curScore.metaTag("museEven") === "0" ? 0 : even()  // the caller evens from a fresh render when it says so
-        var widening = curScore.metaTag("museEven") !== "0"  // chord text never sets a bar's width: the caller plans fewer bars instead
+        var widening = curScore.metaTag("museEven") !== "0" || curScore.metaTag("museWiden") === "1"  // chord text sets no bar's width unless the caller allows it
         if ((!short.length || !widening) && !moved) break
         if (short.length && widening) widen(short)
     }
