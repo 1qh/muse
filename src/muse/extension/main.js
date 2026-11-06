@@ -279,33 +279,41 @@ function main() {
 }
 
 function raiseText(all) {
-    // any cue, mark or tempo reaching into its line's chord row moves up to sit above the chords
-    var rows = {}
+    // a line's cues, marks and tempi, in reading order, each placed above every chord and every text already placed over the same span: they stack and never overprint
+    var placed = {}
     for (var i = 0; i < all.length; i++) {
         var c = all[i].chord
         var key = lineKey(all[i].measure)
-        if (!rows[key]) rows[key] = []
-        rows[key].push({ x0: c.pagePos.x + c.bbox.x, x1: c.pagePos.x + c.bbox.x + c.bbox.width, top: c.pagePos.y + c.bbox.y })
+        if (!placed[key]) placed[key] = []
+        placed[key].push({ x0: c.pagePos.x + c.bbox.x, x1: c.pagePos.x + c.bbox.x + c.bbox.width, top: c.pagePos.y + c.bbox.y })
     }
-    curScore.startCmd()
+    var texts = []
     var segment = curScore.firstSegment()
     while (segment) {
-        var key2 = lineKey(segment.parent)
-        var row = rows[key2] || []
         var notes = segment.annotations
         for (var n = 0; n < notes.length; n++) {
             var t = notes[n]
             if (t.type === Element.HARMONY || !t.bbox || t.track !== 0) continue
-            var x0 = t.pagePos.x + t.bbox.x, x1 = x0 + t.bbox.width
-            var bottom = t.pagePos.y + t.bbox.y + t.bbox.height
-            var ceiling = 1e9
-            for (var r = 0; r < row.length; r++) if (row[r].x0 < x1 && x0 < row[r].x1) ceiling = Math.min(ceiling, row[r].top)
-            if (ceiling < 1e9 && bottom > ceiling - GAP) {
-                t.autoplace = false
-                t.offsetY = t.offsetY - (bottom - (ceiling - GAP))
-            }
+            texts.push({ text: t, key: lineKey(segment.parent), x0: t.pagePos.x + t.bbox.x, x1: t.pagePos.x + t.bbox.x + t.bbox.width, top: t.pagePos.y + t.bbox.y, height: t.bbox.height })
         }
         segment = segment.next
+    }
+    texts.sort(function (a, b) { return a.key === b.key ? a.x0 - b.x0 : (a.key < b.key ? -1 : 1) })
+    curScore.startCmd()
+    for (var k = 0; k < texts.length; k++) {
+        var item = texts[k]
+        var row = placed[item.key] || []
+        var ceiling = 1e9
+        for (var r = 0; r < row.length; r++) if (row[r].x0 < item.x1 && item.x0 < row[r].x1) ceiling = Math.min(ceiling, row[r].top)
+        var top = item.top
+        if (ceiling < 1e9 && item.top + item.height > ceiling - GAP) {
+            var rise = item.top + item.height - (ceiling - GAP)
+            item.text.autoplace = false
+            item.text.offsetY = item.text.offsetY - rise
+            top = item.top - rise
+        }
+        if (!placed[item.key]) placed[item.key] = []
+        placed[item.key].push({ x0: item.x0, x1: item.x1, top: top })
     }
     curScore.endCmd()
 }

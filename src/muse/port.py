@@ -160,7 +160,7 @@ def last_before(where: list[tuple[int, float, int]], page_no: int) -> int:
 
 
 def crowded_rows(pdf: pathlib.Path, firsts: list[int]) -> set[int]:
-    """First bar of every line holding chords that run together, matched by page and height."""
+    """First bar of every line a wider line can cure, matched by page and height: chords too close and ink past the margin; text on text is never a width fault."""
     where = []
     for page_no, page in enumerate(pdftext.open(pdf)):
         for block in page.get_text("dict")["blocks"]:
@@ -173,7 +173,7 @@ def crowded_rows(pdf: pathlib.Path, firsts: list[int]) -> set[int]:
     for page_no, y, _ in pdfcheck.chord_collisions(pdf):
         same_page = [item for item in where if item[0] == page_no]
         crowded.add(min(same_page, key=lambda item: abs(item[1] - y))[2] if same_page else last_before(where, page_no))
-    for page_no, y, _ in [*pdfcheck.past_margin(pdf), *pdfcheck.text_collisions(pdf)]:
+    for page_no, y, _ in pdfcheck.past_margin(pdf):
         above = [item for item in where if item[0] == page_no and item[1] <= y]
         same_page = above or [item for item in where if item[0] == page_no]
         crowded.add(max(same_page, key=lambda item: item[1])[2] if same_page else last_before(where, page_no))

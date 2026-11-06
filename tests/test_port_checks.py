@@ -22,7 +22,15 @@ def test_a_fault_on_a_page_with_no_bar_number_lands_on_the_last_numbered_line(tm
     assert port.crowded_rows(pdf, [1]) == {1}
 
 
-def test_a_text_fault_on_a_page_with_no_bar_number_lands_on_the_last_numbered_line(tmp_path, monkeypatch):
+def test_text_on_text_is_never_a_width_fault(tmp_path, monkeypatch):
+    pdf = blank_pdf(tmp_path / "p.pdf")
+    monkeypatch.setattr(pdfcheck, "chord_collisions", lambda _: [])
+    monkeypatch.setattr(pdfcheck, "past_margin", lambda _: [])
+    monkeypatch.setattr(pdfcheck, "text_collisions", lambda _: [(0, 100.0, "x")])
+    assert port.crowded_rows(pdf, [1]) == set()
+
+
+def test_a_margin_fault_on_a_page_with_no_bar_number_lands_on_the_last_numbered_line(tmp_path, monkeypatch):
     pdf = blank_pdf(tmp_path / "p.pdf")
     monkeypatch.setattr(pdfcheck, "chord_collisions", lambda _: [])
     monkeypatch.setattr(pdfcheck, "past_margin", lambda _: [(1, 100.0, "x")])

@@ -11,6 +11,8 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 CONTROL_WORKERS = 8
 CONTROL_SECONDS = 180
 MUTATIONS = [
+    ("extension/main.js", "        placed[item.key].push({ x0: item.x0, x1: item.x1, top: top })\n", "\n", "raised texts overprint"),
+    ("port.py", "    for page_no, y, _ in pdfcheck.past_margin(pdf):", "    for page_no, y, _ in [*pdfcheck.past_margin(pdf), *pdfcheck.text_collisions(pdf)]:", "text overlap replans"),
     ("extension/main.js", "    raiseText(all)\n", "\n", "cue left in the chord row"),
     ("layout.py", 'sorted(fit, key=lambda c: (c["lines"], -c["size"]))', 'sorted(fit, key=lambda c: -c["size"])', "piano sized for big notes"),
     ("extension/main.js", 'return page + ":" + Math.round(measure.pagePos.y)', 'return "0:" + Math.round(measure.pagePos.y)', "lines keyed without their page"),

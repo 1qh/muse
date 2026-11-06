@@ -134,3 +134,20 @@ def test_a_cue_rises_above_the_chords_and_the_chords_stay_close_to_an_empty_staf
     layout.seat_inked(score_path, rendered, lambda probe: True)
     assert pdfcheck.seating_problems(pdf) == []
     assert pdfcheck.text_collisions(pdf) == []
+
+
+def test_cues_sharing_a_place_stack_above_the_chords_and_never_overprint(tmp_path: pathlib.Path) -> None:
+    from muse.model import Text
+
+    cues = [Text(10.0, -20.0, [(words, True, True)], True, "cue", 10.0) for words in ("PIANO ONLY", "Slow Strings", "BAND IN")]
+    bars = [resting(1, [chord("C", "maj7")], cues), resting(2, [chord("A", "m")]), resting(3, [chord("F")]), resting(4, [chord("G")])]
+    score_path = imported(tmp_path, bars, {1, 5})
+    pdf = score_path.with_suffix(".pdf")
+
+    def rendered() -> pathlib.Path:
+        BATCHER.render(score_path, [pdf, pdf.with_suffix(".mpos")], None)
+        return pdf
+
+    layout.seat_inked(score_path, rendered, lambda probe: True)
+    assert pdfcheck.text_collisions(pdf) == []
+    assert pdfcheck.seating_problems(pdf) == []
