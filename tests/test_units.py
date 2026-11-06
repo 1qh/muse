@@ -704,3 +704,12 @@ def test_a_saved_layout_is_proved_and_a_failed_proof_searches(monkeypatch, tmp_p
     assert port.sheet(tmp_path, tmp_path, port.PIANO, {"spatium": 1.5, "distance": 11.0})[0] == "proved"
     monkeypatch.setattr(port, "prove", lambda *a: None)
     assert port.sheet(tmp_path, tmp_path, port.PIANO, {"spatium": 1.5, "distance": 11.0})[0] == "fitted"
+
+
+def test_a_floor_layout_with_spare_height_is_searched_and_a_proof_keeps_its_owed_search(monkeypatch, tmp_path):
+    monkeypatch.setattr(port, "fit", lambda *a: ("fitted", "base", 1.5, 11.0, 2))
+    monkeypatch.setattr(port, "prove", lambda *a: ("proved", "base", 1.5, 11.0, 2))
+    assert port.sheet(tmp_path, tmp_path, port.ORIGINAL, {"spatium": 1.2, "distance": 22.0})[0] == "fitted"
+    assert port.SEARCHED["rules"] == port.layout_rules()
+    assert port.sheet(tmp_path, tmp_path, port.ORIGINAL, {"spatium": 1.5, "distance": 11.0, "searched": "old"})[0] == "proved"
+    assert port.SEARCHED["rules"] == "old"
