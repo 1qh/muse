@@ -330,13 +330,16 @@ def overflowing(sheet: Sheet, probe: pathlib.Path, seated: bool) -> set[int]:
     return {bar - 1 for row in port.rows(sheet.score) if row[0] in crowded or any(row[0] < bar <= row[-1] for bar in extra) for bar in row}
 
 
-def seat_inked(score_path: pathlib.Path, rendered: Callable[[], pathlib.Path], holds: Callable[[pathlib.Path], bool]) -> pathlib.Path:
+def seat_inked(score_path: pathlib.Path, rendered: Callable[[], pathlib.Path], holds: Callable[[pathlib.Path], bool], noted: list[int] | None = None) -> pathlib.Path:
     """The extension fits each bar's chords, evens empty bars and seats chords; each round passes it every chord's measured ink offset and ink width, until the ink sits on target."""
     bias: list[float] = []
     inks: list[float] = []  # each chord's ink width in staff spaces, known after the first round
     probe = score_path
     for _ in range(INK_ROUNDS):
-        set_tags(score_path, {"museChordGap": f"{CLEAR_SPACES:.4f}", "museInkBias": ",".join(f"{b:.4f}" for b in bias), "museInkWidth": ",".join(f"{w:.4f}" for w in inks)})
+        tags = {"museChordGap": f"{CLEAR_SPACES:.4f}", "museInkBias": ",".join(f"{b:.4f}" for b in bias), "museInkWidth": ",".join(f"{w:.4f}" for w in inks)}
+        if noted is not None:
+            tags["museNoted"] = ",".join(str(i) for i in noted) or "-1"
+        set_tags(score_path, tags)
         run_extension(score_path, score_path)
         probe = rendered()  # a fresh render of the saved score: the layout inside the launch is not what prints
         if not holds(probe):
@@ -355,7 +358,8 @@ def seat_inked(score_path: pathlib.Path, rendered: Callable[[], pathlib.Path], h
 
 def seat(sheet: Sheet, score_path: pathlib.Path) -> pathlib.Path:
     """A sheet's final score seated in place, every round judged on a fresh render of the saved score."""
-    return seat_inked(score_path, lambda: render(sheet, "final", seated=True)[1], lambda probe: sheet.starts() == sorted({1, *port.system_starts(probe)}))
+    noted = [index for index, bar in enumerate(sheet.score.bars) if piano.has_notes(bar)]
+    return seat_inked(score_path, lambda: render(sheet, "final", seated=True)[1], lambda probe: sheet.starts() == sorted({1, *port.system_starts(probe)}), noted)
 
 
 def finish(src: pathlib.Path, work: pathlib.Path, variant: str, size: float) -> tuple[Score, pathlib.Path, float, float, int]:

@@ -243,12 +243,22 @@ function widen(short) {
     curScore.endCmd()
 }
 
+function isNoted(measure) {
+    // whether a bar holds notes, by the caller's own score model when it gave 1
+    return NOTED.length ? NOTED.indexOf(barIndex(measure)) >= 0 : hasNotes(measure)
+}
+
+function inner(measure) {
+    // a bar's width after what opens its line, the width the checks compare
+    return measure.bbox.width - (start(measure) - measure.pagePos.x)
+}
+
 function even() {
     // a line's empty bars widened to its widest empty bar
     var lines = {}
     var all = measures()
     for (var i = 0; i < all.length; i++) {
-        if (hasNotes(all[i])) continue
+        if (isNoted(all[i])) continue
         var key = lineKey(all[i])
         if (!lines[key]) lines[key] = []
         lines[key].push(all[i])
@@ -257,10 +267,10 @@ function even() {
     curScore.startCmd()
     for (var k in lines) {
         var widest = 0
-        for (var j = 0; j < lines[k].length; j++) widest = Math.max(widest, lines[k][j].bbox.width)
+        for (var j = 0; j < lines[k].length; j++) widest = Math.max(widest, inner(lines[k][j]))
         for (var n = 0; n < lines[k].length; n++) {
             var m = lines[k][n]
-            if (widest - m.bbox.width > 0.1) { m.userStretch = m.userStretch * widest / m.bbox.width; moved += 1 }
+            if (widest - inner(m) > 0.1) { m.userStretch = m.userStretch * widest / inner(m); moved += 1 }
         }
     }
     curScore.endCmd()
@@ -288,7 +298,7 @@ function measureMode(all) {
         var width = bar.bbox.width
         var sameBar = i + 1 < all.length && tickOf(all[i + 1].measure) === tickOf(bar)
         var at, next
-        if (NOTED.length ? NOTED.indexOf(barIndex(bar)) >= 0 : hasNotes(bar)) {  // notes set where a chord prints; the caller says which bars hold notes
+        if (isNoted(bar)) {  // notes set where a chord prints; the caller says which bars hold notes
             at = (left(a) - edge) / width
             next = sameBar ? (left(all[i + 1]) - edge) / width : 1
         } else {  // a bar of rests spaces its chords by beat
