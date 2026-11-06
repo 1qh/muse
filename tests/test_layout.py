@@ -153,3 +153,19 @@ def test_every_size_of_a_sheet_shares_1_import(tmp_path: pathlib.Path, monkeypat
     for size in (1.3, 1.8):
         layout.Sheet(tmp_path / "Song-Em.pdf", tmp_path, port.ORIGINAL, size).imported()
     assert len(styles) == 2 and styles[0] == styles[1]
+
+
+def test_finish_widens_the_line_gap_while_text_meets_text(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
+    tried = []
+
+    def finish_at(src: object, work: object, variant: object, size: float, distance: float) -> tuple[object, ...]:
+        tried.append(distance)
+        if len(tried) < 3:
+            raise port.DoesNotFit("s at 2.0: ['text on text: B']")
+        return ("score", "path", size, distance, 1)
+
+    monkeypatch.setattr(layout, "finish_at", finish_at)
+    assert layout.finish(tmp_path, tmp_path, port.ORIGINAL, 2.0)[3] == port.BASE_DISTANCE + 2 * layout.GAP_STEP  # type: ignore[arg-type]
+    monkeypatch.setattr(layout, "finish_at", lambda *a: (_ for _ in ()).throw(port.DoesNotFit("lines still wrap")))
+    with pytest.raises(port.DoesNotFit, match="wrap"):
+        layout.finish(tmp_path, tmp_path, port.ORIGINAL, 2.0)

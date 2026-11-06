@@ -28,6 +28,8 @@ LONE_COST = 1.0  # a lone bar outweighs any evenness gained by it
 SHORT_COST = 0.15  # a 2-bar line is allowed, but a fuller arrangement of as many lines wins
 LONE_FILL = 0.5  # of a line a single bar must fill to stand alone without cost
 GROW = 1.06  # share a bar's width estimate grows each time its line will not hold
+GAP_STEPS = 4  # line gaps tried before a size is refused for text meeting text
+GAP_STEP = 2.0  # staff spaces the line gap widens each try
 GROW_STEPS = 12  # up to about double, before a line that will not hold is called unmovable
 INK_ROUNDS = 4
 EXTENSION = pathlib.Path(__file__).parent / "extension"
@@ -357,8 +359,22 @@ def seat(sheet: Sheet, score_path: pathlib.Path) -> pathlib.Path:
 
 
 def finish(src: pathlib.Path, work: pathlib.Path, variant: str, size: float) -> tuple[Score, pathlib.Path, float, float, int]:
-    """1 size from plan to a seated sheet that passes every final check; a line that will not hold grows its estimate and the whole plan is made again."""
-    sheet = Sheet(src, work, variant, size)
+    """1 size finished at the base line gap, then at wider gaps while text below 1 line meets the next line's chords."""
+    refusal: port.DoesNotFit | None = None
+    for step in range(GAP_STEPS):
+        try:
+            return finish_at(src, work, variant, size, port.BASE_DISTANCE + step * GAP_STEP)
+        except port.DoesNotFit as error:
+            if "text on text" not in str(error):
+                raise
+            refusal = error
+    assert refusal is not None
+    raise refusal
+
+
+def finish_at(src: pathlib.Path, work: pathlib.Path, variant: str, size: float, distance: float) -> tuple[Score, pathlib.Path, float, float, int]:
+    """1 size and line gap from plan to a seated sheet that passes every final check; a line that will not hold grows its estimate and the whole plan is made again."""
+    sheet = Sheet(src, work, variant, size, distance)
     widths, room = measure(sheet)
     score_path = sheet.path("final")
     for _ in range(REPLAN_ROUNDS):
