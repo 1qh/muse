@@ -467,15 +467,6 @@ def test_chords_sharing_a_bar_each_ask_for_their_share():
     assert port.bar_room(pair, 1.2) == 2 * port.bar_room(lone, 1.2)
 
 
-def test_a_saved_layout_is_proved_before_any_search(monkeypatch, tmp_path):
-    calls = []
-    monkeypatch.setattr(port, "prove", lambda *a: calls.append("prove") or ("proved",))
-    monkeypatch.setattr(port, "fit", lambda *a, **k: calls.append("fit") or ("fitted", "base", 1.5, 11.0, 2))
-    assert port.sheet(tmp_path, tmp_path, port.PIANO, (1,), {"rules": "old", "spatium": 1.5, "distance": 11.0}) == ("proved",)
-    assert port.SEARCHED["rules"] == "old"
-    assert port.sheet(tmp_path, tmp_path, port.PIANO, (1,), None)[0] == "fitted"
-    assert port.SEARCHED["rules"] == port.layout_rules()
-    assert calls == ["prove", "fit"]
 
 
 def test_a_crowded_line_hands_its_last_bar_on_and_only_a_section_end_splits():
@@ -487,12 +478,6 @@ def test_a_crowded_line_hands_its_last_bar_on_and_only_a_section_end_splits():
     assert 8 in held and len(held) == 3
 
 
-def test_a_saved_layout_that_fails_its_proof_is_searched(monkeypatch, tmp_path):
-    monkeypatch.setattr(port, "prove", lambda *a: None)
-    monkeypatch.setattr(port, "finish", lambda *a: ("finished",))
-    monkeypatch.setattr(port, "fit", lambda *a: ("searched", "base", 1.55, 11.0, 2))
-    for variant in (port.ORIGINAL, port.PIANO):
-        assert port.sheet(tmp_path, tmp_path, variant, (2,), {"rules": 1, "spatium": 1.55, "distance": 12.0})[0] == "searched"
 
 
 def test_a_lyric_label_starts_a_line():
@@ -602,24 +587,6 @@ def test_prove_refuses_a_built_line_opening_without_its_chord(monkeypatch, tmp_p
     assert port.prove(tmp_path, tmp_path, port.PIANO, {"spatium": 1.5, "distance": 11.0, "pages": 1, "lines": [0]}) is None
 
 
-def test_a_search_starts_at_the_saved_size_and_looks_near_it(monkeypatch, tmp_path):
-    tried = []
-
-    class Fits:
-        pass
-
-    def lay(src, work, size, gap, limit, variant, seated=False):
-        tried.append(size)
-        if size > 1.6:
-            raise port.DoesNotFit("too big")
-        return Fits(), None, None
-
-    monkeypatch.setattr(port, "lay_out", lay)
-    monkeypatch.setattr(port, "acceptable", lambda *a: True)
-    monkeypatch.setattr(port, "finish", lambda src, work, variant, limit, size, gap: size)
-    port.TRIALS.clear()
-    assert port.fit(tmp_path, tmp_path, port.ORIGINAL, 2, near=1.4) == 1.6
-    assert min(tried) >= port.SIZE_FLOORS[0] and max(tried) <= 1.9
 
 
 def test_a_short_line_borrows_only_from_a_line_with_bars_to_spare():
@@ -628,23 +595,8 @@ def test_a_short_line_borrows_only_from_a_line_with_bars_to_spare():
     assert port.borrowings([[1, 2, 3, 4], [5, 6]], {4}) == []
 
 
-def test_a_sheet_at_the_floor_with_spare_height_is_searched_with_the_wider_share(monkeypatch, tmp_path):
-    shares = []
-
-    def fit(*a):
-        shares.append(port.SHARE["limit"])
-        return ("laid", "base", port.SIZE_FLOORS[0], 22.0, 2) if len(shares) == 1 else ("laid", "base", 1.5, 11.0, 2)
-
-    monkeypatch.setattr(port, "fit", fit)
-    assert port.sheet(tmp_path, tmp_path, port.ORIGINAL, (2,), None)[2] == 1.5
-    assert shares == [port.MAX_SHORT_SHARE, port.RELAXED_SHORT_SHARE]
-    assert port.SHARE["limit"] == port.MAX_SHORT_SHARE
 
 
-def test_a_saved_floor_layout_with_spare_height_skips_its_proof(monkeypatch, tmp_path):
-    monkeypatch.setattr(port, "prove", lambda *a: ("proved",))
-    monkeypatch.setattr(port, "fit", lambda *a: ("laid", "base", 1.5, 11.0, 2))
-    assert port.sheet(tmp_path, tmp_path, port.ORIGINAL, (2,), {"spatium": 1.2, "distance": 22.0})[2] == 1.5
 
 
 def _plain_bar(number, left=0.0, right=100.0, **extra):
@@ -713,14 +665,6 @@ def test_a_target_sign_is_held_in_its_own_line_and_a_jump_is_not():
     assert port.TARGET_HOLD not in jump
 
 
-def test_the_second_wave_finds_a_size_between_2_spread_sizes(monkeypatch, tmp_path):
-    def trials(src, work, variant, limit, pairs):
-        return {pair: (object() if pair[0] <= 1.75 else None) for pair in pairs}
-
-    monkeypatch.setattr(port, "trials", trials)
-    monkeypatch.setattr(port, "acceptable", lambda *a: True)
-    found = port.waves(tmp_path, tmp_path, port.ORIGINAL, 2, 1.2, 3.0)
-    assert max(found)[0] == 1.75
 
 
 def test_an_import_is_rebuilt_when_what_it_came_from_changes(tmp_path, monkeypatch):
@@ -740,3 +684,23 @@ def test_an_import_is_rebuilt_when_what_it_came_from_changes(tmp_path, monkeypat
     assert port.imported(score, tmp_path, "x", style, False) == first and len(made) == 1
     style.write_text("<Style>2</Style>", encoding="utf-8")
     assert port.imported(score, tmp_path, "x", style, False) != first and len(made) == 2
+
+
+def test_the_largest_size_that_fills_its_pages_wins_over_a_bigger_1_that_does_not(monkeypatch, tmp_path):
+    def trials(src, work, variant, limit, pairs):
+        for pair in pairs:
+            port.FILLS[(str(src), variant, *pair)] = 0.9 if pair[0] <= 1.7 else 0.5
+        return {pair: object() for pair in pairs}
+
+    monkeypatch.setattr(port, "trials", trials)
+    monkeypatch.setattr(port, "acceptable", lambda *a: True)
+    monkeypatch.setattr(port, "finish", lambda src, work, variant, limit, size, gap: size)
+    assert port.fit(tmp_path, tmp_path, port.ORIGINAL) == 1.7
+
+
+def test_a_saved_layout_is_proved_and_a_failed_proof_searches(monkeypatch, tmp_path):
+    monkeypatch.setattr(port, "fit", lambda *a: ("fitted", "base", 1.5, 11.0, 2))
+    monkeypatch.setattr(port, "prove", lambda *a: ("proved", "base", 1.5, 11.0, 2))
+    assert port.sheet(tmp_path, tmp_path, port.PIANO, {"spatium": 1.5, "distance": 11.0})[0] == "proved"
+    monkeypatch.setattr(port, "prove", lambda *a: None)
+    assert port.sheet(tmp_path, tmp_path, port.PIANO, {"spatium": 1.5, "distance": 11.0})[0] == "fitted"

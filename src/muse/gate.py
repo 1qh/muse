@@ -40,8 +40,6 @@ def legacy_staff_problems(legacy: pathlib.Path, work: pathlib.Path, title: str) 
 def page_problems(path: pathlib.Path) -> list[str]:
     problems = []
     doc = pymupdf.open(path)
-    if len(doc) > port.MAX_PAGES:
-        problems.append(f"{len(doc)} pages, limit {port.MAX_PAGES}")
     for number, page in enumerate(doc, 1):
         if abs(page.rect.width - A4[0]) > A4_TOLERANCE or abs(page.rect.height - A4[1]) > A4_TOLERANCE:
             problems.append(f"p{number}: not A4 ({page.rect.width:.0f} x {page.rect.height:.0f})")

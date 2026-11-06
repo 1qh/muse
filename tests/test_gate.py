@@ -68,9 +68,9 @@ def test_unknown_music_glyph_is_refused():
         symbolfont.load(Page(), {"M": "music"})
 
 
-def test_page_cap_and_a4(tmp_path):
+def test_any_page_count_passes_and_every_page_is_a4(tmp_path):
     assert gate.page_problems(blank(tmp_path / "ok.pdf", pages=2)) == []
-    assert gate.page_problems(blank(tmp_path / "long.pdf", pages=3)) == ["3 pages, limit 2"]
+    assert gate.page_problems(blank(tmp_path / "long.pdf", pages=5)) == []
     assert gate.page_problems(blank(tmp_path / "letter.pdf", width=612.0, height=792.0))[0].startswith("p1: not A4")
     assert gate.page_problems(blank(tmp_path / "wide.pdf", width=612.0))[0].startswith("p1: not A4")
 

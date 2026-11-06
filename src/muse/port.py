@@ -38,7 +38,8 @@ SPLIT_SHARE = 4  # a crowded line gives up this share of its bars
 NOTE_ROOM = 9.0  # points per note event, per unit of spatium
 EMPTY_BAR_ROOM = 12.0  # points an empty bar needs, per unit of spatium
 SIZE_FLOORS = (1.2, 1.15)  # below 1.2 only for a song that fits its pages no other way; under 1.15 the fixed title outgrows chords
-MAX_PAGES = 2
+SIZE_CAP = 2.0  # the largest notation any sheet takes
+PAGE_FILL = 0.85  # how far down every page the music must reach
 MAX_WORKERS = 10
 SEAT_PASSES = 5
 LAYOUT_FILES = ("port.py", "chordseat.py", "piano.py", "chordnames.py", "musicxml.py", "style.mss")
@@ -51,7 +52,6 @@ NEAR_REACH = 0.5  # how far above a saved size a seeded search looks
 SIZE_STEP = 0.05
 WAVE = 8  # sizes laid out side by side in the first wave of a search
 BORROW_FROM = 4  # bars a line must hold to lend its last one to a short line below
-RELAXED_SHORT_SHARE = 0.30  # for a song 15% would hold at the smallest size
 CLIMB_START, CLIMB_STEP, CLIMB_STEPS = 1.3, 0.1, 8
 SIGN_CLEARANCE = 3.0  # spaces a chord moves right off a sign printed on its baseline
 TARGET_HOLD = '<autoplace>0</autoplace><offset x="1" y="-3"/>'
@@ -763,17 +763,30 @@ def acceptable(laid: Score, variant: str) -> bool:
     return short_line_share(rows(laid)) <= SHARE["limit"]
 
 
-TRIALS: dict[tuple[str, str, int, float, float], Score | None] = {}
+TRIALS: dict[tuple[str, str, int | None, float, float], Score | None] = {}
+FILLS: dict[tuple[str, str, float, float], float] = {}  # the least filled page of each trial, as a share of its height
 
 
-def trials(src: pathlib.Path, work: pathlib.Path, variant: str, limit: int, pairs: list[tuple[float, float]]) -> dict[tuple[float, float], Score | None]:
+def page_fill(pdf: pathlib.Path) -> float:
+    """How far down its page the music reaches on the least filled page, as a share of the page height."""
+    shares = []
+    for page in pdftext.open(pdf):
+        pix = page.get_pixmap(dpi=36, colorspace=pymupdf.csGRAY)
+        inked = [y for y in range(pix.height) if min(pix.samples[y * pix.width:(y + 1) * pix.width]) < 128]
+        shares.append((max(inked) + 1) / pix.height if inked else 0.0)
+    return min(shares, default=0.0)
+
+
+def trials(src: pathlib.Path, work: pathlib.Path, variant: str, limit: int | None, pairs: list[tuple[float, float]]) -> dict[tuple[float, float], Score | None]:
     """Every size and line gap laid out side by side, their renders sharing jobs; None where it does not fit."""
     wanted = [pair for pair in dict.fromkeys(pairs) if (str(src), variant, limit, *pair) not in TRIALS]
 
     def one(pair: tuple[float, float]) -> tuple[tuple[float, float], Score | None]:
         with BATCHER.worker():
             try:
-                return pair, lay_out(src, work, pair[0], pair[1], limit, variant, seated=False)[0]
+                laid, _, probe = lay_out(src, work, pair[0], pair[1], limit, variant, seated=False)
+                FILLS[(str(src), variant, *pair)] = page_fill(probe)
+                return pair, laid
             except DoesNotFit:
                 return pair, None
 
@@ -788,41 +801,19 @@ def sizes_between(low: float, high: float) -> list[float]:
     return [round(low + step * SIZE_STEP, 2) for step in range(int(round((high - low) / SIZE_STEP)) + 1)]
 
 
-def waves(src: pathlib.Path, work: pathlib.Path, variant: str, limit: int, low: float, high: float) -> list[tuple[float, float]]:
-    """Fitting sizes at the base line gap, narrowed in waves: a spread of sizes, then every size between the largest fit and the next that failed."""
-    sizes = sizes_between(low, high)
-    spread = sorted({sizes[round(i * (len(sizes) - 1) / (WAVE - 1))] for i in range(WAVE)}) if len(sizes) > WAVE else sizes
-    found = trials(src, work, variant, limit, [(size, BASE_DISTANCE) for size in spread])
-    fits = [pair[0] for pair, laid in found.items() if laid is not None and acceptable(laid, variant)]
-    if fits:
-        top = max(fits)
-        above = min((size for size in spread if size > top), default=top)
-        found = trials(src, work, variant, limit, [(size, BASE_DISTANCE) for size in sizes_between(top, above)])
-        fits += [pair[0] for pair, laid in found.items() if laid is not None and acceptable(laid, variant)]
-    return [(size, BASE_DISTANCE) for size in sorted(set(fits))]
+def fit(src: pathlib.Path, work: pathlib.Path, variant: str) -> tuple[Score, pathlib.Path, float, float, int] | None:
+    """The largest notation up to the cap whose lines fill every page they need, every size laid out side by side; only the chosen 1 is seated."""
+    pairs = [(size, BASE_DISTANCE) for size in sizes_between(SIZE_FLOORS[-1], SIZE_CAP)]
+    found = trials(src, work, variant, None, pairs)
+    good = [pair for pair, laid in found.items() if laid is not None and acceptable(laid, variant)]
+    full = [pair for pair in good if FILLS.get((str(src), variant, *pair), 0.0) >= PAGE_FILL]
+    chosen = max(full or good, default=None)
+    if chosen is None:
+        return None
+    return finish(src, work, variant, None, chosen[0], chosen[1])
 
 
-def fit(src: pathlib.Path, work: pathlib.Path, variant: str, limit: int, near: float | None = None) -> tuple[Score, pathlib.Path, float, float, int] | None:
-    """The largest notation of 1 sheet within a page limit: every candidate size laid out side by side, only the chosen 1 seated and checked in full."""
-    low = SIZE_FLOORS[0] if near is None else max(SIZE_FLOORS[0], round(near - NEAR_REACH, 2))
-    high = MAX_SPATIUM if near is None else min(MAX_SPATIUM, round(near + NEAR_REACH, 2))
-    good = waves(src, work, variant, limit, low, high)
-    if not good and near is not None:
-        good = waves(src, work, variant, limit, SIZE_FLOORS[0], MAX_SPATIUM)
-    if not good:
-        floors = [(size, gap) for size in SIZE_FLOORS for gap in (BASE_DISTANCE, MIDDLE_DISTANCE, TIGHT_DISTANCE)]
-        laid_floors = trials(src, work, variant, limit, floors)
-        good = [pair for pair in floors if laid_floors[pair] is not None]
-        if not good:
-            return None
-        gap = good[0][1]
-        wider = trials(src, work, variant, limit, [(size, gap) for size in sizes_between(SIZE_FLOORS[-1], MAX_SPATIUM)])
-        good = [pair for pair, laid in wider.items() if laid is not None and acceptable(laid, variant)] or [good[0]]
-    spatium, distance = max(good)
-    return finish(src, work, variant, limit, spatium, distance)
-
-
-def finish(src: pathlib.Path, work: pathlib.Path, variant: str, limit: int, spatium: float, distance: float) -> tuple[Score, pathlib.Path, float, float, int] | None:
+def finish(src: pathlib.Path, work: pathlib.Path, variant: str, limit: int | None, spatium: float, distance: float) -> tuple[Score, pathlib.Path, float, float, int] | None:
     """Seat and check the chosen size in full, stepping down a little when it fails; then open the line gap into the height left."""
     SEARCH_CAP["at"] = LAUNCHES["count"] + FINAL_LAUNCH_CAP
     try:
@@ -831,7 +822,7 @@ def finish(src: pathlib.Path, work: pathlib.Path, variant: str, limit: int, spat
         SEARCH_CAP["at"] = 0
 
 
-def finish_within_cap(src: pathlib.Path, work: pathlib.Path, variant: str, limit: int, spatium: float, distance: float) -> tuple[Score, pathlib.Path, float, float, int] | None:
+def finish_within_cap(src: pathlib.Path, work: pathlib.Path, variant: str, limit: int | None, spatium: float, distance: float) -> tuple[Score, pathlib.Path, float, float, int] | None:
     """The chosen size and the few below it seated side by side; the largest that passes in full wins."""
     sizes = [size for size in (round(spatium - step * SIZE_STEP, 2) for step in range(FINAL_STEPS)) if size >= SIZE_FLOORS[-1]]
 
@@ -859,7 +850,7 @@ def finish_within_cap(src: pathlib.Path, work: pathlib.Path, variant: str, limit
     return max(done, key=lambda found: found[2]) if done else None
 
 
-def held_lines(src: pathlib.Path, work: pathlib.Path, variant: str, limit: int, size: float, gaps: list[float], lines: list[int]) -> dict[float, bool]:
+def held_lines(src: pathlib.Path, work: pathlib.Path, variant: str, limit: int | None, size: float, gaps: list[float], lines: list[int]) -> dict[float, bool]:
     """Whether the given lines fit their pages at each line gap, the gaps laid out side by side and unseated."""
 
     def one(gap: float) -> tuple[float, bool]:
@@ -947,28 +938,13 @@ def legacy_signs(mscz: pathlib.Path) -> None:
             z.writestr(key, data)
 
 
-def sheet(src: pathlib.Path, work: pathlib.Path, variant: str, limits: tuple[int, ...], saved: dict[str, Any] | None) -> tuple[Score, pathlib.Path, float, float, int]:
-    """A saved decision re-proved in 1 pass, or the search."""
-    SEARCH_CAP["hit"] = 0
+def sheet(src: pathlib.Path, work: pathlib.Path, variant: str, saved: dict[str, Any] | None) -> tuple[Score, pathlib.Path, float, float, int]:
+    """A saved decision re-proved in 1 pass, or the search; no sheet has a page limit."""
     found = prove(src, work, variant, saved) if saved and not floor_gap_problems(variant, saved) else None  # a finished search stays paid for
     SEARCHED["rules"] = saved.get("searched", saved.get("rules")) if found and saved else layout_rules()
-    near = float(saved["spatium"]) if saved else None
-    for limit in limits:
-        found = found or fit(src, work, variant, limit, near)
-    if found is None or (variant != PIANO and found[2] <= SIZE_FLOORS[0] and found[3] > BASE_DISTANCE):
-        SHARE["limit"] = RELAXED_SHORT_SHARE  # bigger notes outrank fuller lines
-        try:
-            for limit in limits:
-                wider = fit(src, work, variant, limit, near)
-                if wider is not None:
-                    found = wider
-                    print(f"{src.stem} {variant}: more than {MAX_SHORT_SHARE:.0%} short lines allowed for size {wider[2]}", flush=True)
-                    break
-        finally:
-            SHARE["limit"] = MAX_SHORT_SHARE
+    found = found or fit(src, work, variant)
     if found is None:
-        cause = "a launch cap stopped the search" if SEARCH_CAP["hit"] else f"it is over {limits[-1]} pages at the smallest size"
-        raise DoesNotFit(f"{src.stem}: the {variant} sheet has no passing layout: {cause}")
+        raise DoesNotFit(f"{src.stem}: the {variant} sheet has no passing layout at any size")
     return found
 
 
@@ -1012,7 +988,7 @@ def port(src: pathlib.Path, out_dir: pathlib.Path, work: pathlib.Path) -> dict[s
     outputs = [out_dir / info.score_file, out_dir / info.original_pdf] + ([out_dir / info.legacy_file] if LEGACY_FILES else [])
     key, ready = current(ORIGINAL, shared, outputs)
     if not ready:
-        found = sheet(src, work, ORIGINAL, (MAX_PAGES,), old(ORIGINAL))
+        found = sheet(src, work, ORIGINAL, old(ORIGINAL))
         (out_dir / info.score_file).write_bytes(found[1].read_bytes())
         shutil.copyfile(found[1].with_name(found[1].stem + "-layout.pdf"), out_dir / info.original_pdf)
         if LEGACY_FILES:
@@ -1034,7 +1010,7 @@ def port(src: pathlib.Path, out_dir: pathlib.Path, work: pathlib.Path) -> dict[s
         outputs = [out_dir / info.tone_pdf, tone_score]
         key, ready = current(TONE, shared, outputs)
         if not ready:
-            found = sheet(src, work, TONE, (MAX_PAGES,), old(TONE))
+            found = sheet(src, work, TONE, old(TONE))
             shutil.copyfile(found[1].with_name(found[1].stem + "-layout.pdf"), out_dir / info.tone_pdf)
             shutil.copyfile(found[1], tone_score)
             keep(TONE, key, outputs, found)
@@ -1042,7 +1018,7 @@ def port(src: pathlib.Path, out_dir: pathlib.Path, work: pathlib.Path) -> dict[s
     outputs = [out_dir / info.piano_pdf, final]
     key, ready = current(PIANO, every, outputs)
     if not ready:
-        found = sheet(src, work, PIANO, (1, MAX_PAGES), old(PIANO))
+        found = sheet(src, work, PIANO, old(PIANO))
         shutil.copyfile(found[1].with_name(found[1].stem + "-layout.pdf"), out_dir / info.piano_pdf)
         final.write_bytes(found[1].read_bytes())
         keep(PIANO, key, outputs, found)
