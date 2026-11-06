@@ -29,7 +29,6 @@ INK_REACH = 0.8  # points a letter's ink can start left of its text box; further
 SIGN_INK_WIDTH = 0.75  # the printed part of a segno or coda, in sign font sizes
 SIGN_REACH = 0.5  # of the chord size: a sign this near the chord baseline shares its row
 EQUAL_TOLERANCE = 1.5  # points an empty bar may differ from its line's mean
-SAME_BARLINE = 6.0  # the 2 strokes of a repeat or a double bar are 1 barline
 MIN_STAFF_WIDTH = 60.0  # a short last line is left unfilled, and is still a staff
 MIN_RULE_WIDTH = 10.0
 MIN_STAFF_SPACE = 2.0
@@ -47,9 +46,6 @@ def score_text(mscz: pathlib.Path) -> tuple[str, str]:
         return name, z.read(name).decode("utf-8")
 
 
-def layout_of(text: str) -> list[list[bool]]:
-    """Per line, per chord in order, whether it opens its line's bar on beat 1, with the bar's place on the line: flags only."""
-    return [[beat for _, beat in row] for row in rows_of(text)]
 
 
 def rows_of(text: str) -> list[list[tuple[int, bool]]]:
@@ -173,7 +169,7 @@ def page_lines(pdf: pathlib.Path) -> list[dict[str, Any]]:
         shapes = segments(page)
         systems = [row for row in measures if row["page"] == page.number]
         tops = sorted({row["y"] for row in systems})
-        steps = [staff[1] - staff[0] for staff in staves_of(shapes)]
+        steps = [(staff[4] - staff[0]) / 4 for staff in staves_of(shapes) if len(staff) == 5]  # the whole staff over its 4 steps: rounding of 1 line pair errs 4 times as much
         space = steps[0] if steps else DEFAULT_SPACE
         for at, staff_top in enumerate(tops):
             above = tops[at - 1] if at else -1000.0
@@ -182,10 +178,12 @@ def page_lines(pdf: pathlib.Path) -> list[dict[str, Any]]:
                 continue
             joined: list[float] = []
             rights: list[float] = []
+            lefts: list[float] = []  # each chord's text box left, the edge the gap between 2 chords is judged from
             texts: list[str] = []
             for word in sorted(mine, key=lambda w: w[1]):
                 if CHORD_SHAPE.match(word[4]) and not (texts and texts[-1].endswith(("/", "("))):  # later pieces, such as what follows a flat or a slash, open no chord
                     joined.append(ink_left(page, word[1], word[3], word[0]))
+                    lefts.append(word[1])
                     rights.append(word[2])
                 elif rights and word[4][0] not in "ABCDEFGHIJKLMNOPQRSTUVWXYZ":  # a cue at chord size is no piece of a chord
                     rights[-1] = word[2]
@@ -201,7 +199,7 @@ def page_lines(pdf: pathlib.Path) -> list[dict[str, Any]]:
             base = mine[0][3]
             # a sign printed on the chord row takes the place right after the clef, so the chord follows it
             start = max([start, *(end for end, y in signs_here if abs(y - base) < top * SIGN_REACH and end < start + top * 2)])
-            lines.append({"chords": joined, "bars": bars, "start": start, "space": space, "rights": rights, "size": top})
+            lines.append({"chords": joined, "bars": bars, "start": start, "space": space, "rights": rights, "lefts": lefts, "size": top})
     return lines
 
 
@@ -246,6 +244,25 @@ def gaps(rows: list[list[tuple[int, bool]]], lines: list[dict[str, Any]]) -> lis
             edge = line["start"] if place == 0 else line["bars"][place - 1]
             found.append(left - edge)
     return found
+
+
+def space_points(score_path: pathlib.Path) -> float:
+    """1 staff space in points, exact, from the score's own style: a space measured off the PDF's rounded staff lines errs by a few hundredths."""
+    with zipfile.ZipFile(score_path) as archive:
+        styles = [name for name in archive.namelist() if name.endswith(".mss")]
+        found = [re.search(r"<[Ss]patium>([^<]+)</[Ss]patium>", archive.read(name).decode("utf-8")) for name in styles]
+    values = [float(match.group(1)) for match in found if match]
+    if len(values) != 1:
+        raise ValueError(f"{score_path.name}: {len(values)} staff spaces in its style, wanted 1")
+    return values[0] * 72 / 25.4
+
+
+def ink_widths(rows: list[list[tuple[int, bool]]], lines: list[dict[str, Any]]) -> list[float]:
+    """Each chord's printed width in points, box left to box right as the gap check judges it, in score order: a superscript can reach past the text box the score program reports."""
+    filled = [row for row in rows if row]
+    if len(filled) != len(lines) or any(len(row) != len(line["chords"]) for row, line in zip(filled, lines, strict=True)):
+        raise ValueError("the score and the PDF disagree on chords per line")
+    return [right - left for line in lines for left, right in zip(line["lefts"], line["rights"], strict=True)]
 
 
 def spaces_of(rows: list[list[tuple[int, bool]]], lines: list[dict[str, Any]]) -> list[float]:

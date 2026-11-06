@@ -6,7 +6,7 @@ import pathlib
 import subprocess
 import sys
 
-from muse import buildcache, port
+from muse import build, buildcache
 from muse.song import song_of, sources
 
 
@@ -17,7 +17,6 @@ def blob(out: pathlib.Path, name: str) -> bytes | None:
 
 def main() -> None:
     src_dirs, out = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
-    rules = port.layout_rules()
     current = stale = missing = 0
     for src in sources(src_dirs):
         info = song_of(src)
@@ -27,9 +26,8 @@ def main() -> None:
             decision = entry.get("decision") or {}
             recorded = entry.get("outputs", {})
             pushed = all((data := blob(out, "/".join(pathlib.Path(path).parts[-2:]))) is not None and hashlib.sha256(data).hexdigest() == digest for path, digest in recorded.items())
-            ok = decision.get("rules") == rules and pushed
-            owes = "" if decision.get("searched") == rules else ":owes-search"
-            verdicts.append(f"{variant}:{'current' if ok else 'stale'}{owes}:{decision.get('spatium')}x{decision.get('pages')}p")
+            ok = entry.get("key") == build.variant_key(src, variant) and pushed
+            verdicts.append(f"{variant}:{'current' if ok else 'stale'}:{decision.get('spatium')}x{decision.get('pages')}p")
             current += ok
             stale += not ok
         if not state:

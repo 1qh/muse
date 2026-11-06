@@ -56,9 +56,6 @@ def stored(kind: str) -> str:
     return SHORT.get(kind, kind)
 
 
-def same_chord(left: str, right: str) -> bool:
-    """Whether 2 stored names mean 1 chord, whichever program wrote them."""
-    return LEGACY_SPELLING.get(left, left) == LEGACY_SPELLING.get(right, right)
 
 
 CHORD_PATH = re.compile(rb"<chordDescriptionFile>[^<]*</chordDescriptionFile>")

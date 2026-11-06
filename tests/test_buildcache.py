@@ -1,9 +1,9 @@
 """A cache must never hide a stale file."""
+import pathlib
 import subprocess
+import types
 
-import pytest
-
-from muse import buildcache, port, preflight
+from muse import build, buildcache, preflight
 
 
 def setup(tmp_path):
@@ -42,9 +42,9 @@ def test_piano_code_is_outside_the_other_sheets_key():
 
 
 def test_workers_follow_the_free_cores():
-    assert port.free_workers(19, cores=10, load=55.0) == 1
-    assert port.free_workers(19, cores=10, load=4.0) == 6
-    assert port.free_workers(2, cores=10, load=0.0) == 2
+    assert build.free_workers(19, cores=10, load=55.0) == 1
+    assert build.free_workers(19, cores=10, load=4.0) == 6
+    assert build.free_workers(2, cores=10, load=0.0) == 2
 
 
 def test_gate_code_is_outside_every_build_key():
@@ -73,17 +73,14 @@ def test_a_song_with_no_piano_part_or_a_refused_source_is_named(monkeypatch, tmp
     assert "bad font" in preflight.song_problem(source)
 
 
-def test_a_check_no_size_can_change_refuses_instead_of_searching(monkeypatch, tmp_path):
-    for name in ("margin_words", "foreign_fonts", "sign_problems"):
-        monkeypatch.setattr(port.pdfcheck, name, lambda _: [])
-    monkeypatch.setattr(port.pdfcheck, "title_problems", lambda *_: [])
-    port.refuse_fixed(tmp_path / "x.pdf", "t", "s")
-    monkeypatch.setattr(port.pdfcheck, "foreign_fonts", lambda _: ["Arial"])
-    with pytest.raises(port.SheetRefused):
-        port.refuse_fixed(tmp_path / "x.pdf", "t", "s")
-    assert not issubclass(port.SheetRefused, port.DoesNotFit)
-
-
 def test_build_key_covers_the_extension() -> None:
     names = {p.name for p in buildcache.code_files()}
     assert {"main.js", "manifest.json"} <= names
+
+
+def test_songs_build_in_the_owners_priority_order_then_by_name(tmp_path, monkeypatch) -> None:
+    (tmp_path / "PRIORITY.txt").write_text("Zeta Beta\n", encoding="utf-8")
+    monkeypatch.setenv("MUSE_PRIVATE", str(tmp_path))
+    monkeypatch.setattr(build, "song_of", lambda src: types.SimpleNamespace(name=src.stem.split("-")[0]))
+    sources = [pathlib.Path(f"{name}-Em.pdf") for name in ("Alpha", "Beta", "Gamma", "Zeta")]
+    assert [src.stem.split("-")[0] for src in build.ordered(sources)] == ["Zeta", "Beta", "Alpha", "Gamma"]

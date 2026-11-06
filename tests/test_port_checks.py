@@ -30,12 +30,6 @@ def test_a_text_fault_on_a_page_with_no_bar_number_lands_on_the_last_numbered_li
     assert port.crowded_rows(pdf, [1]) == {1}
 
 
-def test_the_floor_with_a_wide_line_gap_is_a_fault():
-    assert port.floor_gap_problems("tone", {"spatium": 1.2, "distance": 22.0})
-    assert not port.floor_gap_problems("tone", {"spatium": 1.2, "distance": 11.0})
-    assert not port.floor_gap_problems("tone", {"spatium": 1.5, "distance": 22.0})
-
-
 def test_the_build_path_leaves_the_style_and_the_chord_list_stays(tmp_path):
     score = tmp_path / "s.mscz"
     with zipfile.ZipFile(score, "w") as z:

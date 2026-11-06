@@ -4,7 +4,6 @@ from __future__ import annotations
 import dataclasses
 import re
 
-from muse import chordnames
 from muse.model import Bar, Event, Score, Text
 
 SUNG = re.compile(r"\s*(Verse|Pre-?\s?Chorus|Chorus|Rap|Bridge)[\w-]*\s*:", re.I)
@@ -13,7 +12,6 @@ LETTER = re.compile(r"^[A-Z]\d?$")
 PIANO_CUE = re.compile(r"piano|keys?\b|key/|rhodes", re.I)
 MIN_TAIL = 3  # consecutive bars of notes closing an unlabelled section read as instrumental
 HINT_WORDS = 4
-CHORD_GAP_LETTERS = 2
 
 
 @dataclasses.dataclass
@@ -144,9 +142,6 @@ def by_mark(score: Score, number: int) -> bool:
     return bool(score.bars[number - 1].rehearsal) or bool(score.bars[number - 1].coda)
 
 
-def chord_letters(bar: Bar) -> int:
-    """Room a bar's chord names ask for, in letters, with the gap each chord needs."""
-    return sum(len(c.root) + bool(c.root_alter) + len(chordnames.stored(c.kind)) + (len(c.bass) + 1 if c.bass else 0) + CHORD_GAP_LETTERS for c in bar.chords)
 
 
 def lone_lines(starts: list[int], total: int) -> list[int]:
@@ -156,23 +151,6 @@ def lone_lines(starts: list[int], total: int) -> list[int]:
     return [first for first, stop in zip(starts, [*starts[1:], total + 1], strict=True) if stop - first == 1]
 
 
-def lone_moves(starts: set[int], bar: int, total: int, fixed: set[int]) -> list[set[int]]:
-    """Line starts to try for a 0-based lone bar: join a neighbour inside its section, take a bar from one, then cross a section mark."""
-    later = min((s for s in starts if s > bar), default=None)
-    earlier = max((s for s in starts if s < bar), default=None)
-    join_before = starts - {bar} if earlier is not None else None
-    join_after = starts - {later} if later is not None else None
-    take_before = (starts - {bar}) | {bar - 1} if earlier is not None and bar - earlier >= 3 else None
-    take_after = (starts - {later}) | {later + 1} if later is not None and later + 1 < total and (min((s for s in starts if s > later), default=total) - later) >= 3 else None
-    ordered = [
-        join_before if bar not in fixed else None,
-        join_after if later not in fixed else None,
-        take_before,
-        take_after,
-        join_before,
-        join_after,
-    ]
-    return [move for move in ordered if move is not None]
 
 
 def voices_sound(voices: list[list[Event]]) -> bool:

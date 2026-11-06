@@ -91,3 +91,47 @@ def test_plan_evens_empty_bars_in_its_width_estimate() -> None:
 def test_plan_prefers_the_even_split_of_as_many_lines() -> None:
     score = Score([noted(n) for n in range(1, 9)], [], [])
     assert lines(layout.plan(score, [12.0] * 8, ROOM), 8) == [4, 4]  # 7 fit on a line; 5+3 is as legal and as short
+
+
+def candidate(size: float, share: float = 0.0, fill: float = 0.9, good: bool = True, lone: bool = False) -> dict[str, object]:
+    return {"size": size, "share": share, "fill": fill, "good": good, "lone": lone}
+
+
+def test_choose_takes_the_largest_size_that_fills_its_pages_first() -> None:
+    found = [candidate(2.0, fill=0.5), candidate(1.8, fill=0.9), candidate(1.6, fill=0.95)]
+    assert layout.choose(found, port.ORIGINAL)[:2] == [1.8, 1.6]
+
+
+def test_choose_takes_the_wider_short_line_share_only_when_no_size_holds_the_base_share() -> None:
+    found = [candidate(2.0, share=0.25), candidate(1.6, share=0.10)]
+    assert layout.choose(found, port.ORIGINAL)[0] == 1.6
+    found = [candidate(2.0, share=0.25), candidate(1.6, share=0.28)]
+    assert layout.choose(found, port.ORIGINAL)[0] == 2.0
+    assert layout.choose([candidate(2.0, share=0.4)], port.ORIGINAL) == []
+
+
+def test_choose_refuses_a_size_whose_lines_did_not_hold_or_leave_a_lone_piano_bar() -> None:
+    assert layout.choose([candidate(2.0, good=False), candidate(1.5)], port.ORIGINAL) == [1.5]
+    assert layout.choose([candidate(2.0, lone=True), candidate(1.5)], port.PIANO) == [1.5]
+
+
+def test_plan_lets_a_short_line_take_a_bar_from_the_line_above() -> None:
+    score = Score([noted(n) for n in range(1, 8)], [], [])
+    assert 2 not in lines(layout.plan(score, [18.0] * 7, ROOM), 7)  # 5 fit; 5+2 leaves a 2-bar line where 4+3 leaves none
+
+
+def test_plan_takes_a_bar_from_the_line_above_rather_than_leave_a_2_bar_line() -> None:
+    score = Score([noted(n) for n in range(1, 7)], [], [])
+    assert lines(layout.plan(score, [12.0, 18.0, 8.0, 45.0, 30.0, 12.0], ROOM), 6) == [3, 3]  # 4+2 fills a little more evenly
+
+
+def test_space_points_reads_the_scores_own_staff_space(tmp_path: pathlib.Path) -> None:
+    import zipfile
+
+    from muse import chordseat
+
+    score = tmp_path / "s.mscz"
+    with zipfile.ZipFile(score, "w") as archive:
+        archive.writestr("s.mscx", "<museScore><Score/></museScore>")
+        archive.writestr("score_style.mss", "<museScore><Style><spatium>1.6</spatium></Style></museScore>")
+    assert chordseat.space_points(score) == pytest.approx(1.6 * 72 / 25.4)

@@ -5,7 +5,7 @@ function chords() {
         var notes = segment.annotations
         for (var i = 0; i < notes.length; i++) {
             if (notes[i].type === Element.HARMONY && notes[i].track === 0) {
-                found.push({ chord: notes[i], segment: segment, measure: segment.parent })
+                found.push({ chord: notes[i], segment: segment, measure: segment.parent, index: found.length })
             }
         }
         segment = segment.next
@@ -125,7 +125,9 @@ var BIAS = []
 
 function left(item) { return item.chord.pagePos.x + item.chord.bbox.x }
 
-function right(item) { return item.chord.pagePos.x + item.chord.bbox.x + item.chord.bbox.width }
+var INK = []  // per chord, its printed ink width in spaces, measured by the caller from the PDF
+
+function right(item) { return item.index < INK.length ? left(item) + INK[item.index] : item.chord.pagePos.x + item.chord.bbox.x + item.chord.bbox.width }
 
 function seatStarts(all) {
     // every beat-1 chord at its barline, or after what opens its line
@@ -155,8 +157,8 @@ function shortfalls(all) {
     for (var i = 0; i + 1 < all.length; i++) {
         var a = all[i], b = all[i + 1]
         if (lineKey(a.measure) !== lineKey(b.measure)) continue
-        var lack = right(a) + CLEAR - left(b)
-        if (lack > 0.05) {
+        var lack = right(a) + CLEAR + MARGIN - left(b)
+        if (lack > 0) {
             var at = -1
             for (var k = 0; k < short.length; k++) if (tickOf(short[k].measure) === tickOf(a.measure)) at = k
             if (at < 0) short.push({ measure: a.measure, lack: lack })
@@ -189,11 +191,27 @@ function hasNotes(measure) {
     return false
 }
 
+var FIT_ROUNDS = 8
+
+var MARGIN = 0.1  // spaces past the clear gap a fit aims for: the gate holds the gap with no tolerance
+
+var TRIED = {}  // per bar tick, the last stretch set and the shortfall it left
+
 function widen(short) {
+    // each bar's next stretch from its own measured response of shortfall to stretch: chords inside a bar sit at shares of it, so a wider bar closes their gap by only a part of what it grew
     curScore.startCmd()
     for (var i = 0; i < short.length; i++) {
-        var w = short[i].measure.bbox.width
-        short[i].measure.userStretch = short[i].measure.userStretch * (w + short[i].lack) / w
+        var m = short[i].measure
+        var w = m.bbox.width
+        var s = m.userStretch
+        var lack = short[i].lack
+        var before = TRIED[tickOf(m)]
+        var next = s * (w + lack) / w
+        if (before && s - before.stretch > 1e-6 && before.lack - lack > 1e-3) {
+            next = s + lack * (s - before.stretch) / (before.lack - lack)  // stretch that closes the rest at the rate just measured
+        }
+        TRIED[tickOf(m)] = { stretch: s, lack: lack }
+        m.userStretch = Math.max(next, s * 1.01)
     }
     curScore.endCmd()
 }
@@ -223,17 +241,23 @@ function even() {
 }
 
 function measureMode(all) {
-    // on an unjustified render: the share each bar must grow to hold its chords apart, written back for the planner
+    // on an unjustified render: per bar, the share its width must grow so every chord clears the next by the gap; chords sit at fixed shares of their bar, so 1 measurement gives it
     seatStarts(all)
-    var short = shortfalls(all)
-    var shares = []
     var bars = measures()
-    for (var i = 0; i < bars.length; i++) {
-        var share = 1
-        for (var k = 0; k < short.length; k++) if (tickOf(short[k].measure) === tickOf(bars[i])) share = (bars[i].bbox.width + short[k].lack) / bars[i].bbox.width
-        shares.push(share.toFixed(4))
+    var need = {}
+    for (var i = 0; i < all.length; i++) {
+        var a = all[i]
+        var bar = a.measure
+        var edge = bar.pagePos.x
+        var width = bar.bbox.width
+        var at = (left(a) - edge) / width
+        var next = i + 1 < all.length && tickOf(all[i + 1].measure) === tickOf(bar) ? (left(all[i + 1]) - edge) / width : 1
+        var room = right(a) - left(a) + CLEAR + MARGIN
+        var wanted = next > at ? room / (next - at) : width
+        need[tickOf(bar)] = Math.max(need[tickOf(bar)] || width, wanted)
     }
-    curScore.setMetaTag("museChordShare", shares.join(","))
+    curScore.setMetaTag("museSeatError", "")
+    curScore.setMetaTag("museChordShare", bars.map(function (m) { return Math.max(1, (need[tickOf(m)] || m.bbox.width) / m.bbox.width).toFixed(4) }).join(","))
 }
 
 function main() {
@@ -242,9 +266,12 @@ function main() {
     CLEAR = Number(curScore.metaTag("museChordGap"))
     if (!(CLEAR > 0)) { api.log.error("museseat: no museChordGap tag"); curScore.setMetaTag("museSeatError", "no museChordGap tag"); return }
     var all = chords()
+    var inked = curScore.metaTag("museInkWidth")
+    INK = inked ? inked.split(",").map(Number) : []
+    if (INK.length && INK.length !== all.length) { curScore.setMetaTag("museSeatError", "ink widths for " + INK.length + " chords, the score holds " + all.length); return }
     if (curScore.metaTag("museMode") === "measure") { measureMode(all); return }
     var rounds = 0
-    for (; rounds < 8; rounds++) {
+    for (; rounds < FIT_ROUNDS; rounds++) {
         seatStarts(all)
         var short = shortfalls(all)
         var moved = even()
@@ -252,7 +279,7 @@ function main() {
         if (short.length) widen(short)
     }
     seatStarts(all)
-    var left = shortfalls(all)
-    curScore.setMetaTag("museSeatError", left.length ? "chords still crowd in " + left.length + " bars" : "")
+    var remaining = shortfalls(all)
+    curScore.setMetaTag("museSeatError", remaining.length ? "chords still crowd in " + remaining.length + " bars" : "")
     lift(all)
 }

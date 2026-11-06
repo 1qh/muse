@@ -267,19 +267,6 @@ def test_a_lone_line_is_found_and_only_it():
     assert piano.lone_lines([1, 5], 8) == []
 
 
-def test_a_lone_bar_joins_inside_its_section_before_crossing_a_mark():
-    moves = piano.lone_moves({0, 8, 9}, 8, 20, {9})
-    assert moves[0] == {0, 9}
-    assert {0, 7, 9} in moves
-    crossing = piano.lone_moves({0, 8, 9}, 8, 20, {8})
-    assert crossing[0] == {0, 8}
-
-
-def test_clearing_lone_bars_keeps_what_fits_and_gives_up_cleanly():
-    assert port.clear_lone_bars({0, 8, 9}, {9}, 20, lambda _: True) == {0, 9}
-    assert port.clear_lone_bars({0, 8, 9}, {9}, 20, lambda _: False) == {0, 8, 9}
-
-
 def test_the_legacy_half_diminished_spelling_is_the_same_chord(tmp_path):
     rest = "<Rest><durationType>measure</durationType><duration>1/1</duration></Rest>"
     short = write_score(tmp_path / "s.mscz", f"<Harmony><root>16</root><name>0</name></Harmony>{rest}")

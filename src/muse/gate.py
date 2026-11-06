@@ -200,8 +200,6 @@ def check_song(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> tupl
     guarded("chord beats", lambda: verify.chord_beat_problems(src, out / song.score_file))
     guarded("signs built in", lambda: scorefile.builtin_sign_problems(out / song.score_file))
     guarded("chord file", lambda: chordnames.chord_path_problems(out / song.score_file))
-    built = buildcache.load(song.name)
-    guarded("floor gap", lambda: [p for variant in (port.ORIGINAL, port.TONE, port.PIANO) for p in port.floor_gap_problems(variant, built.get(variant, {}).get("decision"))])
     legacy = out / song.legacy_file
     if legacy.exists():
         guarded("ms3 chord file", lambda: chordnames.chord_path_problems(legacy))

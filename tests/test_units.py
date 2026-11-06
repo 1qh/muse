@@ -106,7 +106,6 @@ def _row_score(count: int, tied_after: set[int]) -> Score:
     return Score(bars, [], [])
 
 
-
 def test_tie_inside_a_bar_does_not_leave_it() -> None:
     first = Event(0.0, [Head(0.0, 0.0, "C", 5, tie_start=True)], F(2))
     last = Event(1.0, [Head(1.0, 0.0, "C", 5, tie_stop=True)], F(2))
@@ -119,17 +118,6 @@ def test_pages_split_as_evenly_as_possible() -> None:
     assert port.balanced_pages([10.0] * 6, 2) == [3]
     assert port.balanced_pages([30.0, 10.0, 10.0, 10.0], 2) == [1]
     assert port.balanced_pages([10.0] * 6, 3) == [2, 4]
-
-
-def test_largest_fit_finds_the_edge_in_few_tries() -> None:
-    tried = []
-
-    def fits(value: float) -> bool:
-        tried.append(value)
-        return value <= 2.2
-
-    assert port.largest_fit(1.6, 0.05, 3.0, fits) == 2.2
-    assert len(tried) <= 6
 
 
 def test_font_check_refuses_a_fallback_font(tmp_path) -> None:
@@ -400,84 +388,15 @@ def test_the_launch_cap_stops_a_search_and_only_a_search(monkeypatch):
     assert len(calls) == 2
 
 
-def test_a_line_never_starts_on_a_bar_without_its_chord():
-    # bar 5 has no chord: its chord's bar goes down with it
-    assert port.settle_chord_starts({0, 5}, {0, 2, 4, 6}, set(), 8) == {0, 4}
-    # the chord opens the line above already, so the bar stays up there and the next chord starts the line
-    assert port.settle_chord_starts({0, 1, 6}, {0, 3, 6}, set(), 8) == {0, 3, 6}
-    # a section mark holds its place
-    assert port.settle_chord_starts({0, 5}, {0, 6}, {5}, 8) == {0, 5}
-    # nothing to move to: the line simply joins
-    assert port.settle_chord_starts({0, 5}, {0}, set(), 8) == {0}
-
-
 def test_a_chordless_line_start_is_found(monkeypatch):
     monkeypatch.setattr(chordseat, "bar_rows", lambda _: [[1, 2], [3, 4], [5, 6]])
     monkeypatch.setattr(chordseat, "rows_of", lambda _: [[(0, True)], [(1, True)], [(0, True)]])
     assert chordseat.chordless_starts("") == [3]
 
 
-def test_a_section_fills_its_lines_by_room_and_not_by_a_count():
-    def bar(letters: int) -> Bar:
-        return Bar(1, 0, 0.0, 100.0, F(4), voices=[], chords=[parse_chord("A" + "m" * (letters - 3), None, 0)] if letters else [])
-    light = [bar(4) for _ in range(30)]
-    wide = [bar(20) for _ in range(30)]
-    assert len(port.fill_block(light, 1.2)) < len(port.fill_block(wide, 1.2))
-    starts = port.fill_block(light, 1.2)
-    assert all(b - a <= port.TRY_CEILING for a, b in zip(starts, starts[1:], strict=False))
-
-
-def test_a_break_avoids_a_chordless_next_bar():
-    bars = [Bar(1, 0, 0.0, 100.0, F(4), voices=[], chords=[parse_chord("Am", None, 0)]) for _ in range(40)]
-    plain = port.fill_block(bars, 1.2)
-    bars[plain[1]].chords = []
-    assert plain[1] not in port.fill_block(bars, 1.2)
-
-
-def test_a_piano_line_prices_every_empty_bar_as_its_widest():
-    narrow = Bar(1, 0, 0.0, 100.0, F(4), voices=[], chords=[parse_chord("A", None, 0)])
-    broad = Bar(2, 0, 0.0, 100.0, F(4), voices=[], chords=[parse_chord("Ammmmmmmmm", None, 0)])
-    assert port.line_room([narrow, broad], 1.2) == 2 * port.bar_room(broad, 1.2)
-    assert port.line_room([broad, broad], 1.2) == 2 * port.bar_room(broad, 1.2)
-
-
-def test_merging_asks_what_fits_and_respects_marks():
-    lines = [[1, 2], [3, 4], [5, 6]]
-    assert port.merge_candidates(lines, set(), set(), lambda _: True) == {2}
-    assert port.merge_candidates(lines, {2}, set(), lambda _: True) == {4}
-    assert port.merge_candidates(lines, set(), set(), lambda _: False) == set()
-
-
-def test_a_crowded_line_gives_up_its_last_bars_avoiding_a_tie():
-    assert port.split_at(0, 16, [False] * 16) == 12
-    assert port.split_at(0, 2, [True, True]) == 1
-    tied = [False] * 16
-    tied[11] = True
-    assert port.split_at(0, 16, tied) in (11, 13)
-
-
 def test_a_cue_at_chord_size_is_no_chord():
     assert chordseat.CHORD_SHAPE.match("Am7") and chordseat.CHORD_SHAPE.match("A") and chordseat.CHORD_SHAPE.match("Bb")
     assert not chordseat.CHORD_SHAPE.match("AcousticGtr") and not chordseat.CHORD_SHAPE.match("After") and not chordseat.CHORD_SHAPE.match("Dizi")
-
-
-def test_chords_sharing_a_bar_each_ask_for_their_share():
-    lone = Bar(1, 0, 0.0, 100.0, F(4), voices=[], chords=[parse_chord("Am7", None, 0)])
-    pair = Bar(2, 0, 0.0, 100.0, F(4), voices=[], chords=[parse_chord("Am7", None, 0), parse_chord("Am7", None, 0)])
-    assert port.bar_room(pair, 1.2) == 2 * port.bar_room(lone, 1.2)
-
-
-
-
-def test_a_crowded_line_hands_its_last_bar_on_and_only_a_section_end_splits():
-    starts = {0, 8, 16}
-    port.ease_line(starts, [1, 2, 3, 4, 5, 6, 7, 8], set(), [False] * 24)
-    assert starts == {0, 7, 16}
-    held = {0, 8}
-    port.ease_line(held, [1, 2, 3, 4, 5, 6, 7, 8], {8}, [False] * 24)
-    assert 8 in held and len(held) == 3
-
-
 
 
 def test_a_lyric_label_starts_a_line():
@@ -508,7 +427,6 @@ def test_no_chord_stretches_a_bar():
 def test_every_short_spelling_has_proved_playback():
     assert set(chordnames.SHORT.values()) | set(chordnames.LEGACY_SPELLING.values()) == set(chordnames.PLAYS)
     assert chordnames.stored("maj7") == "^7" and chordnames.stored("m7") == "m7"
-    assert chordnames.same_chord("0", "07") and not chordnames.same_chord("o", "o7")
 
 
 def test_a_wrong_playback_is_found():
@@ -569,34 +487,6 @@ def test_a_saved_layout_with_a_label_inside_a_line_fails_its_proof():
     assert port.line_rule_breaks(Score([plain, labelled], [], [])) == [2]
     labelled.new_system = True
     assert port.line_rule_breaks(Score([plain, labelled], [], [])) == []
-
-
-def test_prove_refuses_saved_lines_that_break_a_line_rule(monkeypatch, tmp_path):
-    monkeypatch.setattr(port, "lay_out", lambda *a, **k: ("laid", tmp_path, tmp_path))
-    monkeypatch.setattr(port, "acceptable", lambda *a: True)
-    monkeypatch.setattr(port, "line_rule_breaks", lambda laid: [2])
-    monkeypatch.setattr(port, "chordless_opening", lambda laid, base: [])
-    assert port.prove(tmp_path, tmp_path, port.PIANO, {"spatium": 1.5, "distance": 11.0, "pages": 1, "lines": [0]}) is None
-
-
-def test_prove_refuses_a_built_line_opening_without_its_chord(monkeypatch, tmp_path):
-    monkeypatch.setattr(port, "lay_out", lambda *a, **k: ("laid", tmp_path, tmp_path))
-    monkeypatch.setattr(port, "acceptable", lambda *a: True)
-    monkeypatch.setattr(port, "line_rule_breaks", lambda laid: [])
-    monkeypatch.setattr(port, "chordless_opening", lambda laid, base: [17])
-    assert port.prove(tmp_path, tmp_path, port.PIANO, {"spatium": 1.5, "distance": 11.0, "pages": 1, "lines": [0]}) is None
-
-
-
-
-def test_a_short_line_borrows_only_from_a_line_with_bars_to_spare():
-    assert port.borrowings([[1, 2, 3, 4], [5, 6]], set()) == [(4,)]
-    assert port.borrowings([[1, 2, 3], [4, 5]], set()) == []
-    assert port.borrowings([[1, 2, 3, 4], [5, 6]], {4}) == []
-
-
-
-
 
 
 def _plain_bar(number, left=0.0, right=100.0, **extra):
@@ -665,8 +555,6 @@ def test_a_target_sign_is_held_in_its_own_line_and_a_jump_is_not():
     assert port.TARGET_HOLD not in jump
 
 
-
-
 def test_an_import_is_rebuilt_when_what_it_came_from_changes(tmp_path, monkeypatch):
     from muse.model import Score
 
@@ -686,43 +574,3 @@ def test_an_import_is_rebuilt_when_what_it_came_from_changes(tmp_path, monkeypat
     assert port.imported(score, tmp_path, "x", style, False) != first and len(made) == 2
 
 
-def test_the_largest_size_that_fills_its_pages_wins_over_a_bigger_1_that_does_not(monkeypatch, tmp_path):
-    def trials(src, work, variant, limit, pairs):
-        for pair in pairs:
-            port.FILLS[(str(src), variant, *pair)] = 0.9 if pair[0] <= 1.7 else 0.5
-        return {pair: object() for pair in pairs}
-
-    monkeypatch.setattr(port, "trials", trials)
-    monkeypatch.setattr(port, "acceptable", lambda *a: True)
-    monkeypatch.setattr(port, "finish", lambda src, work, variant, limit, size, gap: size)
-    assert port.fit(tmp_path, tmp_path, port.ORIGINAL) == 1.7
-
-
-def test_a_saved_layout_is_proved_and_a_failed_proof_searches(monkeypatch, tmp_path):
-    monkeypatch.setattr(port, "fit", lambda *a: ("fitted", "base", 1.5, 11.0, 2))
-    monkeypatch.setattr(port, "prove", lambda *a: ("proved", "base", 1.5, 11.0, 2))
-    assert port.sheet(tmp_path, tmp_path, port.PIANO, {"spatium": 1.5, "distance": 11.0})[0] == "proved"
-    monkeypatch.setattr(port, "prove", lambda *a: None)
-    assert port.sheet(tmp_path, tmp_path, port.PIANO, {"spatium": 1.5, "distance": 11.0})[0] == "fitted"
-
-
-def test_a_floor_layout_with_spare_height_is_searched_and_a_proof_keeps_its_owed_search(monkeypatch, tmp_path):
-    monkeypatch.setattr(port, "fit", lambda *a: ("fitted", "base", 1.5, 11.0, 2))
-    monkeypatch.setattr(port, "prove", lambda *a: ("proved", "base", 1.5, 11.0, 2))
-    assert port.sheet(tmp_path, tmp_path, port.ORIGINAL, {"spatium": 1.2, "distance": 22.0})[0] == "fitted"
-    assert port.SEARCHED["rules"] == port.layout_rules()
-    assert port.sheet(tmp_path, tmp_path, port.ORIGINAL, {"spatium": 1.5, "distance": 11.0, "searched": "old"})[0] == "proved"
-    assert port.SEARCHED["rules"] == "old"
-
-
-def test_a_song_no_size_holds_to_15_percent_takes_the_wider_share(monkeypatch, tmp_path):
-    from muse.model import Score
-
-    lines = [[1, 2, 3, 4], [5, 6, 7, 8], [9, 10], [11, 12, 13, 14], [15, 16], [17, 18, 19], [20, 21, 22]]  # 2 of 7 short: over 15%, within 30%
-    monkeypatch.setattr(port, "rows", lambda laid: lines)
-    monkeypatch.setattr(port, "trials", lambda src, work, variant, limit, pairs: {pair: Score([], [], []) for pair in pairs})
-    monkeypatch.setattr(port, "finish", lambda src, work, variant, limit, size, gap: size)
-    assert port.fit(tmp_path, tmp_path, port.ORIGINAL) == port.SIZE_CAP
-    lines.append([23])
-    lines.append([24])
-    assert port.fit(tmp_path, tmp_path, port.ORIGINAL) is None

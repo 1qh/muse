@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import concurrent.futures
+import hashlib
+import json
 import os
 import pathlib
 import re
@@ -9,6 +11,7 @@ import shutil
 import subprocess
 import xml.etree.ElementTree as ET
 import zipfile
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -24,31 +27,46 @@ LONE_COST = 1.0  # a lone bar outweighs any evenness gained by it
 SHORT_COST = 0.15  # a 2-bar line is allowed, but a fuller arrangement of as many lines wins
 LONE_FILL = 0.5  # of a line a single bar must fill to stand alone without cost
 GROW = 1.06  # share a bar's width estimate grows each time its line will not hold
-INK_ROUNDS = 3
+INK_ROUNDS = 4
 EXTENSION = pathlib.Path(__file__).parent / "extension"
 EXTENSION_URI = "extension://muse/seat"
+EXTENSION_FOLDER = "museseat"
 EXTENSION_SECONDS = 300
 
 
-def extension_home() -> pathlib.Path:
+def extensions_root() -> pathlib.Path:
     """Where MuseScore reads user extensions; MUSE_EXTENSIONS overrides it."""
     given = os.environ.get("MUSE_EXTENSIONS")
-    return pathlib.Path(given) if given else pathlib.Path.home() / "Library" / "Application Support" / "MuseScore" / "MuseScore4" / "extensions" / "museseat"
+    return pathlib.Path(given) if given else pathlib.Path.home() / "Library" / "Application Support" / "MuseScore" / "MuseScore4" / "extensions"
 
 
-def install_extension() -> None:
-    """Copy the pipeline's own extension where MuseScore reads it, so no build depends on a hand-installed copy."""
-    home = extension_home()
-    home.mkdir(parents=True, exist_ok=True)
-    for part in EXTENSION.iterdir():
-        if part.is_file() and (not (home / part.name).exists() or (home / part.name).read_bytes() != part.read_bytes()):
-            shutil.copyfile(part, home / part.name)
+def install_extension() -> str:
+    """Install the pipeline's own extension under a name carrying a digest of its bytes, and return the address to run it by: 2 versions never share 1 copy."""
+    script = (EXTENSION / "main.js").read_bytes()
+    digest = hashlib.sha256(script + (EXTENSION / "manifest.json").read_bytes()).hexdigest()[:12]
+    uri = f"{EXTENSION_URI}-{digest}"
+    home = extensions_root() / f"{EXTENSION_FOLDER}-{digest}"
+    if (home / "manifest.json").exists():
+        return uri
+    manifest = json.loads((EXTENSION / "manifest.json").read_text(encoding="utf-8"))
+    manifest["uri"] = uri
+    fresh = home.with_name(f"{home.name}.{os.getpid()}.tmp")
+    fresh.mkdir(parents=True, exist_ok=True)
+    (fresh / "main.js").write_bytes(script)
+    (fresh / "manifest.json").write_text(json.dumps(manifest, indent=4), encoding="utf-8")
+    try:
+        fresh.rename(home)
+    except OSError:  # another run installed the same bytes first
+        shutil.rmtree(fresh, ignore_errors=True)
+    shutil.rmtree(extensions_root() / EXTENSION_FOLDER, ignore_errors=True)  # the copy at a fixed address that every version once shared
+    return uri
 
 
 def run_extension(source: pathlib.Path, target: pathlib.Path) -> None:
     """1 MuseScore launch: open the score, seat its chords by measuring its own layout, save it."""
+    uri = install_extension()
     port.LAUNCHES["count"] += 1
-    done = subprocess.run(["mscore", "--extension", EXTENSION_URI, "-o", str(target), str(source)], capture_output=True, text=True, timeout=EXTENSION_SECONDS, stdin=subprocess.DEVNULL, check=False)
+    done = subprocess.run(["mscore", "--extension", uri, "-o", str(target), str(source)], capture_output=True, text=True, timeout=EXTENSION_SECONDS, stdin=subprocess.DEVNULL, check=False)
     if done.returncode or not target.exists():
         raise port.DoesNotFit(f"{source.name}: the seating extension failed: {done.stderr[-300:]}")
 
@@ -183,6 +201,9 @@ def chord_shares(natural: pathlib.Path, bars: int) -> list[float]:
     shutil.copyfile(natural, probe)
     set_tags(probe, {"museMode": "measure", "museChordGap": f"{CLEAR_SPACES:.4f}"})
     run_extension(probe, probe)
+    crowded = read_tag(probe, "museSeatError")
+    if crowded:
+        raise port.DoesNotFit(f"{natural.name}: measuring chord room: {crowded}")
     shares = [float(value) for value in read_tag(probe, "museChordShare").split(",")]
     if len(shares) != bars:
         raise port.DoesNotFit(f"{natural.name}: the extension measured {len(shares)} bars of {bars}")
@@ -296,24 +317,32 @@ def overflowing(sheet: Sheet, probe: pathlib.Path, seated: bool) -> set[int]:
     return {bar - 1 for row in port.rows(sheet.score) if row[0] in crowded or any(row[0] < bar <= row[-1] for bar in extra) for bar in row}
 
 
-def seat(sheet: Sheet, score_path: pathlib.Path, probe: pathlib.Path) -> pathlib.Path:
-    """The extension fits each bar's chords, evens empty bars and seats chords; each round corrects every chord by its own measured ink offset."""
+def seat_inked(score_path: pathlib.Path, rendered: Callable[[], pathlib.Path], holds: Callable[[pathlib.Path], bool]) -> pathlib.Path:
+    """The extension fits each bar's chords, evens empty bars and seats chords; each round passes it every chord's measured ink offset and ink width, until the ink sits on target."""
     bias: list[float] = []
+    inks: list[float] = []  # each chord's ink width in staff spaces, known after the first round
+    probe = score_path
     for _ in range(INK_ROUNDS):
-        set_tags(score_path, {"museChordGap": f"{CLEAR_SPACES:.4f}", "museInkBias": ",".join(f"{b:.4f}" for b in bias)})
+        set_tags(score_path, {"museChordGap": f"{CLEAR_SPACES:.4f}", "museInkBias": ",".join(f"{b:.4f}" for b in bias), "museInkWidth": ",".join(f"{w:.4f}" for w in inks)})
         run_extension(score_path, score_path)
-        _, probe = render(sheet, "final", seated=True)
-        if sheet.starts() != sorted({1, *port.system_starts(probe)}):
-            return probe  # widening wrapped a line; the caller moves its last bar down
+        probe = rendered()
+        if not holds(probe):
+            return probe  # widening wrapped a line; the caller plans again
         _, text = chordseat.score_text(score_path)
         rows = chordseat.rows_of(text)
         lines = chordseat.matched(text, probe)
         gaps = chordseat.gaps(rows, lines)
-        spaces = chordseat.spaces_of(rows, lines)
+        spaces = [chordseat.space_points(score_path)] * len(gaps)
         bias = [(bias[at] if at < len(bias) else 0.0) + (gap or 0.0) / space for at, (gap, space) in enumerate(zip(gaps, spaces, strict=True))]
-        if all(gap is None or abs(gap - chordseat.GAP) <= chordseat.TOLERANCE for gap in gaps):
+        inks = [width / space for width, space in zip(chordseat.ink_widths(rows, lines), spaces, strict=True)]
+        if all(gap is None or abs(gap - chordseat.GAP) <= chordseat.TOLERANCE for gap in gaps) and not pdfcheck.chord_collisions(probe):
             break
     return probe
+
+
+def seat(sheet: Sheet, score_path: pathlib.Path) -> pathlib.Path:
+    """A sheet's final score seated in place, judged against the lines it was planned with."""
+    return seat_inked(score_path, lambda: render(sheet, "final", seated=True)[1], lambda probe: sheet.starts() == sorted({1, *port.system_starts(probe)}))
 
 
 def finish(src: pathlib.Path, work: pathlib.Path, variant: str, size: float) -> tuple[Score, pathlib.Path, float, float, int]:
@@ -330,7 +359,7 @@ def finish(src: pathlib.Path, work: pathlib.Path, variant: str, size: float) -> 
                 _, probe = render(sheet, "final")
                 bad = overflowing(sheet, probe, seated=False)
             if not bad:
-                probe = seat(sheet, score_path, probe)
+                probe = seat(sheet, score_path)
                 bad = overflowing(sheet, probe, seated=True)
         if os.environ.get("MUSE_LAYOUT_TRACE"):
             print(f"{sheet.name} {size}: starts {sheet.starts()} overflowing {sorted(b + 1 for b in bad)}", flush=True)
@@ -347,7 +376,6 @@ def finish(src: pathlib.Path, work: pathlib.Path, variant: str, size: float) -> 
 
 def lay(src: pathlib.Path, work: pathlib.Path, variant: str) -> tuple[Score, pathlib.Path, float, float, int]:
     """Every candidate size planned side by side in shared jobs; the best is finished, the next only if it cannot be."""
-    install_extension()
     sizes = port.sizes_between(port.SIZE_FLOORS[-1], port.SIZE_CAP)
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(sizes)) as pool:
         found = list(pool.map(lambda size: candidate(src, work, variant, size), sizes))
