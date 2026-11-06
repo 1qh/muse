@@ -45,6 +45,10 @@ function start(measure) {
 function above(segment) {
     // the highest top of the music in a segment: notes, rests and tuplet brackets; text moves above the chords instead
     var top = 1e9
+    var notes = segment.annotations
+    for (var i = 0; i < notes.length; i++) {  // a fermata belongs to its note, so the chords clear it as they clear the note
+        if (notes[i].type === Element.FERMATA && notes[i].bbox) top = Math.min(top, notes[i].pagePos.y + notes[i].bbox.y)
+    }
     for (var track = 0; track < 4; track++) {
         var held = segment.elementAt(track)
         if (held && held.bbox) top = Math.min(top, held.pagePos.y + held.bbox.y)
@@ -84,28 +88,29 @@ function lift(all) {
             var part = parts[t]
             if (!part.bbox || !part.parent || !part.parent.parent) continue
             var top = part.pagePos.y + part.bbox.y
-            var bottomOf = top + part.bbox.height
-            var page = part.parent.parent.pagenumber
-            var best = null
-            for (var u = 0; u < lineTops.length; u++) {
-                var bits = lineTops[u].split(":")
-                if (Number(bits[0]) !== page || Number(bits[1]) < bottomOf - 0.5) continue
-                if (best === null || Number(bits[1]) < Number(best.split(":")[1])) best = lineTops[u]
-            }
-            if (best !== null && Number(best.split(":")[1]) - bottomOf < 8) clear[best] = Math.min(clear[best] === undefined ? 1e9 : clear[best], top)
+            var system = part.parent
+            if (!system.firstMeasure) continue
+            var own = lineKey(system.firstMeasure)  // a spanner belongs to the line it is drawn in, never the next line down
+            if (top < Number(own.split(":")[1])) clear[own] = Math.min(clear[own] === undefined ? 1e9 : clear[own], top)
         }
+    }
+    var m = curScore.firstMeasure
+    while (m) {  // the staff's own top line is the lowest a chord row may come down to
+        var mk = lineKey(m)
+        clear[mk] = Math.min(clear[mk] === undefined ? 1e9 : clear[mk], m.pagePos.y)
+        m = m.nextMeasure
     }
     for (var i = 0; i < all.length; i++) {
         var key = lineKey(all[i].measure)
         var bottom = all[i].chord.pagePos.y + all[i].chord.bbox.y + all[i].chord.bbox.height
         var need = clear[key] - GAP - bottom
-        lines[key] = Math.min(lines[key] === undefined ? 0 : lines[key], need)
+        lines[key] = Math.min(lines[key] === undefined ? 1e9 : lines[key], need)
     }
     curScore.startCmd()
-    for (var j = 0; j < all.length; j++) {
+    for (var j = 0; j < all.length; j++) {  // every line's chords set on 1 baseline, raised or lowered, so an earlier lift never stays
         var line = lineKey(all[j].measure)
         all[j].chord.autoplace = false
-        if (lines[line] < 0) all[j].chord.offsetY = all[j].chord.offsetY + lines[line]
+        if (Math.abs(lines[line]) > 0.01) all[j].chord.offsetY = all[j].chord.offsetY + lines[line]
     }
     curScore.endCmd()
 }
@@ -144,13 +149,40 @@ function seatStarts(all) {
     return worst
 }
 
+var BOX_PAD = 1.0  // spaces a sign's drawn box reaches past its glyph
+
+function signsOf() {
+    // per line, the left edge of every segno or coda box that is not the target opening the line
+    var found = {}
+    var m = curScore.firstMeasure
+    while (m) {
+        var owned = m.elements
+        for (var i = 0; owned && i < owned.length; i++) {
+            var e = owned[i]
+            if ((e.type !== Element.MARKER && e.type !== Element.JUMP) || !e.bbox) continue
+            var x = e.pagePos.x + e.bbox.x - BOX_PAD
+            if (e.type === Element.MARKER && e.pagePos.x <= m.pagePos.x + 4) continue
+            var key = lineKey(m)
+            if (!found[key]) found[key] = []
+            found[key].push(x)
+        }
+        m = m.nextMeasure
+    }
+    return found
+}
+
 function shortfalls(all) {
-    // per bar, the spaces its chords lack to keep the clear gap before the next chord on the same line
+    // per bar, the spaces its chords lack to keep the clear gap before the next chord or jump sign on the same line
     var short = []
-    for (var i = 0; i + 1 < all.length; i++) {
-        var a = all[i], b = all[i + 1]
-        if (lineKey(a.measure) !== lineKey(b.measure)) continue
-        var lack = right(a) + CLEAR + MARGIN - left(b)
+    var signs = signsOf()
+    for (var i = 0; i < all.length; i++) {
+        var a = all[i], b = i + 1 < all.length ? all[i + 1] : null
+        var key = lineKey(a.measure)
+        var next = b && lineKey(b.measure) === key ? left(b) : 1e9
+        var row = signs[key] || []
+        for (var s = 0; s < row.length; s++) if (row[s] > left(a) && row[s] < next) next = row[s]
+        if (next >= 1e9) continue
+        var lack = right(a) + CLEAR + MARGIN - next
         if (lack > 0) {
             var at = -1
             for (var k = 0; k < short.length; k++) if (tickOf(short[k].measure) === tickOf(a.measure)) at = k
@@ -293,18 +325,32 @@ function raiseText(all) {
         var notes = segment.annotations
         for (var n = 0; n < notes.length; n++) {
             var t = notes[n]
-            if (t.type === Element.HARMONY || !t.bbox || t.track !== 0) continue
+            if (t.type === Element.HARMONY || t.type === Element.FERMATA || !t.bbox || t.track !== 0) continue
+            if (t.pagePos.y + t.bbox.y >= segment.parent.pagePos.y) continue  // below the staff: no chord row there, and MuseScore stacks those itself
             texts.push({ text: t, key: lineKey(segment.parent), x0: t.pagePos.x + t.bbox.x, x1: t.pagePos.x + t.bbox.x + t.bbox.width, top: t.pagePos.y + t.bbox.y, height: t.bbox.height })
         }
         segment = segment.next
     }
     texts.sort(function (a, b) { return a.key === b.key ? a.x0 - b.x0 : (a.key < b.key ? -1 : 1) })
+    var ends = {}  // per line, the right end of its last bar: no text may run past it
+    var bar = curScore.firstMeasure
+    while (bar) {
+        var k2 = lineKey(bar)
+        ends[k2] = Math.max(ends[k2] || -1e9, bar.pagePos.x + bar.bbox.width)
+        bar = bar.nextMeasure
+    }
     curScore.startCmd()
     for (var k = 0; k < texts.length; k++) {
         var item = texts[k]
         var row = placed[item.key] || []
         var ceiling = 1e9
         for (var r = 0; r < row.length; r++) if (row[r].x0 < item.x1 && item.x0 < row[r].x1) ceiling = Math.min(ceiling, row[r].top)
+        if (ends[item.key] !== undefined && item.x1 > ends[item.key]) {  // a cue on a line's last bar runs past the margin: it ends at the line's end instead
+            var back = item.x1 - ends[item.key]
+            item.text.offsetX = item.text.offsetX - back
+            item.x0 -= back
+            item.x1 -= back
+        }
         var top = item.top
         if (ceiling < 1e9 && item.top + item.height > ceiling - GAP) {
             var rise = item.top + item.height - (ceiling - GAP)

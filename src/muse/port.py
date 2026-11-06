@@ -153,6 +153,11 @@ def last_before(where: list[tuple[int, float, int]], page_no: int) -> int:
     return max(item for item in where if item[0] < page_no)[2]
 
 
+def crowded_reasons(pdf: pathlib.Path) -> list[str]:
+    """What makes a line overflow, in words, for a refusal a reader can act on."""
+    return [f"chords too close at {root}" for _, _, root in pdfcheck.chord_collisions(pdf)] + [f"past the margin: {word}" for _, _, word in pdfcheck.past_margin(pdf)]
+
+
 def crowded_rows(pdf: pathlib.Path, firsts: list[int]) -> set[int]:
     """First bar of every line a wider line can cure, matched by page and height: chords too close and ink past the margin; text on text is never a width fault."""
     where = []

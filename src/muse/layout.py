@@ -375,7 +375,10 @@ def finish(src: pathlib.Path, work: pathlib.Path, variant: str, size: float) -> 
             print(f"{sheet.name} {size}: starts {sheet.starts()} overflowing {sorted(b + 1 for b in bad)}", flush=True)
         if not bad:
             break
-        widths = [width * GROW if index in bad else width for index, width in enumerate(widths)]
+        grown = [width * GROW if index in bad else width for index, width in enumerate(widths)]
+        if plan(sheet.score, grown, room, sheet.variant) == set(sheet.starts()):
+            raise port.DoesNotFit(f"{sheet.name} at {size}: bars {sorted(b + 1 for b in bad)} overflow and no plan can move them: {port.crowded_reasons(probe)[:3]}")
+        widths = grown
     else:
         raise port.DoesNotFit(f"{sheet.name} at {size}: lines still overflow after {REPLAN_ROUNDS} plans")
     problems = pdfcheck.all_problems(probe, sheet.title) + chordseat.problems(score_path, probe) + port.line_rule_breaks(sheet.score)

@@ -179,3 +179,20 @@ def test_many_threads_install_1_copy_without_colliding(tmp_path: pathlib.Path, m
         uris = set(pool.map(lambda _: layout.install_extension(), range(64)))
     assert len(uris) == 1
     assert [path.name for path in tmp_path.iterdir()] == [f"{layout.EXTENSION_FOLDER}-{next(iter(uris)).rsplit('-', 1)[1]}"]
+
+
+def test_a_cue_on_a_lines_last_bar_ends_inside_the_margin(tmp_path: pathlib.Path) -> None:
+    from muse.model import Text
+
+    cue = Text(90.0, -20.0, [("PIANO ONLY FROM HERE", True, True)], True, "cue", 10.0)
+    bars = [resting(1, [chord("C")]), resting(2, [chord("A", "m")]), resting(3, [chord("F")]), resting(4, [chord("G")], [cue])]
+    score_path = imported(tmp_path, bars, {1, 5})
+    pdf = score_path.with_suffix(".pdf")
+
+    def rendered() -> pathlib.Path:
+        BATCHER.render(score_path, [pdf, pdf.with_suffix(".mpos")], None)
+        return pdf
+
+    layout.seat_inked(score_path, rendered, lambda probe: True)
+    assert pdfcheck.past_margin(pdf) == []
+    assert pdfcheck.text_collisions(pdf) == []
