@@ -12,7 +12,7 @@ import sys
 import time
 from typing import Any
 
-from muse import buildcache, chordnames, launch, layout, piano, port, publish, scorefile
+from muse import buildcache, chordnames, launch, layout, mode, piano, port, publish, scorefile
 from muse.model import Score
 from muse.song import LEGACY_FILES, decode, song_of
 from muse.song import sources as song_sources
@@ -21,7 +21,7 @@ from muse.song import sources as song_sources
 def variant_key(src: pathlib.Path, variant: str) -> str:
     """The build key of 1 sheet: its source, settings and every file of code that can shape it."""
     skip = buildcache.CHECK_ONLY_CODE if variant == port.PIANO else buildcache.PIANO_ONLY_CODE | buildcache.CHECK_ONLY_CODE
-    return buildcache.key_of(src, repr(song_of(src)), buildcache.code_files(skip=skip))
+    return buildcache.key_of(src, repr(song_of(src)), buildcache.code_files(skip=skip), mode.label())
 
 
 def decision(found: tuple[Score, pathlib.Path, float, float, int]) -> dict[str, Any]:

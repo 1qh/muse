@@ -93,3 +93,15 @@ def test_a_build_gives_each_song_worker_its_share_of_launch_slots(monkeypatch) -
     assert launch.slots() == 3
     monkeypatch.delenv(launch.SLOTS_VARIABLE)
     assert launch.slots() >= 1
+
+
+def test_a_print_mode_build_is_never_reused_as_strict(tmp_path, monkeypatch) -> None:
+    from muse import mode
+
+    source = tmp_path / "Song-Em.pdf"
+    source.write_bytes(b"pdf")
+    monkeypatch.setattr(build, "song_of", lambda src: types.SimpleNamespace(name="Song"))
+    monkeypatch.setattr(mode, "PRINT", False)
+    strict = build.variant_key(source, "original")
+    monkeypatch.setattr(mode, "PRINT", True)
+    assert build.variant_key(source, "original") != strict

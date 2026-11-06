@@ -11,10 +11,10 @@ from typing import Any
 
 import pymupdf
 
-from muse import pdftext
+from muse import mode, pdftext
 
 GAP = 0.0  # a beat-1 chord's ink starts exactly at the barline's right edge, or after a line's clef and signatures
-TOLERANCE = 0.4
+TOLERANCE = mode.pick(0.4, 2.0)  # points a beat-1 chord may sit off its barline
 LEGACY_REACH = 1.7  # staff spaces: MuseScore 3 holds a mid-line chord about 1.5 after the barline whatever its offset
 INK_DPI = 720
 MPOS_UNITS = 200.0  # position export units per point
@@ -28,7 +28,8 @@ HEAD_CODES = (0xE0A0, 0xE0FF)
 INK_REACH = 0.8  # points a letter's ink can start left of its text box; further left is a neighbour
 SIGN_INK_WIDTH = 0.75  # the printed part of a segno or coda, in sign font sizes
 SIGN_REACH = 0.5  # of the chord size: a sign this near the chord baseline shares its row
-EQUAL_TOLERANCE = 1.5  # points an empty bar may differ from its line's mean
+EQUAL_TOLERANCE = mode.pick(1.5, 4.0)  # points an empty bar may differ from its line's mean
+CHORD_GAP = mode.pick(0.75, 0.5)  # clear space between 2 chords, in chord sizes
 MIN_STAFF_WIDTH = 60.0  # a short last line is left unfilled, and is still a staff
 MIN_RULE_WIDTH = 10.0
 MIN_STAFF_SPACE = 2.0

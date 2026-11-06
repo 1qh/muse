@@ -13,6 +13,7 @@ CONTROL_SECONDS = 240  # the fast suite; a control planted in code MuseScore run
 HEAVY_SECONDS = 1500
 HEAVY = ("extension/", "layout.py", "launch.py", "render.py")  # code only the MuseScore-driven tests exercise
 MUTATIONS = [
+    ("build.py", "buildcache.code_files(skip=skip), mode.label())", "buildcache.code_files(skip=skip))", "print build reused as strict"),
     ("pdfcheck.py", 'if span["text"].strip() and (x0 < box.x0 or y0 < box.y0 or x1 > box.x1 or y1 > box.y1):', 'if span["text"].strip() and (x0 < box.x0 or x1 > box.x1):', "ink above the page passes"),
     ("extension/main.js", "            item.text.offsetY = item.text.offsetY - rise  // placement", "            item.text.autoplace = false\n            item.text.offsetY = item.text.offsetY - rise  // placement", "raised text leaves no room"),
     ("extension/main.js", 'if (out && !(writeScore(curScore, out + ".pdf", "pdf")', 'if (false && !(writeScore(curScore, out + ".pdf", "pdf")', "round not rendered in launch"),

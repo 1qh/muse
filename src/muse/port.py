@@ -12,15 +12,15 @@ from typing import Any
 
 import pymupdf
 
-from muse import buildcache, chordnames, chordseat, launch, musicxml, pdfcheck, pdftext, piano
+from muse import buildcache, chordnames, chordseat, launch, mode, musicxml, pdfcheck, pdftext, piano
 from muse.model import Bar, Score
 from muse.song import Song, decode
 
-CHORD_GAP = 0.75  # of the chord size, between 2 chords
+CHORD_GAP = chordseat.CHORD_GAP  # of the chord size, between 2 chords
 CHORD_SIZE_PER_SPACE = 8.0  # printed chord points per unit of the style's spatium
 SIZE_FLOORS = (1.2, 1.15)  # below 1.2 only for a song that fits its pages no other way; under 1.15 the fixed title outgrows chords
 SIZE_CAP = 2.0  # the largest notation any sheet takes
-PAGE_FILL = 0.85  # how far down every page the music must reach
+PAGE_FILL = mode.pick(0.85, 0.0)  # how far down every page the music must reach
 MAX_WORKERS = 10
 LAUNCH_SECONDS = 240  # 1 import or export, counted from when its launch slot frees
 SEAT_PASSES = 5
@@ -35,8 +35,8 @@ SIGN_SIZE = 25  # a sign may exceed the chords: about 2.5 times the default sign
 MARKER_TYPES = {"segno": "segno", "coda": "codab"}
 LEGACY_SIGN_SIZE = 25  # MuseScore 3 sizes the sign as text
 LEGACY_ONLY_FONTS = ("staffFontFace", "systemFontFace", "beginFontFace", "continueFontFace", "endFontFace")  # its names for text styles
-MAX_SHORT_SHARE = 0.15  # readers find many 2-bar lines sparse; smaller notation is preferred
-RELAXED_SHORT_SHARE = 0.30  # when no size holds a song to the base share
+MAX_SHORT_SHARE = mode.pick(0.15, 0.40)  # readers find many 2-bar lines sparse; smaller notation is preferred
+RELAXED_SHORT_SHARE = mode.pick(0.30, 0.40)  # when no size holds a song to the base share
 LEGACY_TOP_BORDER = 15  # MuseScore 3 lifts jump words and voltas into the title otherwise
 BASE_DISTANCE = 11.0
 ORIGINAL = "original"
