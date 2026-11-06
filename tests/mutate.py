@@ -13,6 +13,7 @@ CONTROL_SECONDS = 240  # the fast suite; a control planted in code MuseScore run
 HEAVY_SECONDS = 1500
 HEAVY = ("extension/", "layout.py", "launch.py", "render.py")  # code only the MuseScore-driven tests exercise
 MUTATIONS = [
+    ("chordseat.py", '    edges = [line["opening"], *line["bars"]]', '    edges = [line["start"], *line["bars"]]', "sign counted as bar width"),
     ("layout.py", '            if "text on text" not in str(error):\n                raise', '            if True:\n                raise', "line gap never widened"),
     ("build.py", "buildcache.code_files(skip=skip), mode.label())", "buildcache.code_files(skip=skip))", "print build reused as strict"),
     ("pdfcheck.py", 'if span["text"].strip() and (x0 < box.x0 or y0 < box.y0 or x1 > box.x1 or y1 > box.y1):', 'if span["text"].strip() and (x0 < box.x0 or x1 > box.x1):', "ink above the page passes"),

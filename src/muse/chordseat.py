@@ -207,9 +207,10 @@ def page_lines(pdf: pathlib.Path) -> list[dict[str, Any]]:
             heads = [(g[0], g[2]) for g in near if HEAD_CODES[0] <= g[3] <= HEAD_CODES[1]]
             # a repeat sign opening the line stands right after the signatures
             start = max([start, *(r.x1 for r in shapes if r.width < 3 and abs(r.y0 - staff_top) < 1 and r.y1 >= bottom - 1 and start <= r.x0 < start + OPENING_REPEAT_REACH and not is_stem(r.x0, heads))])
+            opening = start  # the first bar's music starts here; a sign takes chord room, never bar width
             # a sign printed on the chord row takes the place right after the clef, so the chord follows it
             start = max([start, *(end for end, y in signs_here if above + space * 4 < y <= staff_top + 1 and end < start + top * 2)])  # any sign in this line's own band, as the extension judges it
-            lines.append({"chords": joined, "bars": bars, "start": start, "space": space, "rights": rights, "lefts": lefts, "size": top})
+            lines.append({"chords": joined, "bars": bars, "start": start, "opening": opening, "space": space, "rights": rights, "lefts": lefts, "size": top})
     return lines
 
 
@@ -362,8 +363,8 @@ def bar_rows(text: str) -> list[list[int]]:
 
 
 def widths_of(line: dict[str, Any]) -> list[float]:
-    """Laid-out bar widths of a line; its first bar starts after the clef and signatures."""
-    edges = [line["start"], *line["bars"]]
+    """Laid-out bar widths of a line; its first bar starts after the clef and signatures, never after a sign, which is chord room only."""
+    edges = [line["opening"], *line["bars"]]
     return [right - left for left, right in zip(edges, edges[1:], strict=False)]
 
 

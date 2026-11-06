@@ -14,7 +14,19 @@ function chords() {
 }
 
 function start(measure) {
-    // the bar's left edge, or after the clef, key and time signature that open a line, and after any sign printed there
+    // where a bar's beat-1 chord starts: its opening, and past any sign printed there
+    var edge = opening(measure)
+    var owned = measure.elements
+    for (var m = 0; owned && m < owned.length; m++) {
+        if (owned[m].type === Element.MARKER && owned[m].bbox && owned[m].pagePos.x <= measure.pagePos.x + 4) {
+            edge = Math.max(edge, owned[m].pagePos.x + owned[m].bbox.x + owned[m].bbox.width + 0.5)
+        }
+    }
+    return edge
+}
+
+function opening(measure) {
+    // where a bar's music starts: its left edge, or after the clef, key and time signature that open a line; a sign is chord room, never bar width
     var edge = measure.pagePos.x
     var before = measure.prevMeasure
     if (before && Math.abs(before.pagePos.y - measure.pagePos.y) < 0.5) {  // the barline closing the bar before, on the same line
@@ -22,12 +34,6 @@ function start(measure) {
         while (last && last.tick >= measure.firstSegment.tick - 1 && last.segmentType !== Segment.EndBarLine) last = last.prev
         var line = last ? last.elementAt(0) : null
         if (line && line.bbox) edge = line.pagePos.x + line.bbox.x + line.bbox.width
-    }
-    var owned = measure.elements
-    for (var m = 0; owned && m < owned.length; m++) {
-        if (owned[m].type === Element.MARKER && owned[m].bbox && owned[m].pagePos.x <= measure.pagePos.x + 4) {
-            edge = Math.max(edge, owned[m].pagePos.x + owned[m].bbox.x + owned[m].bbox.width + 0.5)
-        }
     }
     var segment = measure.firstSegment
     while (segment && segment.tick === measure.firstSegment.tick) {
@@ -250,7 +256,7 @@ function isNoted(measure) {
 
 function inner(measure) {
     // a bar's width after what opens its line, the width the checks compare
-    return measure.bbox.width - (start(measure) - measure.pagePos.x)
+    return measure.bbox.width - (opening(measure) - measure.pagePos.x)
 }
 
 function even() {
