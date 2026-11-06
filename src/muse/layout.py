@@ -28,6 +28,7 @@ LONE_COST = 1.0  # a lone bar outweighs any evenness gained by it
 SHORT_COST = 0.15  # a 2-bar line is allowed, but a fuller arrangement of as many lines wins
 LONE_FILL = 0.5  # of a line a single bar must fill to stand alone without cost
 GROW = 1.06  # share a bar's width estimate grows each time its line will not hold
+GROW_STEPS = 12  # up to about double, before a line that will not hold is called unmovable
 INK_ROUNDS = 4
 EXTENSION = pathlib.Path(__file__).parent / "extension"
 EXTENSION_URI = "extension://muse/seat"
@@ -375,8 +376,12 @@ def finish(src: pathlib.Path, work: pathlib.Path, variant: str, size: float) -> 
             print(f"{sheet.name} {size}: starts {sheet.starts()} overflowing {sorted(b + 1 for b in bad)}", flush=True)
         if not bad:
             break
-        grown = [width * GROW if index in bad else width for index, width in enumerate(widths)]
-        if plan(sheet.score, grown, room, sheet.variant) == set(sheet.starts()):
+        grown = widths
+        for _ in range(GROW_STEPS):  # widen those bars until the plan actually changes; 1 step is often too little to cross a break
+            grown = [width * GROW if index in bad else width for index, width in enumerate(grown)]
+            if plan(sheet.score, grown, room, sheet.variant) != set(sheet.starts()):
+                break
+        else:
             raise port.DoesNotFit(f"{sheet.name} at {size}: bars {sorted(b + 1 for b in bad)} overflow and no plan can move them: {port.crowded_reasons(probe)[:3]}")
         widths = grown
     else:
