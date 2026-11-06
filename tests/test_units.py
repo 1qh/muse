@@ -571,3 +571,26 @@ def test_a_staff_whose_line_pair_rounds_short_is_still_found():
 
     lines = [pymupdf.Rect(40, y, 560, y + 0.1) for y in (164.4, 170.0, 175.7, 181.4, 187.1)]  # spacing 5.675, the first pair rounds to 5.6
     assert chordseat.staves_of(lines) == [[164.4, 170.0, 175.7, 181.4, 187.1]]
+
+
+def test_a_chord_row_lifted_over_a_bracket_is_not_too_high_and_one_lifted_over_nothing_is(tmp_path) -> None:
+    def sheet(bracket: bool):
+        doc = pymupdf.open()
+        page = doc.new_page()
+        top, gap = 300.0, 5.0
+        for line in range(5):
+            page.draw_line((40, top + line * gap), (560, top + line * gap), width=0.5)
+        for at, name in enumerate(["Em", "D", "C", "G"]):
+            page.insert_text((60 + at * 120, top - 3.9 * gap), name, fontsize=14)
+        if bracket:
+            page.draw_line((420, top - 1.6 * gap), (560, top - 1.6 * gap), width=0.5)
+            page.draw_line((420, top - 1.6 * gap), (420, top - 0.2 * gap), width=0.5)
+        path = tmp_path / f"bracket-{bracket}.pdf"
+        doc.save(path)
+        return path
+
+    def highest(path) -> float:
+        return max(spaces for _, _, spaces, _ in pdfcheck.chord_seating(path))
+
+    assert highest(sheet(False)) > pdfcheck.MAX_CHORD_SPACES
+    assert highest(sheet(True)) <= pdfcheck.MAX_CHORD_SPACES
