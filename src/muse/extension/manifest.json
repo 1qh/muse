@@ -1,0 +1,10 @@
+{
+    "uri": "extension://muse/seat",
+    "type": "macros",
+    "title": "Muse seat",
+    "description": "Seat beat-1 chords at their barlines by measuring the layout in process",
+    "category": "muse",
+    "version": "1.0",
+    "apiversion": 1,
+    "actions": [ { "path": "main.js" } ]
+}
