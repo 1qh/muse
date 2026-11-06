@@ -12,7 +12,7 @@ import sys
 import time
 from typing import Any
 
-from muse import buildcache, chordnames, launch, layout, mode, piano, port, publish, scorefile
+from muse import buildcache, chordnames, gate, launch, layout, mode, piano, port, publish, scorefile
 from muse.model import Score
 from muse.song import LEGACY_FILES, decode, song_of
 from muse.song import sources as song_sources
@@ -129,6 +129,8 @@ def main() -> None:
     publishing = "--publish" in sys.argv[1:]
     if publishing and not shutil.which("bfg"):
         raise SystemExit("bfg not found")
+    if publishing and not gate.homr_command():  # the gate needs it for every song; refuse now rather than after the builds
+        raise SystemExit("homr not found: install it or set MUSE_HOMR")
     src_dir, out_dir, work = map(pathlib.Path, args[:3])
     wanted = args[3:]
     sources = ordered([src for src in song_sources(src_dir) if not wanted or src.stem.split("-")[0] in wanted])
