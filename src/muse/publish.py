@@ -53,6 +53,11 @@ def keep_last_good(out: pathlib.Path, song: str, run: Runner) -> None:
     run("git", "clean", "-fdq", "--", song, cwd=out)
 
 
+def commit_message(songs: list[str]) -> str:
+    """Name what a publish brings, since the history purge leaves no earlier file to diff against."""
+    return f"feat: publish {', '.join(songs)}" if songs else "chore: refresh sheets"
+
+
 def publish(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path, run: Runner = sh, judge: Judge = gate.verdicts, names: tuple[str, ...] = ()) -> dict[str, list[str]]:
     """Publish every song passing its gate; returns the blocked songs, each keeping its last good folder, with reasons."""
     verdicts = judge(src, out, work, names)
@@ -66,7 +71,7 @@ def publish(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path, run: Runne
     if extras:
         raise SystemExit(f"the sheets repo holds only PDF and MuseScore files, refusing: {extras}")
     if run("git", "diff", "--cached", "--name-only", cwd=out):
-        run("git", "commit", "-m", "fix: re-export sheets", cwd=out)
+        run("git", "commit", "-m", commit_message(sorted(song for song in verdicts if song not in blocked)), cwd=out)
     elif not run("git", "rev-list", "@{u}..HEAD", cwd=out):
         return blocked  # nothing new and nothing left unpushed by an earlier run
     pushed(run, ("git", "push"), out)

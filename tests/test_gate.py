@@ -241,3 +241,10 @@ def test_a_piano_label_may_follow_a_mark_that_opens_its_line(monkeypatch, tmp_pa
     monkeypatch.setattr(chordseat, "bar_rows", lambda text: [[1], [2, 3, 4]])
     assert gate.chord_starts(tmp_path / "x-piano-final.mscz", score) == []
     assert gate.chord_starts(tmp_path / "x-original.mscz", score)
+
+
+def test_a_publish_commit_names_its_songs():
+    from muse import publish
+
+    assert publish.commit_message(["AnhKhongThaThu", "CauHenCauThe"]) == "feat: publish AnhKhongThaThu, CauHenCauThe"
+    assert publish.commit_message([]) == "chore: refresh sheets"
