@@ -335,6 +335,7 @@ def seat_inked(score_path: pathlib.Path, rendered: Callable[[], pathlib.Path], h
     bias: list[float] = []
     inks: list[float] = []  # each chord's ink width in staff spaces, known after the first round
     probe = score_path
+    evened = False
     for _ in range(INK_ROUNDS):
         tags = {"museChordGap": f"{CLEAR_SPACES:.4f}", "museInkBias": ",".join(f"{b:.4f}" for b in bias), "museInkWidth": ",".join(f"{w:.4f}" for w in inks)}
         if noted is not None:  # the caller evens empty bars itself, from each fresh render, so the extension leaves them
@@ -348,6 +349,8 @@ def seat_inked(score_path: pathlib.Path, rendered: Callable[[], pathlib.Path], h
         _, text = chordseat.score_text(score_path)
         rows = chordseat.rows_of(text)
         lines = chordseat.matched(text, probe)
+        if [len(line["chords"]) for line in lines] != [len(row) for row in rows if row]:
+            return probe  # chords ran together into 1 printed name: the line is crowded, and the caller plans it again with fewer bars
         gaps = chordseat.gaps(rows, lines)
         spaces = [chordseat.space_points(score_path)] * len(gaps)
         bias = [(bias[at] if at < len(bias) else 0.0) + (gap or 0.0) / space for at, (gap, space) in enumerate(zip(gaps, spaces, strict=True))]
@@ -355,6 +358,10 @@ def seat_inked(score_path: pathlib.Path, rendered: Callable[[], pathlib.Path], h
         evened = noted is not None and chordseat.equalize(score_path, probe, {index + 1 for index in noted})  # measured on the print, both ways
         if not evened and all(gap is None or abs(gap - chordseat.GAP) <= chordseat.TOLERANCE for gap in gaps) and not pdfcheck.chord_collisions(probe):
             break
+    if evened:  # the last round evened bars after its render, so the chords must be seated against the new widths once more, with its latest measurements
+        set_tags(score_path, {"museInkBias": ",".join(f"{b:.4f}" for b in bias), "museInkWidth": ",".join(f"{w:.4f}" for w in inks)})
+        run_extension(score_path, score_path)
+        probe = rendered()
     return probe
 
 
