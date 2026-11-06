@@ -219,6 +219,7 @@ class Staff:
 
     def __init__(self, top: float, base: float, glyphs: list[tuple[int, float, float]], lines: list[Any], heavy: list[Any], walls: list[Any]) -> None:
         self.top, self.base = top, base
+        self.heavy = heavy
         self.step = (base - top) / 8
         self.middle = (top + base) / 2
         self.all = glyphs
@@ -238,10 +239,28 @@ class Staff:
         self.glyphs = [g for g in self.all if min(middles, key=lambda m: abs(m - g[2])) == self.middle and abs(g[2] - self.middle) < STAFF_REACH]
 
     def follows(self, above: Staff) -> bool:
-        """A second staff of 1 system: every bar line it has falls on 1 of the staff above, and the 2 end together; it may start later."""
+        """A second staff of 1 system: every bar line it has falls on 1 of the staff above, and either the 2 end together or a bar line runs down from the staff above into this one; it may start later and end sooner."""
         mine, theirs = self.cols[1:-1], above.cols[1:-1]
         same_end = abs(self.right - above.right) < 1.5
-        return bool(mine) and same_end and all(any(abs(a - b) < 1.5 for b in theirs) for a in mine)  # a part entering later starts its staff later, on the same barlines
+        joined = any(y0 <= above.base + 1 and y1 >= self.top - 1 for x, y0, y1, _ in self.heavy if any(abs(x - c) < 1.5 for c in mine))
+        return bool(mine) and (same_end or joined) and all(any(abs(a - b) < 1.5 for b in theirs) for a in mine)  # a part entering later or leaving sooner keeps the system's barlines
+
+
+def staff_lines(rules: list[tuple[float, float, float]]) -> list[tuple[float, float, float]]:
+    """Each height's longest run of touching strokes over 100pt: a staff line drawn whole or 1 bar at a time; a stack of short ledger lines never touches end to end."""
+    found = []
+    for y in sorted({round(y, 1) for y, _, _ in rules}):
+        pieces = sorted((a, b) for at, a, b in rules if round(at, 1) == y)
+        start, end = pieces[0]
+        for a, b in pieces[1:]:
+            if a - end > 1.0:
+                if end - start > 100:
+                    found.append((y, start, end))
+                start = a
+            end = max(end, b)
+        if end - start > 100:
+            found.append((y, start, end))
+    return found
 
 
 def staff_tops(ys: list[float]) -> list[float]:
@@ -277,9 +296,7 @@ def decode(path: str) -> Score:
                 a, b = d["items"][0][1], d["items"][0][2]
                 if abs(a.y - b.y) < 0.1:
                     rules.append((a.y, min(a.x, b.x), max(a.x, b.x)))  # every horizontal stroke: a staff drawn 1 bar at a time has short pieces
-                if abs(a.y - b.y) < 0.1 and r.width > 100:
-                    lines.append((a.y, min(a.x, b.x), max(a.x, b.x)))
-                elif abs(a.x - b.x) < 0.1 and d["width"] > 0.9:
+                if abs(a.x - b.x) < 0.1 and d["width"] > 0.9:
                     heavy.append((a.x, r.y0, r.y1, d["width"]))
                 elif abs(a.x - b.x) < 0.1:
                     stems.append((a.x, r.y0, r.y1))
@@ -297,6 +314,7 @@ def decode(path: str) -> Score:
                 all_ties.append((page_number, r))
             elif kinds == "qu":
                 boxes.append(r)
+        lines = staff_lines(rules)
         ys = sorted({round(y, 1) for y, _, _ in lines})
         tops = staff_tops(ys)
         staves = [Staff(top, ys[ys.index(top) + 4], glyphs, rules, heavy, walls) for top in tops]  # long strokes find a staff; every stroke at its height bounds it
