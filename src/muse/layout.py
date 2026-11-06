@@ -15,7 +15,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from muse import chordseat, launch, pdfcheck, pdftext, piano, port
+from muse import chordseat, launch, mode, pdfcheck, pdftext, piano, port
 from muse.model import Score
 from muse.render import BATCHER
 from muse.song import decode, song_of
@@ -339,6 +339,7 @@ def seat_inked(score_path: pathlib.Path, rendered: Callable[[], pathlib.Path], h
         if noted is not None:  # the caller evens empty bars itself, from each fresh render, so the extension leaves them
             tags["museNoted"] = ",".join(str(i) for i in noted) or "-1"
             tags["museEven"] = "0"
+            tags["museWiden"] = "1" if mode.PRINT else "0"  # print mode lets a bar widen for its own crowded chords
         set_tags(score_path, tags)
         run_extension(score_path, score_path)
         probe = rendered()  # a fresh render of the saved score: the layout inside the launch is not what prints
