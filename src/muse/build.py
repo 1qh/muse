@@ -127,8 +127,8 @@ def main() -> None:
     port.require_font()
     args = [arg for arg in sys.argv[1:] if arg != "--publish"]
     publishing = "--publish" in sys.argv[1:]
-    if publishing and not shutil.which("bfg"):
-        raise SystemExit("bfg not found")
+    if publishing and not shutil.which("git-filter-repo"):
+        raise SystemExit("git-filter-repo not found")
     if publishing and not gate.homr_command():  # the gate needs it for every song; refuse now rather than after the builds
         raise SystemExit("homr not found: install it or set MUSE_HOMR")
     src_dir, out_dir, work = map(pathlib.Path, args[:3])
