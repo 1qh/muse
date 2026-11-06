@@ -110,3 +110,29 @@ def test_every_change_of_bar_length_prints_its_time_signature() -> None:
             bars = decode(path).bars
             silent += [(path.stem, after.number) for before, after in zip(bars, bars[1:], strict=False) if before.length != after.length and after.time is None]
     assert not silent
+
+
+def printed_line_starts(path: pathlib.Path) -> list[int]:
+    """The bar numbers a source prints at the left of each line, in reading order."""
+    import pymupdf
+
+    found = []
+    for at, page in enumerate(pymupdf.open(path)):
+        for block in page.get_text("dict")["blocks"]:
+            for line in block.get("lines", []):
+                found += [(at, span["origin"][1], int(span["text"])) for span in line["spans"] if span["font"] == "Edwin-Italic" and span["text"].strip().isdigit() and span["origin"][0] < 60]
+    return [number for _, _, number in sorted(found)]
+
+
+def test_every_leland_source_starts_its_lines_on_the_printed_bar_numbers() -> None:
+    from muse.song import encoding
+
+    sources = [path for folder in os.environ["MUSE_SOURCES"].split(os.pathsep) for path in sorted(pathlib.Path(folder).glob("*.pdf")) if encoding(path) == "leland"]
+    assert sources, "no Leland source found: the guard would judge nothing"
+    wrong = {}
+    for path in sources:
+        printed = printed_line_starts(path)
+        decoded = [bar.number for bar in decode(path).bars if bar.new_system]
+        if not printed or decoded != printed:
+            wrong[path.stem] = (printed, decoded)
+    assert not wrong
