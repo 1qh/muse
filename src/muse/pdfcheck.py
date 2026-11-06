@@ -63,8 +63,8 @@ def oversized_text(path: pathlib.Path) -> list[str]:
                     text = span["text"].strip()
                     if text and not all(0xE000 <= ord(c) <= 0xF8FF for c in text):
                         spans.append((round(span["size"], 1), text))
-    top = max(size for size, _ in spans)
-    return sorted({text for size, text in spans if size >= top and not CHORD.fullmatch(text)})
+    top = chordseat.chord_size(path)
+    return sorted({text for size, text in spans if size >= top - 0.05 and not CHORD.fullmatch(text)})
 
 
 def chord_collisions(path: pathlib.Path) -> list[tuple[int, float, str]]:
@@ -116,9 +116,8 @@ def text_problems(path: pathlib.Path) -> list[str]:
 
 
 def sign_sizes(path: pathlib.Path) -> tuple[list[float], float]:
-    """Sizes of every printed segno and coda, and of the biggest chord text."""
+    """Sizes of every printed segno and coda, and the size chords print at."""
     signs = []
-    words = []
     for page in pdftext.open(path):
         for block in page.get_text("rawdict")["blocks"]:
             for line in block.get("lines", []):
@@ -126,9 +125,7 @@ def sign_sizes(path: pathlib.Path) -> tuple[list[float], float]:
                     text = "".join(c["c"] for c in span["chars"])
                     if any(c in text for c in SIGNS):
                         signs.append(span["size"])
-                    elif text.strip() and not all(0xE000 <= ord(c) <= 0xF8FF for c in text.strip()):
-                        words.append(span["size"])
-    return signs, max(words, default=0.0)
+    return signs, chordseat.chord_size(path)
 
 
 def sign_row_problems(path: pathlib.Path) -> list[str]:
@@ -186,7 +183,7 @@ def sign_on_chord(path: pathlib.Path) -> list[str]:
                             sign_boxes.append(ch["bbox"])
                         elif not ch["c"].isspace() and not 0xE000 <= ord(ch["c"]) <= 0xF8FF:
                             chars.append((ch, span["size"]))
-        top = max((size for _, size in chars), default=0.0)
+        top = chordseat.chord_size(path)
         boxes = [(ch["bbox"][0], ch["bbox"][2], ch["origin"][1]) for ch, size in chars if abs(size - top) < 0.05]
         found += [f"p{number}: sign touches a chord" for (x, y), size in signs if sign_touches(x, y, size, top, boxes)]
         letters = [ch["bbox"] for ch, size in chars if abs(size - top) < 0.05]

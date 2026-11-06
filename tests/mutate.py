@@ -11,6 +11,8 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 CONTROL_WORKERS = 8
 CONTROL_SECONDS = 180
 MUTATIONS = [
+    ("chordseat.py", "return shaped.most_common(1)[0][0] if shaped else None", "return max(shaped) if shaped else None", "chord size by largest"),
+    ("chordseat.py", "    if size is None:\n        raise ValueError", "    if False:\n        raise ValueError", "chordless page judged"),
     ("port.py", "for share in (MAX_SHORT_SHARE, RELAXED_SHORT_SHARE):", "for share in (MAX_SHORT_SHARE,):", "wider share lost"),
     ("pdfcheck.py", "if any(overlap(box, letter) > COVER_SLACK for letter in letters)]", "if False]", "sign over chord unchecked"),
     ("port.py", 'f"<Measure{m[1]}><stretch>{SIGN_BAR_STRETCH}</stretch>"', 'f"<Measure{m[1]}>"', "2-sign bar not widened"),
@@ -185,6 +187,12 @@ def main() -> None:
         dead = [name for file, old, _, name in MUTATIONS if old not in (ROOT / "src" / "muse" / file).read_text(encoding="utf-8")]
         print(f"dead anchors: {dead}" if dead else "ok")
         raise SystemExit(1 if dead else 0)
+    chosen = MUTATIONS
+    if "--only" in sys.argv:  # prove named controls alone, each label after the flag
+        wanted = set(sys.argv[sys.argv.index("--only") + 1:])
+        chosen = [m for m in MUTATIONS if m[3] in wanted]
+        if len(chosen) != len(wanted):
+            raise SystemExit(f"unknown controls: {sorted(wanted - {m[3] for m in chosen})}")
     with concurrent.futures.ThreadPoolExecutor(max_workers=CONTROL_WORKERS) as pool:
         with tempfile.TemporaryDirectory() as tmp:
             base = pathlib.Path(tmp) / "src"
@@ -197,7 +205,7 @@ def main() -> None:
                 raise SystemExit(f"baseline did not finish in {CONTROL_SECONDS} seconds") from None
             if done.returncode:
                 raise SystemExit(f"baseline is red: {(done.stdout + done.stderr)[-1500:]}")
-        outcomes = list(pool.map(control, MUTATIONS))
+        outcomes = list(pool.map(control, chosen))
     for outcome in outcomes:
         print(outcome)
     raise SystemExit(1 if any(not outcome.endswith(": red") for outcome in outcomes) else 0)

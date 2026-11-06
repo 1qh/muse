@@ -6,6 +6,7 @@ import re
 import xml.etree.ElementTree as ET
 import zipfile
 from collections import Counter
+from collections.abc import Iterable
 from typing import Any
 
 import pymupdf
@@ -119,6 +120,21 @@ def ink_left(page: pymupdf.Page, left: float, base: float, size: float) -> float
     return left
 
 
+def chord_size_of(words: Iterable[tuple[float, str]]) -> float | None:
+    """The size chord symbols print at: the most common size of chord-shaped text, never the largest text, which can be a title or a sign."""
+    shaped = Counter(round(size, 1) for size, text in words if CHORD_SHAPE.match(text.strip()))
+    return shaped.most_common(1)[0][0] if shaped else None
+
+
+def chord_size(path: pathlib.Path) -> float:
+    """The chord size of a whole PDF; refuses a PDF with no chord text, since every check built on it would judge nothing."""
+    words = [(span["size"], span["text"]) for page in pdftext.open(path) for block in page.get_text("dict")["blocks"] for line in block.get("lines", []) for span in line["spans"] if span["text"].strip() and not any(0xE000 <= ord(c) <= 0xF8FF for c in span["text"])]
+    size = chord_size_of(words)
+    if size is None:
+        raise ValueError(f"{path.name}: no chord text to size against")
+    return size
+
+
 def measure_boxes(mpos: pathlib.Path) -> list[dict[str, float]]:
     """Every measure's box in points, from the score program's own position export."""
     elements = list(ET.parse(mpos).getroot().iter("element"))
@@ -150,10 +166,9 @@ def page_lines(pdf: pathlib.Path) -> list[dict[str, Any]]:
                         words.append((span["size"], span["bbox"][0], span["bbox"][2], span["origin"][1], text))
         if not words:
             continue
-        shaped = Counter(round(w[0], 1) for w in words if CHORD_SHAPE.match(w[4]))
-        if not shaped:
+        top = chord_size_of((w[0], w[4]) for w in words)
+        if top is None:
             continue
-        top = shaped.most_common(1)[0][0]  # the title can print larger in 1 program, so the size chords use decides
         chords = sorted((w for w in words if abs(w[0] - top) < 0.1), key=lambda w: (w[3], w[1]))
         shapes = segments(page)
         systems = [row for row in measures if row["page"] == page.number]

@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import concurrent.futures
-import contextlib
 import os
 import pathlib
 import re
@@ -21,7 +20,6 @@ from muse.song import decode, song_of
 LINE_SHARE = 0.93  # of a line's width a plan fills; the rest is the clef and key each line carries
 WIDE_PAGE = 200.0  # inches: wide enough that a whole song prints on 1 line at its natural width
 WRAP_ROUNDS = 6
-EVEN_ROUNDS = 4
 SPLIT_ROUNDS = 3
 INK_ROUNDS = 3
 EXTENSION = pathlib.Path(__file__).parent / "extension"
@@ -52,17 +50,31 @@ def run_extension(source: pathlib.Path, target: pathlib.Path) -> None:
         raise port.DoesNotFit(f"{source.name}: the seating extension failed: {done.stderr[-300:]}")
 
 
-def tag_bias(score_path: pathlib.Path, bias: list[float]) -> None:
-    """Tell the extension each chord's offset between its text box and its ink, in staff spaces."""
-    value = ",".join(f"{b:.4f}" for b in bias)
+POINTS_PER_MM = 72 / 25.4
+CLEAR_SPACES = port.CHORD_GAP * port.CHORD_SIZE_PER_SPACE / POINTS_PER_MM  # the clear gap between 2 chords, in staff spaces at any size
+
+
+def set_tags(score_path: pathlib.Path, tags: dict[str, str]) -> None:
+    """Write score tags the extension reads, replacing any earlier value of each."""
 
     def change(name: str, text: str) -> str:
         if not name.endswith(".mscx"):
             return text
-        text = re.sub(r'\s*<metaTag name="museInkBias">[^<]*</metaTag>', "", text)
-        return text.replace("<Score>", f'<Score>\n    <metaTag name="museInkBias">{value}</metaTag>', 1)
+        for key, value in tags.items():
+            text = re.sub(rf'\s*<metaTag name="{key}">[^<]*</metaTag>', "", text)
+            text = text.replace("<Score>", f'<Score>\n    <metaTag name="{key}">{value}</metaTag>', 1)
+        return text
 
     rewrite(score_path, change)
+
+
+def read_tag(score_path: pathlib.Path, key: str) -> str:
+    """A score tag's value; DoesNotFit when the extension never wrote it."""
+    _, text = chordseat.score_text(score_path)
+    found = re.search(rf'<metaTag name="{key}">([^<]*)</metaTag>', text)
+    if found is None:
+        raise port.DoesNotFit(f"{score_path.name}: the extension wrote no {key}")
+    return found.group(1)
 
 
 @dataclass
@@ -155,34 +167,23 @@ def measure(sheet: Sheet) -> tuple[list[float], float]:
     BATCHER.render(natural, [natural.with_suffix(".mpos"), natural_pdf], sheet.options)
     BATCHER.render(normal, [normal.with_suffix(".mpos")], sheet.options)
     laid_natural = boxes(natural.with_suffix(".mpos"))
-    needs = chord_room(natural_pdf, sheet.score, laid_natural)
-    widths = [max(box["sx"], need) for box, need in zip(laid_natural, needs, strict=True)]
+    shares = chord_shares(natural, len(laid_natural))
+    widths = [box["sx"] * share for box, share in zip(laid_natural, shares, strict=True)]
     laid = boxes(normal.with_suffix(".mpos"))
     first = [box for box in laid if box["page"] == laid[0]["page"] and box["y"] == laid[0]["y"]]
     return widths, sum(box["sx"] for box in first)
 
 
-def chord_room(pdf: pathlib.Path, score: Score, laid: list[dict[str, float]]) -> list[float]:
-    """Each bar's least width that holds its chords apart by the clear gap, in the program's units, read from the unjustified render."""
-    page = pdftext.open(pdf)[0]
-    spans = [span for block in page.get_text("dict")["blocks"] for line in block.get("lines", []) for span in line["spans"] if span["text"].strip() and not any(0xE000 <= ord(c) <= 0xF8FF for c in span["text"])]
-    biggest = max((span["size"] for span in spans), default=0.0)
-    chords = sorted((span for span in spans if abs(span["size"] - biggest) < 0.05 and span["text"].strip()[0] in "ABCDEFG"), key=lambda span: span["bbox"][0])
-    counts = [len(bar.chords) for bar in score.bars]
-    if len(chords) != sum(counts) or not laid:
-        return [0.0] * len(score.bars)
-    scale = (laid[-1]["x"] + laid[-1]["sx"] - laid[0]["x"]) / max(1e-6, page.rect.width)  # program units per point, near enough on 1 line
-    left = [box["x"] for box in laid]
-    points = [(box["x"] - laid[0]["x"]) / scale for box in laid]
-    needs = []
-    at = 0
-    for count in counts:
-        own = chords[at:at + count]
-        at += count
-        need = sum((span["bbox"][2] - span["bbox"][0]) + biggest * port.CHORD_GAP for span in own)
-        needs.append(need * scale if own else 0.0)
-    del left, points
-    return needs
+def chord_shares(natural: pathlib.Path, bars: int) -> list[float]:
+    """Per bar, the share its natural width must grow to hold its chords apart by the clear gap, measured by the extension."""
+    probe = natural.with_name(natural.stem + "-chords.mscz")
+    shutil.copyfile(natural, probe)
+    set_tags(probe, {"museMode": "measure", "museChordGap": f"{CLEAR_SPACES:.4f}"})
+    run_extension(probe, probe)
+    shares = [float(value) for value in read_tag(probe, "museChordShare").split(",")]
+    if len(shares) != bars:
+        raise port.DoesNotFit(f"{natural.name}: the extension measured {len(shares)} bars of {bars}")
+    return shares
 
 
 def plan(score: Score, widths: list[float], room: float) -> set[int]:
@@ -267,25 +268,14 @@ def correct_lines(sheet: Sheet) -> pathlib.Path:
 
 
 def seat(sheet: Sheet, score_path: pathlib.Path, probe: pathlib.Path) -> pathlib.Path:
-    """Even the empty bars to the widest of each line, then move each chord by its own measured response."""
-    noted = {bar.number for bar in sheet.score.bars if piano.has_notes(bar)}
-    for _ in range(EVEN_ROUNDS):
-        _, text = chordseat.score_text(score_path)
-        empty = chordseat.empty_widths(text, chordseat.matched(text, probe), noted)
-        line_of = {bar: tuple(row) for row in chordseat.bar_rows(text) for bar in row}
-        widest: dict[tuple[int, ...], float] = {}
-        for bar, width, _mean in empty:
-            widest[line_of[bar]] = max(widest.get(line_of[bar], 0.0), width)
-        factors = {bar: widest[line_of[bar]] / width for bar, width, _mean in empty if widest[line_of[bar]] - width > chordseat.EQUAL_TOLERANCE / 2}
-        if not factors:
-            break
-        chordseat.set_stretch(score_path, factors)
-        _, probe = render(sheet, "final", seated=True)
+    """The extension fits each bar's chords, evens empty bars and seats chords; each round corrects every chord by its own measured ink offset."""
     bias: list[float] = []
-    for _ in range(INK_ROUNDS):  # the extension seats text boxes; each round corrects every chord by its own measured ink offset
-        tag_bias(score_path, bias)
+    for _ in range(INK_ROUNDS):
+        set_tags(score_path, {"museChordGap": f"{CLEAR_SPACES:.4f}", "museInkBias": ",".join(f"{b:.4f}" for b in bias)})
         run_extension(score_path, score_path)
         _, probe = render(sheet, "final", seated=True)
+        if sheet.starts() != sorted({1, *port.system_starts(probe)}):
+            return probe  # widening wrapped a line; the caller moves its last bar down
         _, text = chordseat.score_text(score_path)
         rows = chordseat.rows_of(text)
         lines = chordseat.matched(text, probe)
@@ -307,8 +297,7 @@ def finish(src: pathlib.Path, work: pathlib.Path, variant: str, size: float) -> 
         probe = correct_lines(sheet)
     score_path = sheet.path("final")
     for _ in range(SPLIT_ROUNDS):  # evening bars or seating chords can tip a line the plan judged clear
-        with contextlib.suppress(ValueError):  # a widened bar wrapped its line, so the score and its render no longer agree
-            probe = seat(sheet, score_path, probe)
+        probe = seat(sheet, score_path, probe)
         wanted, got = sheet.starts(), sorted({1, *port.system_starts(probe)})
         crowded = port.crowded_rows(probe, wanted) if wanted == got else set()
         tipped = {row[-1] for row in port.rows(sheet.score) if len(row) > 1 and (row[0] in crowded or any(row[0] < bar <= row[-1] for bar in set(got) - set(wanted)))}

@@ -117,34 +117,142 @@ function lift(all) {
     curScore.endCmd()
 }
 
-var GAP = 0.5
+var GAP = 0.5  // spaces between a line's chords and the highest thing below them
+
+var CLEAR = 0  // spaces of clear gap between 2 chords, passed by the caller
 
 var BIAS = []
 
-function main() {
-    var given = curScore.metaTag("museInkBias")  // per chord, the spaces its ink starts past its text box, measured by the caller
-    BIAS = given ? given.split(",").map(Number) : []
-    var all = chords()
-    api.log.info("museseat chords " + all.length)
+function left(item) { return item.chord.pagePos.x + item.chord.bbox.x }
+
+function right(item) { return item.chord.pagePos.x + item.chord.bbox.x + item.chord.bbox.width }
+
+function seatStarts(all) {
+    // every beat-1 chord at its barline, or after what opens its line
+    var worst = 0
     for (var round = 0; round < 3; round++) {
-        var off = 0
-        var worst = 0
+        worst = 0
         curScore.startCmd()
         for (var i = 0; i < all.length; i++) {
             var item = all[i]
             if (item.segment.tick !== item.measure.firstSegment.tick) continue
-            var left = item.chord.pagePos.x + item.chord.bbox.x
-            var gap = left - start(item.measure) + (BIAS[i] || 0)
+            var gap = left(item) - start(item.measure) + (BIAS[i] || 0)
             if (Math.abs(gap) > 0.05) {
                 item.chord.autoplace = false
                 item.chord.offsetX = item.chord.offsetX - gap
-                off += 1
                 worst = Math.max(worst, Math.abs(gap))
             }
         }
         curScore.endCmd()
-        api.log.info("museseat round " + round + " moved " + off + " worst " + worst)
+        if (worst <= 0.05) break
     }
+    return worst
+}
+
+function shortfalls(all) {
+    // per bar, the spaces its chords lack to keep the clear gap before the next chord on the same line
+    var short = []
+    for (var i = 0; i + 1 < all.length; i++) {
+        var a = all[i], b = all[i + 1]
+        if (lineKey(a.measure) !== lineKey(b.measure)) continue
+        var lack = right(a) + CLEAR - left(b)
+        if (lack > 0.05) {
+            var at = -1
+            for (var k = 0; k < short.length; k++) if (tickOf(short[k].measure) === tickOf(a.measure)) at = k
+            if (at < 0) short.push({ measure: a.measure, lack: lack })
+            else short[at].lack = Math.max(short[at].lack, lack)
+        }
+    }
+    return short
+}
+
+function tickOf(measure) { return measure.firstSegment.tick }
+
+function measures() {
+    var found = []
+    var m = curScore.firstMeasure
+    while (m) { found.push(m); m = m.nextMeasure }
+    return found
+}
+
+function hasNotes(measure) {
+    var segment = measure.firstSegment
+    while (segment) {
+        if (segment.segmentType === Segment.ChordRest) {
+            for (var track = 0; track < curScore.ntracks; track++) {
+                var held = segment.elementAt(track)
+                if (held && held.type === Element.CHORD) return true
+            }
+        }
+        segment = segment.next
+    }
+    return false
+}
+
+function widen(short) {
+    curScore.startCmd()
+    for (var i = 0; i < short.length; i++) {
+        var w = short[i].measure.bbox.width
+        short[i].measure.userStretch = short[i].measure.userStretch * (w + short[i].lack) / w
+    }
+    curScore.endCmd()
+}
+
+function even() {
+    // a line's empty bars widened to its widest empty bar
+    var lines = {}
+    var all = measures()
+    for (var i = 0; i < all.length; i++) {
+        if (hasNotes(all[i])) continue
+        var key = lineKey(all[i])
+        if (!lines[key]) lines[key] = []
+        lines[key].push(all[i])
+    }
+    var moved = 0
+    curScore.startCmd()
+    for (var k in lines) {
+        var widest = 0
+        for (var j = 0; j < lines[k].length; j++) widest = Math.max(widest, lines[k][j].bbox.width)
+        for (var n = 0; n < lines[k].length; n++) {
+            var m = lines[k][n]
+            if (widest - m.bbox.width > 0.1) { m.userStretch = m.userStretch * widest / m.bbox.width; moved += 1 }
+        }
+    }
+    curScore.endCmd()
+    return moved
+}
+
+function measureMode(all) {
+    // on an unjustified render: the share each bar must grow to hold its chords apart, written back for the planner
+    seatStarts(all)
+    var short = shortfalls(all)
+    var shares = []
+    var bars = measures()
+    for (var i = 0; i < bars.length; i++) {
+        var share = 1
+        for (var k = 0; k < short.length; k++) if (tickOf(short[k].measure) === tickOf(bars[i])) share = (bars[i].bbox.width + short[k].lack) / bars[i].bbox.width
+        shares.push(share.toFixed(4))
+    }
+    curScore.setMetaTag("museChordShare", shares.join(","))
+}
+
+function main() {
+    var given = curScore.metaTag("museInkBias")  // per chord, the spaces its ink starts past its text box, measured by the caller
+    BIAS = given ? given.split(",").map(Number) : []
+    CLEAR = Number(curScore.metaTag("museChordGap"))
+    if (!(CLEAR > 0)) { api.log.error("museseat: no museChordGap tag"); curScore.setMetaTag("museSeatError", "no museChordGap tag"); return }
+    var all = chords()
+    if (curScore.metaTag("museMode") === "measure") { measureMode(all); return }
+    var rounds = 0
+    for (; rounds < 8; rounds++) {
+        seatStarts(all)
+        var short = shortfalls(all)
+        var moved = even()
+        if (!short.length && !moved) break
+        if (short.length) widen(short)
+    }
+    seatStarts(all)
+    var left = shortfalls(all)
+    curScore.setMetaTag("museSeatError", left.length ? "chords still crowd in " + left.length + " bars" : "")
     lift(all)
-    api.log.info("museseat lifted")
 }
