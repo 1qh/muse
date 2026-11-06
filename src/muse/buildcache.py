@@ -19,8 +19,12 @@ def file_digest(path: pathlib.Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+CODE_SUFFIXES = (".py", ".js", ".json")
+
+
 def code_files(root: pathlib.Path = ROOT, skip: frozenset[str] | set[str] = frozenset()) -> list[pathlib.Path]:
-    return sorted(path for path in root.glob("*.py") if path.name not in skip)
+    """Every file of the package that can shape an output: its Python and the MuseScore extension it installs."""
+    return sorted(path for path in root.rglob("*") if path.is_file() and path.suffix in CODE_SUFFIXES and "__pycache__" not in path.parts and path.name not in skip)
 
 
 def tool_identity() -> str:

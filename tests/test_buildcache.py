@@ -82,3 +82,8 @@ def test_a_check_no_size_can_change_refuses_instead_of_searching(monkeypatch, tm
     with pytest.raises(port.SheetRefused):
         port.refuse_fixed(tmp_path / "x.pdf", "t", "s")
     assert not issubclass(port.SheetRefused, port.DoesNotFit)
+
+
+def test_build_key_covers_the_extension() -> None:
+    names = {p.name for p in buildcache.code_files()}
+    assert {"main.js", "manifest.json"} <= names

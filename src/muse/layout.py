@@ -217,7 +217,9 @@ def plan(score: Score, widths: list[float], room: float) -> set[int]:
 def render(sheet: Sheet, label: str, seated: bool = False) -> tuple[pathlib.Path, pathlib.Path]:
     """The sheet as its score now breaks it; a seated render keeps the chord offsets already written."""
     score_path = sheet.path(label)
-    if not seated or not score_path.exists():
+    if seated and not score_path.exists():
+        raise port.DoesNotFit(f"{score_path.name}: no seated score to render; its edits would be lost")
+    if not seated:
         port.edited(sheet.imported(), score_path, sheet.size, sheet.distance, sheet.score)
         rewrite(score_path, placed)
     probe = score_path.with_name(score_path.stem + "-layout.pdf")
