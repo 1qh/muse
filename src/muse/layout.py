@@ -8,6 +8,7 @@ import os
 import pathlib
 import re
 import shutil
+import threading
 import xml.etree.ElementTree as ET
 import zipfile
 from collections.abc import Callable
@@ -31,6 +32,7 @@ INK_ROUNDS = 4
 EXTENSION = pathlib.Path(__file__).parent / "extension"
 EXTENSION_URI = "extension://muse/seat"
 EXTENSION_FOLDER = "museseat"
+INSTALL_LOCK = threading.Lock()
 EXTENSION_SECONDS = 300
 
 
@@ -46,19 +48,21 @@ def install_extension() -> str:
     digest = hashlib.sha256(script + (EXTENSION / "manifest.json").read_bytes()).hexdigest()[:12]
     uri = f"{EXTENSION_URI}-{digest}"
     home = extensions_root() / f"{EXTENSION_FOLDER}-{digest}"
-    if (home / "manifest.json").exists():
-        return uri
-    manifest = json.loads((EXTENSION / "manifest.json").read_text(encoding="utf-8"))
-    manifest["uri"] = uri
-    fresh = home.with_name(f"{home.name}.{os.getpid()}.tmp")
-    fresh.mkdir(parents=True, exist_ok=True)
-    (fresh / "main.js").write_bytes(script)
-    (fresh / "manifest.json").write_text(json.dumps(manifest, indent=4), encoding="utf-8")
-    try:
-        fresh.rename(home)
-    except OSError:  # another run installed the same bytes first
+    with INSTALL_LOCK:  # the threads of 1 process install 1 at a time; other processes race only through the atomic rename
+        if (home / "manifest.json").exists():
+            return uri
+        manifest = json.loads((EXTENSION / "manifest.json").read_text(encoding="utf-8"))
+        manifest["uri"] = uri
+        fresh = home.with_name(f"{home.name}.{os.getpid()}.{threading.get_ident()}.tmp")
         shutil.rmtree(fresh, ignore_errors=True)
-    shutil.rmtree(extensions_root() / EXTENSION_FOLDER, ignore_errors=True)  # the copy at a fixed address that every version once shared
+        fresh.mkdir(parents=True)
+        (fresh / "main.js").write_bytes(script)
+        (fresh / "manifest.json").write_text(json.dumps(manifest, indent=4), encoding="utf-8")
+        try:
+            fresh.rename(home)
+        except OSError:  # another process installed the same bytes first
+            shutil.rmtree(fresh, ignore_errors=True)
+        shutil.rmtree(extensions_root() / EXTENSION_FOLDER, ignore_errors=True)  # the copy at a fixed address that every version once shared
     return uri
 
 

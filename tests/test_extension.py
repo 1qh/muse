@@ -169,3 +169,13 @@ def test_cues_over_the_first_line_stay_on_the_page(tmp_path: pathlib.Path) -> No
     rendered()
     assert pdfcheck.off_page(pdf) == []
     assert pdfcheck.text_collisions(pdf) == []
+
+
+def test_many_threads_install_1_copy_without_colliding(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import concurrent.futures
+
+    monkeypatch.setenv("MUSE_EXTENSIONS", str(tmp_path))
+    with concurrent.futures.ThreadPoolExecutor(16) as pool:
+        uris = set(pool.map(lambda _: layout.install_extension(), range(64)))
+    assert len(uris) == 1
+    assert [path.name for path in tmp_path.iterdir()] == [f"{layout.EXTENSION_FOLDER}-{next(iter(uris)).rsplit('-', 1)[1]}"]
