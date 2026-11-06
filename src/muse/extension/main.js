@@ -267,6 +267,15 @@ function even() {
     return moved
 }
 
+var NOTED = []  // 0-based bars holding notes, as the caller's own score model says
+
+function barIndex(measure) {
+    var at = 0
+    var m = curScore.firstMeasure
+    while (m && tickOf(m) !== tickOf(measure)) { at++; m = m.nextMeasure }
+    return at
+}
+
 function measureMode(all) {
     // on an unjustified render: per bar, the share its width must grow so every chord clears the next by the gap; chords sit at fixed shares of their bar, so 1 measurement gives it
     seatStarts(all)
@@ -277,8 +286,16 @@ function measureMode(all) {
         var bar = a.measure
         var edge = bar.pagePos.x
         var width = bar.bbox.width
-        var at = (left(a) - edge) / width
-        var next = i + 1 < all.length && tickOf(all[i + 1].measure) === tickOf(bar) ? (left(all[i + 1]) - edge) / width : 1
+        var sameBar = i + 1 < all.length && tickOf(all[i + 1].measure) === tickOf(bar)
+        var at, next
+        if (NOTED.length ? NOTED.indexOf(barIndex(bar)) >= 0 : hasNotes(bar)) {  // notes set where a chord prints; the caller says which bars hold notes
+            at = (left(a) - edge) / width
+            next = sameBar ? (left(all[i + 1]) - edge) / width : 1
+        } else {  // a bar of rests spaces its chords by beat
+            var length = (bar.nextMeasure ? tickOf(bar.nextMeasure) : curScore.lastSegment.tick) - tickOf(bar)
+            at = (a.segment.tick - tickOf(bar)) / length
+            next = sameBar ? (all[i + 1].segment.tick - tickOf(bar)) / length : 1
+        }
         var room = right(a) - left(a) + CLEAR + MARGIN
         var wanted = next > at ? room / (next - at) : width
         need[tickOf(bar)] = Math.max(need[tickOf(bar)] || width, wanted)
@@ -296,6 +313,8 @@ function main() {
     var inked = curScore.metaTag("museInkWidth")
     INK = inked ? inked.split(",").map(Number) : []
     if (INK.length && INK.length !== all.length) { curScore.setMetaTag("museSeatError", "ink widths for " + INK.length + " chords, the score holds " + all.length); return }
+    var noted = curScore.metaTag("museNoted")
+    NOTED = noted ? noted.split(",").map(Number) : []
     if (curScore.metaTag("museMode") === "measure") { measureMode(all); return }
     var rounds = 0
     for (; rounds < FIT_ROUNDS; rounds++) {

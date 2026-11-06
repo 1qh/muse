@@ -39,7 +39,7 @@ def test_measure_mode_gives_a_crowded_bar_a_share_and_a_roomy_bar_none(tmp_path:
     bars = [held(1, [chord("C")]), held(2, [chord("C", "maj7"), chord("D", "m7"), chord("E", "m7"), chord("F", "maj7")]), held(3, [chord("G")])]
     natural = imported(tmp_path, bars, {1})
     layout.rewrite(natural, layout.unjustified)
-    shares = layout.chord_shares(natural, 3)
+    shares = layout.chord_shares(natural, 3, [0, 1, 2])
     assert shares[0] == pytest.approx(1.0) and shares[2] == pytest.approx(1.0)
     assert shares[1] > 1.2
 

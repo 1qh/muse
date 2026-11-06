@@ -194,18 +194,18 @@ def measure(sheet: Sheet) -> tuple[list[float], float]:
     BATCHER.render(natural, [natural.with_suffix(".mpos"), natural_pdf], sheet.options)
     BATCHER.render(normal, [normal.with_suffix(".mpos")], sheet.options)
     laid_natural = boxes(natural.with_suffix(".mpos"))
-    shares = chord_shares(natural, len(laid_natural))
+    shares = chord_shares(natural, len(laid_natural), [index for index, bar in enumerate(sheet.score.bars) if piano.has_notes(bar)])
     widths = [box["sx"] * share for box, share in zip(laid_natural, shares, strict=True)]
     laid = boxes(normal.with_suffix(".mpos"))
     first = [box for box in laid if box["page"] == laid[0]["page"] and box["y"] == laid[0]["y"]]
     return widths, sum(box["sx"] for box in first)
 
 
-def chord_shares(natural: pathlib.Path, bars: int) -> list[float]:
+def chord_shares(natural: pathlib.Path, bars: int, noted: list[int]) -> list[float]:
     """Per bar, the share its natural width must grow to hold its chords apart by the clear gap, measured by the extension."""
     probe = natural.with_name(natural.stem + "-chords.mscz")
     shutil.copyfile(natural, probe)
-    set_tags(probe, {"museMode": "measure", "museChordGap": f"{CLEAR_SPACES:.4f}"})
+    set_tags(probe, {"museMode": "measure", "museChordGap": f"{CLEAR_SPACES:.4f}", "museNoted": ",".join(str(i) for i in noted) or "-1"})
     run_extension(probe, probe)
     crowded = read_tag(probe, "museSeatError")
     if crowded:
@@ -404,5 +404,6 @@ def lay(src: pathlib.Path, work: pathlib.Path, variant: str) -> tuple[Score, pat
         except port.DoesNotFit as error:
             refusals.append(str(error))
             print(f"refused {error}", flush=True)  # each refused size and its reason, as it happens
-    raise port.DoesNotFit(f"{src.stem} {variant}: no size passes: {refusals[:3]}")
+    summary = [(c["size"], "held" if c["held"] else "wrapped", f"short {c['share']:.0%}", "lone bar" if c["lone"] else "") for c in found]
+    raise port.DoesNotFit(f"{src.stem} {variant}: no size passes: {refusals[:3] or summary}")
 
