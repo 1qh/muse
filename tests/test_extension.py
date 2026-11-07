@@ -24,7 +24,7 @@ def held(number: int, chords: list[Chord]) -> Bar:
 
 
 def imported(tmp_path: pathlib.Path, bars: list[Bar], lines: set[int]) -> pathlib.Path:
-    score = Score(bars, [], [])
+    score = Score(bars, [], [], minor=True)
     for bar in score.bars:
         bar.new_system = bar.number in lines and bar.number != 1
     style = port.styled(tmp_path, "s.mss", "Fixture", 1.6, port.BASE_DISTANCE)
