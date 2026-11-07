@@ -213,3 +213,35 @@ def test_a_measured_gap_past_the_ink_limit_never_feeds_the_correction() -> None:
 
     assert layout.next_bias([0.1, 0.2], [0.9, 16.0 * 4.5], [4.5, 4.5]) == [0.1 + 0.2, 0.2]
     assert layout.next_bias([], [None, -4.5], [4.5, 4.5]) == [0.0, -1.0]
+
+
+def test_a_line_printing_fewer_chords_than_the_score_holds_is_crowded(monkeypatch, tmp_path) -> None:
+    from fractions import Fraction as F
+
+    from muse import chordseat, layout
+    from muse.model import Bar, Chord, Score
+
+    def bar(number: int, names: int, new: bool) -> Bar:
+        made = Bar(number, 0, 0.0, 100.0, F(4), chords=[Chord(float(at), "C", 0, "") for at in range(names)])
+        made.new_system = new
+        return made
+
+    score = Score([bar(1, 2, False), bar(2, 1, False), bar(3, 2, True), bar(4, 2, False)], [], [])
+    monkeypatch.setattr(chordseat, "page_lines", lambda probe: [{"chords": [1.0, 2.0, 3.0]}, {"chords": [1.0, 2.0, 3.0]}])
+    assert layout.merged_rows(score, tmp_path / "p.pdf") == {3}
+
+
+def test_the_seated_overflow_check_reports_lines_whose_chords_merged(monkeypatch, tmp_path) -> None:
+    from fractions import Fraction as F
+    from types import SimpleNamespace
+
+    from muse import layout, port
+    from muse.model import Bar, Score
+
+    bars = [Bar(n, 0, 0.0, 100.0, F(4)) for n in range(1, 5)]
+    bars[2].new_system = True
+    sheet = SimpleNamespace(score=Score(bars, [], []), starts=lambda: [1, 3])
+    monkeypatch.setattr(port, "system_starts", lambda probe: [1, 3])
+    monkeypatch.setattr(port, "crowded_rows", lambda probe, wanted: set())
+    monkeypatch.setattr(layout, "merged_rows", lambda score, probe: {3})
+    assert layout.overflowing(sheet, tmp_path / "p.pdf", seated=True) == {2, 3}
