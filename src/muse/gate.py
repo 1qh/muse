@@ -288,7 +288,7 @@ def chord_starts(score_path: pathlib.Path, score: Score) -> list[str]:
     tied_in = {bar.number for bar in score.bars if bar.number > 1 and port.tied_out(score.bars[bar.number - 2])}
     labels = {bar.number for bar in score.bars if piano.label_of(bar)}
     opening = {numbers[0] for numbers in chordseat.bar_rows(chordseat.score_text(score_path)[1]) if numbers}
-    after_mark = {bar + 1 for bar in opening & marks if bar > 1} if "piano" in score_path.name else set()  # starting both would strand the mark's bar alone
+    after_mark = {bar + 1 for bar in opening & marks if bar > 1}  # on any sheet: starting both would strand the mark's bar alone
     tied_labels = sorted((labels - opening) & tied_in)
     if tied_labels:
         print(f"{score_path.name}: a tie holds these lyric labels inside a line: {tied_labels}", flush=True)

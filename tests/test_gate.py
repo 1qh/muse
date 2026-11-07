@@ -226,7 +226,7 @@ def test_an_unpushed_commit_is_pushed_even_with_nothing_new(tmp_path):
     assert ("git", "push") in calls
 
 
-def test_a_piano_label_may_follow_a_mark_that_opens_its_line(monkeypatch, tmp_path):
+def test_a_label_may_follow_a_mark_that_opens_its_line_on_any_sheet(monkeypatch, tmp_path):
     from fractions import Fraction as F
 
     from muse import chordseat
@@ -240,7 +240,7 @@ def test_a_piano_label_may_follow_a_mark_that_opens_its_line(monkeypatch, tmp_pa
     monkeypatch.setattr(chordseat, "chordless_starts", lambda text: [])
     monkeypatch.setattr(chordseat, "bar_rows", lambda text: [[1, 2], [3, 4, 5]])
     assert gate.chord_starts(tmp_path / "x-piano-final.mscz", score) == []
-    assert gate.chord_starts(tmp_path / "x-original.mscz", score)
+    assert gate.chord_starts(tmp_path / "x-original.mscz", score) == []  # any sheet: a 1-bar section shares its line with the next
 
 
 def test_a_publish_commit_names_its_songs():

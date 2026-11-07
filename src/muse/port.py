@@ -448,10 +448,10 @@ def line_starts(score: Score) -> list[int]:
 
 
 def line_rule_breaks(score: Score, variant: str = TONE) -> list[int]:
-    """Bars the line rules say start a line and that sit inside one, or lines opening on a bar without a chord that a mark does not excuse; on a piano sheet a label may sit second after a mark bar that opens its line."""
+    """Bars the line rules say start a line and that sit inside one, or lines opening on a bar without a chord that a mark does not excuse; on any sheet a label may sit second after a mark bar that opens its line."""
     firsts = {row[0] for row in rows(score)}
     marks = {block[0] + 1 for block in sections(score)}
-    second = {number + 1 for number in firsts & marks} if variant == PIANO else set()
+    second = {number + 1 for number in firsts & marks}  # on any sheet a 1-bar section shares its line with the next, whose label then sits second
     inside = [bar.number for bar in score.bars if bar.number not in firsts and bar.number not in second and piano.label_of(bar) and not (bar.number > 1 and tied_out(score.bars[bar.number - 2]))]
     bare = [n for n in firsts if n not in marks and not score.bars[n - 1].chords]
     return sorted({*inside, *bare})

@@ -472,13 +472,14 @@ def test_a_chord_list_lands_inside_the_style(tmp_path):
 
 def test_a_saved_layout_with_a_label_inside_a_line_fails_its_proof():
     plain = Bar(1, 0, 0.0, 100.0, F(4), voices=[], new_system=False)
-    labelled = Bar(2, 0, 0.0, 100.0, F(4), voices=[], texts=[Text(0.0, 0.0, [("Chorus-a: words", True, True)], False)])
+    second = Bar(2, 0, 0.0, 100.0, F(4), voices=[], new_system=False)  # the first section holds 2 bars, so the label after it may not sit inside their line
+    labelled = Bar(3, 0, 0.0, 100.0, F(4), voices=[], texts=[Text(0.0, 0.0, [("Chorus-a: words", True, True)], False)])
     from muse.model import Chord, Score
 
-    plain.chords = labelled.chords = [Chord(0.0, "A", 0, "")]
-    assert port.line_rule_breaks(Score([plain, labelled], [], [])) == [2]
+    plain.chords = second.chords = labelled.chords = [Chord(0.0, "A", 0, "")]
+    assert port.line_rule_breaks(Score([plain, second, labelled], [], [])) == [3]
     labelled.new_system = True
-    assert port.line_rule_breaks(Score([plain, labelled], [], [])) == []
+    assert port.line_rule_breaks(Score([plain, second, labelled], [], [])) == []
 
 
 def _plain_bar(number, left=0.0, right=100.0, **extra):
