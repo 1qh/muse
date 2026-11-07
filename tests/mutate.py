@@ -13,7 +13,7 @@ CONTROL_SECONDS = 240  # the fast suite; a control planted in code MuseScore run
 HEAVY_SECONDS = 1500
 HEAVY = ("extension/", "layout.py", "launch.py", "render.py")  # code only the MuseScore-driven tests exercise
 MUTATIONS = [
-    ("pdfcheck.py", "                    found.append(f\"p{number}: sign box over {word!r}\")", "                    pass", "sign box over text passes"),
+    ("pdfcheck.py", "found.append(f\"text on text: p{number}: sign box over {word!r}\")", "pass", "sign box over text passes"),
     ("chordseat.py", "            if any(other != box and other.y0 < box.y0", "            if False and any(other != box and other.y0 < box.y0", "cues of 2 lines crowd"),
     ("chordseat.py", "    noted = noted | signed_bars(text)\n", "\n", "sign bar evened"),
     ("chordseat.py", "    lost = missing(rows, lines)\n    if lost:\n        return lost\n", "", "missing chord crashes"),

@@ -725,7 +725,7 @@ def test_a_sign_box_over_a_word_is_found_and_the_signs_own_glyph_is_not(tmp_path
         doc.save(path)
         return path
 
-    assert pdfcheck.sign_text_overlaps(sheet(True)) == ["p1: sign box over 'S'"]
+    assert pdfcheck.sign_text_overlaps(sheet(True)) == ["text on text: p1: sign box over 'S'"]
     assert pdfcheck.sign_text_overlaps(sheet(False)) == []
 
 
