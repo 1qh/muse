@@ -486,7 +486,8 @@ def crowded_line_texts(score_path: pathlib.Path, pdf: pathlib.Path) -> list[str]
         (page_no, upper), (next_page, lower) = tops[at], tops[at + 1]
         if page_no != next_page:
             continue
-        spans = [(span["text"].strip(), pymupdf.Rect(span["bbox"])) for block in pages[page_no].get_text("dict", pymupdf.TEXT_ACCURATE_BBOXES)["blocks"] for line in block.get("lines", []) for span in line["spans"] if span["text"].strip() and upper + space * 4 < span["bbox"][1] and span["bbox"][3] < lower]
+        inked = pages[page_no].get_text("dict", pymupdf.TEXT_ACCURATE_BBOXES)["blocks"]  # ink boxes: a font box reaches past its letters
+        spans = [(span["text"].strip(), pymupdf.Rect(span["bbox"])) for block in inked for line in block.get("lines", []) for span in line["spans"] if span["text"].strip() and upper + space * 4 < span["bbox"][1] and span["bbox"][3] < lower]
         mine = [box for words, box in spans if any(words in cue for cue in owners[at][1])]
         theirs = [(words, box) for words, box in spans if any(words in cue for cue in owners[at + 1][0])]
         for words, box in theirs:  # a cue both lines print, word for word, belongs by order: the upper copy to the line above
