@@ -693,7 +693,7 @@ def test_a_cue_above_1_line_too_close_to_a_cue_below_the_line_above_is_text_on_t
         spans = [{"text": "Sáo", "bbox": (60.0, 190.0, 80.0, 205.0)}, {"text": "Sáo", "bbox": (60.0, 205.0 + gap, 80.0, 220.0 + gap)}]
 
         class Page:
-            def get_text(self, kind):
+            def get_text(self, kind, flags=None):
                 return {"blocks": [{"lines": [{"spans": spans}]}]}
 
         return [Page()]
