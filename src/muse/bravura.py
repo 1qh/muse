@@ -7,6 +7,7 @@ from typing import Any
 
 import pymupdf
 
+from muse import leland
 from muse.model import LETTERS, Bar, Event, Head, Issue, Score, Text, UnknownGlyph
 from muse.symbolfont import parse_chord
 
@@ -44,7 +45,7 @@ def decode(path: str) -> Score:
         r = d["rect"]
         if kinds == "l":
             a, b = d["items"][0][1], d["items"][0][2]
-            if abs(a.y - b.y) < 0.1 and r.width > 100:
+            if abs(a.y - b.y) < 0.1:
                 h_lines.append((a.y, min(a.x, b.x), max(a.x, b.x)))
             elif abs(a.x - b.x) < 0.1 and d["width"] > 0.9 and 18 < r.height < 22:
                 v_bar.append((a.x, r.y0, r.y1))
@@ -56,8 +57,8 @@ def decode(path: str) -> Score:
             fills.append(r)  # tuplet bracket pieces share the rect list; filtered by shape
         elif kinds == "clcl":
             ties.append(r)
-    ys = sorted({round(y, 1) for y, _, _ in h_lines})
-    bases = [ys[i] for i in range(4, len(ys), 5)]
+    ys = sorted({y for y, _, _ in leland.staff_lines(h_lines)})
+    bases = [ys[ys.index(top) + 4] for top in leland.staff_tops(ys)]
     step = (ys[4] - ys[0]) / 8
     size = next(c[3] for c in chars if c[0] == BLACK)
     bars: list[Bar] = []
@@ -77,9 +78,10 @@ def decode(path: str) -> Score:
         next((c[1] for c in chars if abs(c[2] - base) < 25 and 0xE080 <= c[0] <= 0xE089), None)
         left_edge = 58.0
         cols = [left_edge] + [m for m in merged if m > left_edge + 8]
-        bases[s_i + 1] if s_i + 1 < len(bases) else base + 80
-        bases[s_i - 1] if s_i else base - 80
-        row_chars = [c for c in chars if base - 50 < c[2] < base + 22 and abs(c[3] - size) < 9]
+        above = bases[s_i - 1] if s_i else None  # a mark belongs to 1 line: this window starts where the line above's ends
+        mark_lo = base - 60 if above is None else max(base - 60, above + 14)
+        note_lo = base - 50 if above is None else max(base - 50, above + 22)
+        row_chars = [c for c in chars if note_lo < c[2] < base + 22 and abs(c[3] - size) < 9]
         row_new: list[Bar] = []
         for a, b in zip(cols, cols[1:], strict=False):
             content = [c for c in row_chars if a <= c[1] < b - 0.5]
@@ -100,21 +102,21 @@ def decode(path: str) -> Score:
         if not row_new:
             continue
         for ch in chars:
-            if base - 60 < ch[2] < base + 10 and ch[0] == 0xE047:
+            if mark_lo < ch[2] < base + 10 and ch[0] == 0xE047:
                 near = min(row_new, key=lambda n: abs(n.left - ch[1]))
                 if abs(near.left - ch[1]) < 16:
                     near.segno = True
                 else:
                     target = next((n for n in row_new if n.left <= ch[1] < n.right + 2), row_new[-1])
                     target.dal_segno = True
-            if base - 60 < ch[2] < base + 10 and ch[0] == 0xE048:
+            if mark_lo < ch[2] < base + 10 and ch[0] == 0xE048:
                 target = next((n for n in row_new if n.left - 6 <= ch[1] < n.right), row_new[-1])
                 if any(sp[0].strip().startswith("Coda") and abs(sp[2] - ch[2]) < 6 for sp in spans):
                     target.coda = True
                 else:
                     target.to_coda = True
-        row_spans = [t for t in spans if base - 60 < t[2] < base + 14]
-        row_ch = [c for c in chars if c[0] in (0xE87B, 0xE873) and base - 60 < c[2] < base - 10]
+        row_spans = [t for t in spans if mark_lo < t[2] < base + 14]
+        row_ch = [c for c in chars if c[0] in (0xE87B, 0xE873) and mark_lo < c[2] < base - 10]
         items = [t for t in row_spans if t[5] == "Academico-BoldItalic" and abs(t[4] - 10.6) < 0.3 and t[0].strip() and re.match(r"[A-G]", t[0].strip())]
         for t in row_spans:
             if t in items or not t[0].strip():
