@@ -98,6 +98,7 @@ function lift(all) {
         var parts = spanners[s].spannerSegments
         for (var t = 0; t < parts.length; t++) {
             var part = parts[t]
+            if (spanners[s].type !== Element.SLUR && spanners[s].type !== Element.TIE) continue  // MuseScore stacks every other spanner, a volta, hairpin or line, over the chord row: its height is the chords' own, and lifting over it climbs without end
             if (!part.bbox || !part.parent || !part.parent.parent) continue
             var top = part.pagePos.y + part.bbox.y
             var system = part.parent
@@ -130,7 +131,7 @@ function lift(all) {
 
 var GAP = 0.5  // spaces between a line's chords and the highest thing below them
 
-var SPANNER_REACH = 10  // spaces a reading may lie from its own line or barline: a volta, hairpin or beat-1 chord sits within a few; farther is stale
+var SPANNER_REACH = 10  // spaces a reading may lie from its own line or barline: a hairpin, slur or beat-1 chord sits within a few
 
 var TEXT_SLACK = 1.0  // spaces of room text placement keeps: it reads positions inside the launch, which differ a little from what prints
 
