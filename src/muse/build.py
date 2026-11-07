@@ -122,7 +122,33 @@ def publish_song(src_dir: pathlib.Path, out_dir: pathlib.Path, work: pathlib.Pat
     return "; ".join(blocked.get(name, [])[:3])
 
 
+CHILD_FLAG = "--song"
+
+
+def child(src: pathlib.Path, stage: pathlib.Path, work: pathlib.Path) -> tuple[dict[str, object] | None, str]:
+    """1 song built in its own child process: its report, or none and the reason the child wrote."""
+    name = song_of(src).name
+    refusal = work / f"{name}-refusal.txt"
+    refusal.unlink(missing_ok=True)
+    done = subprocess.run([sys.executable, "-m", "muse.build", CHILD_FLAG, str(src), str(stage), str(work)], stdin=subprocess.DEVNULL, check=False)
+    if done.returncode == 0:
+        return json.loads((work / f"{name}-report.json").read_text(encoding="utf-8")), ""
+    return None, refusal.read_text(encoding="utf-8") if refusal.exists() else f"child exited {done.returncode} with no reason"
+
+
+def child_main(src: pathlib.Path, stage: pathlib.Path, work: pathlib.Path) -> None:
+    """The child: build 1 song, its report written by song(); a refusal written to its own file and a non-zero exit."""
+    try:
+        song(src, stage, work)
+    except (port.DoesNotFit, RuntimeError, OSError, subprocess.SubprocessError, ValueError) as error:
+        (work / f"{song_of(src).name}-refusal.txt").write_text(str(error), encoding="utf-8")
+        raise SystemExit(2) from error
+
+
 def main() -> None:
+    if sys.argv[1:2] == [CHILD_FLAG]:
+        child_main(*map(pathlib.Path, sys.argv[2:5]))
+        return
     port.require_font()
     args = [arg for arg in sys.argv[1:] if arg != "--publish"]
     publishing = "--publish" in sys.argv[1:]
@@ -139,18 +165,18 @@ def main() -> None:
     refused = []
     blocked = []
     workers = free_workers(len(sources))
-    os.environ[launch.SLOTS_VARIABLE] = str(max(1, (os.cpu_count() or 1) // workers))  # each song worker's share of the cores, read as it starts
-    with concurrent.futures.ProcessPoolExecutor(max_workers=workers) as pool:
-        jobs = {pool.submit(song, src, stage, work): src for src in sources}
+    os.environ[launch.SLOTS_VARIABLE] = str(max(1, (os.cpu_count() or 1) // workers))  # each song child's share of the cores, read as it starts
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:  # threads only wait on children: no queue crosses a process
+        jobs = {pool.submit(child, src, stage, work): src for src in sources}
         for job in concurrent.futures.as_completed(jobs):
             src = jobs[job]
-            try:
-                reports.append(job.result())
-            except (port.DoesNotFit, RuntimeError, OSError, subprocess.SubprocessError) as error:  # 1 song's failure never stops the others
+            report, reason = job.result()
+            if report is None:  # 1 song's failure never stops the others
                 refused.append(src.stem)
-                print(f"refused {src.stem}: {error}", flush=True)
+                print(f"refused {src.stem}: {reason}", flush=True)
                 continue
-            print(json.dumps(reports[-1], ensure_ascii=False), flush=True)
+            reports.append(report)
+            print(json.dumps(report, ensure_ascii=False), flush=True)
             if publishing:  # this process alone publishes, so songs publish 1 at a time as they finish
                 reason = publish_song(src_dir, out_dir, work, stage, song_of(src).name)
                 print(f"{'blocked' if reason else 'published'} {song_of(src).name} {reason}".rstrip(), flush=True)
