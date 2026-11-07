@@ -241,6 +241,14 @@ def is_signature(code: int) -> bool:
     return 0xE050 <= code <= 0xE07F or 0xE080 <= code <= 0xE09F or 0xE260 <= code <= 0xE264
 
 
+def missing(rows: list[list[tuple[int, bool]]], lines: list[dict[str, Any]]) -> list[str]:
+    """Chords the score holds and the print lacks, per line: a chord pushed off the page prints nothing."""
+    filled = [row for row in rows if row]
+    if len(filled) != len(lines):
+        return [f"chords missing from the print: {len(filled)} lines with chords in the score, {len(lines)} in the PDF"]
+    return [f"chords missing from the print: line {at + 1} holds {len(row)} chords in the score, {len(line['chords'])} in the PDF" for at, (row, line) in enumerate(zip(filled, lines, strict=True)) if len(row) != len(line["chords"])]
+
+
 def gaps(rows: list[list[tuple[int, bool]]], lines: list[dict[str, Any]]) -> list[float | None]:
     """Each chord's gap after its bar's left edge; None for a chord past beat 1, which its own beat places."""
     filled = [row for row in rows if row]
@@ -415,6 +423,9 @@ def problems(mscz: pathlib.Path, pdf: pathlib.Path, reach: float | None = None) 
     text = score_text(mscz)[1]
     rows = rows_of(text)
     lines = matched(text, pdf)
+    lost = missing(rows, lines)
+    if lost:
+        return lost
     found = gaps(rows, lines)
     room = spaces_of(rows, lines)
     return [f"chord {index + 1}: gap {gap:.1f} pt, wanted {GAP}" for index, (gap, space) in enumerate(zip(found, room, strict=True)) if gap is not None and (abs(gap - GAP) > TOLERANCE if reach is None else not -TOLERANCE <= gap <= reach * space)]

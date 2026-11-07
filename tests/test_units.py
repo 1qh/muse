@@ -594,3 +594,13 @@ def test_a_chord_row_lifted_over_a_bracket_is_not_too_high_and_one_lifted_over_n
 
     assert highest(sheet(False)) > pdfcheck.MAX_CHORD_SPACES
     assert highest(sheet(True)) <= pdfcheck.MAX_CHORD_SPACES
+
+
+def test_a_chord_the_print_lacks_is_a_problem_never_an_error(monkeypatch, tmp_path) -> None:
+    rows = [[(0, True), (0, False)]]
+    lines = [{"chords": [143.9], "lefts": [143.0], "rights": [170.0], "bars": [573.7], "start": 40.0, "opening": 40.0, "space": 4.5, "size": 16.0}]
+    monkeypatch.setattr(chordseat, "score_text", lambda path: ("s.mscx", ""))
+    monkeypatch.setattr(chordseat, "rows_of", lambda text: rows)
+    monkeypatch.setattr(chordseat, "matched", lambda text, pdf: lines)
+    found = chordseat.problems(tmp_path / "s.mscz", tmp_path / "s.pdf")
+    assert found == ["chords missing from the print: line 1 holds 2 chords in the score, 1 in the PDF"]
