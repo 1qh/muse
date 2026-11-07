@@ -231,12 +231,14 @@ def chord_seating(path: pathlib.Path) -> list[tuple[int, float, float, str]]:
     found = []
     for number, page in enumerate(pdftext.open(path), 1):
         spans, heads = [], []
+        tops: list[tuple[float, float]] = []  # every non-chord text's top: a volta number or a cue under the chord row lifts it too
         for block in page.get_text("rawdict")["blocks"]:
             for line in block.get("lines", []):
                 for span in line["spans"]:
                     text = "".join(c["c"] for c in span["chars"]).strip()
                     if text and not all(0xE000 <= ord(c) <= 0xF8FF for c in text):
                         spans.append((span["size"], span["bbox"][0], span["bbox"][2], span["origin"][1], text))
+                        tops.append((span["size"], span["bbox"][1]))
                     heads += [c["origin"] for c in span["chars"] if HEAD_CODES[0] <= ord(c["c"]) <= HEAD_CODES[1]]
         if not spans:
             continue
@@ -254,7 +256,7 @@ def chord_seating(path: pathlib.Path) -> list[tuple[int, float, float, str]]:
             bars = [r.x0 for r in drawings if r.width < 3 and abs(r.y0 - staff[0]) < 1 and abs(r.y1 - staff[4]) < 1]
             overhang = max((bar - left for bar in bars if left < bar < right), default=0.0)
             noted = any(staff[0] - STAFF_REACH <= y <= staff[4] + STAFF_REACH for _, y in heads)
-            floor = min((r.y0 for r in drawings if base < r.y0 < staff[0] - 0.5), default=staff[0])  # a bracket or hairpin under the chord row lifts the line's 1 shared chord baseline by right
+            floor = min([*(r.y0 for r in drawings if base < r.y0 < staff[0] - 0.5), *(y for other, y in tops if abs(other - top) >= 0.05 and base < y < staff[0] - 0.5)], default=staff[0])  # a bracket, volta number, cue or hairpin under the chord row lifts the line's 1 shared chord baseline by right
             found.append((number - 1, overhang, -1.0 if noted else (floor - base) / gap, text))
     return found
 

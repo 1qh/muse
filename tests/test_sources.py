@@ -136,3 +136,19 @@ def test_every_leland_source_starts_its_lines_on_the_printed_bar_numbers() -> No
         if not printed or decoded != printed:
             wrong[path.stem] = (printed, decoded)
     assert not wrong
+
+
+def test_every_leland_source_decodes_each_printed_ending_once() -> None:
+    import pymupdf
+
+    from muse.song import encoding
+
+    sources = [path for folder in os.environ["MUSE_SOURCES"].split(os.pathsep) for path in sorted(pathlib.Path(folder).glob("*.pdf")) if encoding(path) == "leland"]
+    assert sources, "no Leland source found: the guard would judge nothing"
+    wrong = {}
+    for path in sources:
+        printed = sum(1 for page in pymupdf.open(path) for block in page.get_text("dict")["blocks"] for line in block.get("lines", []) for span in line["spans"] if span["text"].strip() in ("1.", "2.") and "Bold" in span["font"])
+        decoded = sum(1 for bar in decode(path).bars if bar.volta)
+        if printed != decoded:
+            wrong[path.stem] = (printed, decoded)
+    assert not wrong
