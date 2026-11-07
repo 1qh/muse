@@ -275,3 +275,20 @@ def test_a_1_bar_section_shares_its_line_with_the_next_section_whatever_opens_it
     score = Score(bars, [], [])
     assert layout.blocks_of(score, port.PIANO) == [[0, 1], [2, 3, 4]]
     assert layout.blocks_of(score, port.ORIGINAL) == [[0, 1], [2, 3, 4]]  # band sheets too: no stranded single bar on any sheet
+
+
+def test_the_seating_rounds_count_gaps_in_the_scores_own_staff_space(monkeypatch, tmp_path) -> None:
+    from muse import chordseat
+
+    tags: list[dict[str, str]] = []
+    monkeypatch.setattr(layout, "set_tags", lambda path, values: tags.append(dict(values)))
+    monkeypatch.setattr(layout, "run_extension", lambda source, target: None)
+    monkeypatch.setattr(chordseat, "score_text", lambda path: ("s.mscx", ""))
+    monkeypatch.setattr(chordseat, "rows_of", lambda text: [[(0, True)]])
+    monkeypatch.setattr(chordseat, "matched", lambda text, pdf: [{"chords": [50.0], "lefts": [50.0], "rights": [60.0], "space": 5.0}])  # the PDF's own reading of a staff space
+    monkeypatch.setattr(chordseat, "gaps", lambda rows, lines: [0.9])
+    monkeypatch.setattr(chordseat, "space_points", lambda path: 4.5)  # the score's own staff space
+    monkeypatch.setattr(layout.pdfcheck, "chord_collisions", lambda pdf: [])
+    layout.seat_inked(tmp_path / "s.mscz", lambda: tmp_path / "s.pdf", lambda probe: True)
+    second = next(values for values in tags[1:] if "museInkBias" in values)
+    assert second["museInkBias"] == f"{0.9 / 4.5:.4f}"

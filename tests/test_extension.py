@@ -84,11 +84,9 @@ def chord_heights(pdf: pathlib.Path) -> list[list[float]]:
     return found
 
 
-def test_a_tall_cue_lifts_only_its_own_line_never_a_line_at_the_same_height_on_another_page(tmp_path: pathlib.Path) -> None:
-    from muse.model import Text
-
+def test_a_high_note_lifts_only_its_own_line_never_a_line_at_the_same_height_on_another_page(tmp_path: pathlib.Path) -> None:
     bars = [held(n, [chord("C")]) for n in range(1, 41)]
-    bars[0].texts = [Text(10.0, -60.0, [("Tall cue", True, False)], True, "cue", 10.0)]
+    bars[0].voices = [[Event(10.0, [Head(10.0, 0.0, "A", 6)], F(4))]]  # on ledger lines far above the staff: its line's chords rise over it
     score_path = imported(tmp_path, bars, set(range(1, 41, 2)))  # 2 bars a line, 20 lines: 2 pages
     layout.set_tags(score_path, {"museChordGap": f"{layout.CLEAR_SPACES:.4f}"})
     layout.run_extension(score_path, score_path)
@@ -267,15 +265,20 @@ def test_a_chord_after_a_sign_mid_line_starts_past_its_box(tmp_path: pathlib.Pat
     assert pdfcheck.sign_text_overlaps(pdf) == []
 
 
-def test_a_long_cue_on_a_lines_last_bar_is_pulled_back_inside_the_margin(tmp_path: pathlib.Path) -> None:
+
+def test_raised_cues_reserve_their_height_so_they_never_reach_the_line_above(tmp_path: pathlib.Path) -> None:
     from muse.model import Text
 
     layout.install_extension()
-    bars = [held(n, [chord("C")]) for n in range(1, 9)]
-    bars[3].texts = [Text(10.0, -60.0, [("A long band cue that runs past the end of its line", True, False)], True, "cue", 10.0)]  # the last bar of line 1
+    bars = [held(n, [chord("C", "maj7")]) for n in range(1, 9)]
+    bars[1].texts = [Text(10.0, 60.0, [("Below line 1: a long cue", False, True)], False, "cue", 10.0)]
+    bars[5].texts = [Text(10.0, -60.0, [(f"Cue {at} stacked over line 2", True, False)], True, "cue", 14.0) for at in range(1, 7)]  # a stack taller than the gap between lines
     score_path = imported(tmp_path, bars, {1, 5})
-    layout.set_tags(score_path, {"museChordGap": f"{layout.CLEAR_SPACES:.4f}"})
-    layout.run_extension(score_path, score_path)
     pdf = score_path.with_suffix(".pdf")
-    BATCHER.render(score_path, [pdf, pdf.with_suffix(".mpos")], None)
-    assert pdfcheck.past_margin(pdf) == []
+
+    def rendered() -> pathlib.Path:
+        BATCHER.render(score_path, [pdf, pdf.with_suffix(".mpos")], None)
+        return pdf
+
+    layout.seat_inked(score_path, rendered, lambda probe: True)
+    assert pdfcheck.text_collisions(pdf) == []

@@ -706,3 +706,50 @@ def test_a_cue_above_1_line_too_close_to_a_cue_below_the_line_above_is_text_on_t
     assert chordseat.crowded_line_texts(tmp_path / "s.mscz", tmp_path / "s.pdf") == ["text on text: 'Sáo' above line 2 sits too close to a cue below line 1"]
     monkeypatch.setattr(chordseat.pdftext, "open", lambda pdf: page_with(20.0))
     assert chordseat.crowded_line_texts(tmp_path / "s.mscz", tmp_path / "s.pdf") == []
+
+
+def test_a_sign_box_over_a_word_is_found_and_the_signs_own_glyph_is_not(tmp_path) -> None:
+    def sheet(over: bool):
+        doc = pymupdf.open()
+        page = doc.new_page()
+        frame = pymupdf.Rect(100, 100, 130, 130)
+        page.draw_rect(frame, color=(0, 0, 0.86), width=1.2)
+        page.insert_text((105, 125), "S", fontsize=20)  # stands for text inside the box only when asked
+        if not over:
+            doc = pymupdf.open()
+            page = doc.new_page()
+            page.draw_rect(frame, color=(0, 0, 0.86), width=1.2)
+            page.insert_text((140, 125), "72", fontsize=10)
+        path = tmp_path / f"sign-{over}.pdf"
+        doc.save(path)
+        return path
+
+    assert pdfcheck.sign_text_overlaps(sheet(True)) == ["p1: sign box over 'S'"]
+    assert pdfcheck.sign_text_overlaps(sheet(False)) == []
+
+
+def test_an_imported_expression_becomes_staff_text_with_its_placement() -> None:
+    text = "<Measure><voice><Expression><direction>down</direction><eid>x</eid><text><i>(Fill)</i></text></Expression></voice></Measure>"
+    out = port.staff_texts(text)
+    assert "<Expression>" not in out
+    assert "<StaffText><placement>below</placement>" in out and "<i>(Fill)</i>" in out
+
+
+def test_every_edited_score_carries_staff_text_where_the_import_made_an_expression(tmp_path) -> None:
+    import zipfile
+
+    measure = "<Measure><voice><Expression><direction>down</direction><text><i>(Fill)</i></text></Expression></voice></Measure>"
+    source = tmp_path / "in.mscz"
+    with zipfile.ZipFile(source, "w") as z:
+        z.writestr("in.mscx", f"<museScore><Score><Spatium>1.7</Spatium><Staff id=\"1\">{measure}</Staff></Score></museScore>")
+    target = tmp_path / "out.mscz"
+    port.edited(source, target, 1.6, 6.0, Score([Bar(1, 0, 0.0, 100.0, F(4))], [], []))
+    with zipfile.ZipFile(target) as z:
+        text = z.read("in.mscx").decode("utf-8")
+    assert "<Expression>" not in text and "<StaffText><placement>below</placement>" in text
+
+
+def test_ink_widths_run_from_each_chords_box_left_never_its_ink_left() -> None:
+    rows = [[(0, True), (1, True)]]
+    lines = [{"chords": [52.0, 112.0], "lefts": [50.0, 110.0], "rights": [70.0, 125.0]}]  # ink starts 2 pt inside each box
+    assert chordseat.ink_widths(rows, lines) == [20.0, 15.0]
