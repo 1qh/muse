@@ -13,6 +13,7 @@ from fractions import Fraction as F
 from muse import chordnames, launch, scorefile
 from muse.musicxml import chord_onsets, times
 from muse.pdfcheck import title_problems
+from muse.model import Score
 from muse.song import decode, song_of, sources
 
 BANNED = ["Copyright", "Contact", "Sáng tác", "Trình bày"]
@@ -94,6 +95,17 @@ def tempo_text(final: pathlib.Path) -> str:
     return found[1] if found else ""
 
 
+def expected_keys(score: Score, fifths: int) -> set[int]:
+    """The song's key and every key change it makes, moved by the same fifths that take its first key to the given one."""
+    first = next((bar.key for bar in score.bars if bar.key is not None), fifths)
+    return {fifths, *(bar.key - first + fifths for bar in score.bars if bar.key is not None)}
+
+
+def same_keys(found: set[str], wanted: set[int]) -> bool:
+    """The same keys, counting enharmonic spellings as 1: a key and the key 12 fifths away sound alike."""
+    return {int(k) % 12 for k in found} == {k % 12 for k in wanted}
+
+
 def check(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> list[str]:
     """The latest score and its PDF, in the original tone, against the source decode."""
     info = song_of(src)
@@ -109,7 +121,7 @@ def check(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> list[str]
     if any(c != len(score.bars) for c in counts):
         problems.append(f"bar count {counts} vs {len(score.bars)}")
     keys = {k.text for k in root.iter("fifths")}
-    if keys != {str(fifths)}:
+    if not same_keys(keys, expected_keys(score, fifths)):
         problems.append(f"key {keys}")
     tempo = next((b.tempo for b in score.bars if b.tempo), None)
     if tempo and tempo_text(final) != f"{tempo[1]:g}":
