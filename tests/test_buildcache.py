@@ -105,3 +105,28 @@ def test_a_print_mode_build_is_never_reused_as_strict(tmp_path, monkeypatch) -> 
     strict = build.variant_key(source, "original")
     monkeypatch.setattr(mode, "PRINT", True)
     assert build.variant_key(source, "original") != strict
+
+
+def test_a_song_child_hands_back_its_report_or_its_refusal(monkeypatch, tmp_path):
+    import json
+    import subprocess
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(build, "song_of", lambda src: SimpleNamespace(name="Song"))
+
+    def finished(code: int, report: dict | None, reason: str | None):
+        def run(argv, **_):
+            assert argv[3] == build.CHILD_FLAG
+            if report is not None:
+                (tmp_path / "Song-report.json").write_text(json.dumps(report), encoding="utf-8")
+            if reason is not None:
+                (tmp_path / "Song-refusal.txt").write_text(reason, encoding="utf-8")
+            return subprocess.CompletedProcess(argv, code)
+        return run
+
+    monkeypatch.setattr(build.subprocess, "run", finished(0, {"song": "Song"}, None))
+    assert build.child(tmp_path / "Song-Em.pdf", tmp_path, tmp_path) == ({"song": "Song"}, "")
+    monkeypatch.setattr(build.subprocess, "run", finished(2, None, "no size fits"))
+    assert build.child(tmp_path / "Song-Em.pdf", tmp_path, tmp_path) == (None, "no size fits")
+    monkeypatch.setattr(build.subprocess, "run", finished(-9, None, None))
+    assert build.child(tmp_path / "Song-Em.pdf", tmp_path, tmp_path) == (None, "child exited -9 with no reason")
