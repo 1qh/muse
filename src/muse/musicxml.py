@@ -209,7 +209,9 @@ def measure(bar: Bar, part: int, score: Score, time: tuple[int, int] | None = No
     if bar.number == 1:
         attrs.append(f"<divisions>{DIV}</divisions>")
     if bar.key is not None:
-        attrs.append(f"<key><fifths>{bar.key}</fifths><mode>minor</mode></key>")
+        if score.minor is None:
+            raise ValueError("a key signature needs its mode, which the source's file name states")
+        attrs.append(f"<key><fifths>{bar.key}</fifths><mode>{'minor' if score.minor else 'major'}</mode></key>")
     if bar.time:
         sym = f' symbol="{bar.time_symbol}"' if bar.time_symbol else ""
         attrs.append(f'<time{sym}><beats>{bar.time[0]}</beats><beat-type>{bar.time[1]}</beat-type></time>')

@@ -111,7 +111,10 @@ def settle_chord_bars(score: Score) -> Score:
 
 def decode(path: pathlib.Path) -> Score:
     decoders = {"bravura": bravura.decode, "leland": leland.decode, "symbolfont": symbolfont.decode}
-    return settle_chord_bars(decoders[encoding(path)](str(path)))
+    score = settle_chord_bars(decoders[encoding(path)](str(path)))
+    found = KEY.fullmatch(path.stem.rsplit("-", 1)[-1])
+    score.minor = None if found is None else found[2] == "m"
+    return score
 
 
 def target_of(root: str, minor: bool) -> tuple[str, int, str, int]:

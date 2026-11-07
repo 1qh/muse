@@ -2,6 +2,7 @@
 from fractions import Fraction as F
 
 import pymupdf
+import pytest
 
 from muse import chordnames, chordseat, musicxml, pdfcheck, piano, port
 from muse.model import Bar, Chord, Event, Head, Score, Text
@@ -92,7 +93,7 @@ def test_writer_durations_and_chord_offset():
     b = Bar(1, 0, 0, 100, F(4), key=0, time=(4, 4))
     b.voices = [[Event(10, [head], F(4), onset=F(0))]]
     b.chords = [Chord(10, "C", 0, "m(add2)"), Chord(55, "G", 0, "7")]
-    xml = musicxml.write(Score([b], [], []))
+    xml = musicxml.write(Score([b], [], [], minor=True))
     assert "<duration>192</duration>" in xml
     assert 'kind text="m2">other' in xml
     assert "<offset>96</offset>" in xml
@@ -811,3 +812,12 @@ def test_a_run_past_its_deadline_is_sampled_before_it_is_killed(monkeypatch, tmp
         launch.heavy(["sleep", "30"], 1.0)
     where = str(caught.value.output).removeprefix("stack sampled to ")
     assert pathlib.Path(where).exists()
+
+
+def test_a_key_is_written_in_the_mode_its_file_name_declares() -> None:
+    major = Score([Bar(1, 0, 0.0, 1.0, F(4), key=1)], [], [], minor=False)
+    assert "<mode>major</mode>" in musicxml.write(major)
+    minor = Score([Bar(1, 0, 0.0, 1.0, F(4), key=1)], [], [], minor=True)
+    assert "<mode>minor</mode>" in musicxml.write(minor)
+    with pytest.raises(ValueError, match="mode"):
+        musicxml.write(Score([Bar(1, 0, 0.0, 1.0, F(4), key=1)], [], []))

@@ -125,3 +125,4 @@ class Score:
     flags: list[Issue]
     has_second_staff: bool = False
     clef_octave: int = 0
+    minor: bool | None = None  # the key's mode, which only the source's file name states
