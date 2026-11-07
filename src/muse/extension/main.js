@@ -105,7 +105,7 @@ function lift(all) {
             if (!system.firstMeasure) continue
             var own = lineKey(system.firstMeasure)  // a spanner belongs to the line it is drawn in, never the next line down
             var staffTop = Number(own.split(":")[1])
-            if (top < staffTop && top > staffTop - SPANNER_REACH) clear[own] = Math.min(clear[own] === undefined ? 1e9 : clear[own], top)  // farther up is a reading the fitting left stale, from the line above
+            if (top < staffTop) clear[own] = Math.min(clear[own] === undefined ? 1e9 : clear[own], top)  // a slur or tie over the staff; one below it never lifts the chords
         }
     }
     var m = curScore.firstMeasure
@@ -131,7 +131,7 @@ function lift(all) {
 
 var GAP = 0.5  // spaces between a line's chords and the highest thing below them
 
-var SPANNER_REACH = 10  // spaces a reading may lie from its own line or barline: a hairpin, slur or beat-1 chord sits within a few
+var BEAT_REACH = 10  // spaces a beat-1 correction may move a chord: measured gaps stay under 3; a larger one is left to the final checks
 
 var TEXT_SLACK = 1.0  // spaces of room text placement keeps: it reads positions inside the launch, which differ a little from what prints
 
@@ -155,7 +155,7 @@ function seatStarts(all) {
             var item = all[i]
             if (item.segment.tick !== item.measure.firstSegment.tick) continue
             var gap = left(item) - start(item.measure) + (BIAS[i] || 0)
-            if (Math.abs(gap) > SPANNER_REACH) continue  // a beat-1 chord sits within a few spaces of its barline: farther is a position the fitting left stale; the final checks judge where it prints
+            if (Math.abs(gap) > BEAT_REACH) continue  // the final checks judge where such a chord prints
             if (Math.abs(gap) > 0.05) {
                 item.chord.autoplace = false
                 item.chord.offsetX = item.chord.offsetX - gap
