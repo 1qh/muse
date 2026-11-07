@@ -145,6 +145,7 @@ function seatStarts(all) {
             var item = all[i]
             if (item.segment.tick !== item.measure.firstSegment.tick) continue
             var gap = left(item) - start(item.measure) + (BIAS[i] || 0)
+            if (Math.abs(gap) > item.measure.bbox.width) continue  // a chord read farther off than its own bar is a misread position; the final checks judge where it prints
             if (Math.abs(gap) > 0.05) {
                 item.chord.autoplace = false
                 item.chord.offsetX = item.chord.offsetX - gap
