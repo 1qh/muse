@@ -21,6 +21,7 @@ MPOS_UNITS = 200.0  # position export units per point
 LEGACY_MPOS_UNITS = 60.0  # MuseScore 3 writes other units
 LEGACY_EXTENT = 50000.0  # a line reaches past this only in the larger units
 DEFAULT_SPACE = 3.4
+LEDGER_REACH = 6.0  # staff spaces above and below a staff its notes can reach on ledger lines
 OPENING_REPEAT_REACH = 14.0
 INK_STROKE_SHARE = 0.1
 STEM_REACH = 1.0
@@ -204,15 +205,16 @@ def page_lines(pdf: pathlib.Path) -> list[dict[str, Any]]:
             row = sorted((m for m in systems if m["y"] == staff_top), key=lambda m: m["x"])
             bars = [m["x"] + m["w"] for m in row]
             bottom = staff_top + space * 4
-            near = sorted((g for g in glyphs if staff_top - 8 <= g[1] <= bottom + 8 and g[0] < bars[0]), key=lambda g: g[0])
-            start = max(signature_ends(near), default=row[0]["x"])
+            reach = space * LEDGER_REACH  # a note on ledger lines far above or below the staff still ends the signatures before it
+            near = sorted((g for g in glyphs if staff_top - reach <= g[1] <= bottom + reach and g[0] < bars[0]), key=lambda g: g[0])
+            start = max(signature_ends(near, [g for g in near if HEAD_CODES[0] <= g[3] <= HEAD_CODES[1]], space), default=row[0]["x"])
             heads = [(g[0], g[2]) for g in near if HEAD_CODES[0] <= g[3] <= HEAD_CODES[1]]
             # a repeat sign opening the line stands right after the signatures
             start = max([start, *(r.x1 for r in shapes if r.width < 3 and abs(r.y0 - staff_top) < 1 and r.y1 >= bottom - 1 and start <= r.x0 < start + OPENING_REPEAT_REACH and not is_stem(r.x0, heads))])
             opening = start  # the first bar's music starts here; a sign takes chord room, never bar width
             # a sign printed on the chord row takes the place right after the clef, so the chord follows it
             start = max([start, *(end for end, y in signs_here if above + space * 4 < y <= staff_top + 1 and end < start + top * 2)])  # any sign in this line's own band, as the extension judges it
-            band = sorted((g for g in glyphs if staff_top - 8 <= g[1] <= bottom + 8), key=lambda g: g[0])
+            band = sorted((g for g in glyphs if staff_top - reach <= g[1] <= bottom + reach), key=lambda g: g[0])
             openings = [max(signature_ends([g for g in band if g[0] > edge], [g for g in band if HEAD_CODES[0] <= g[3] <= HEAD_CODES[1]], space), default=edge) for edge in bars[:-1]]
             lines.append({"chords": joined, "bars": bars, "openings": openings, "start": start, "opening": opening, "space": space, "rights": rights, "lefts": lefts, "size": top})
     return lines
