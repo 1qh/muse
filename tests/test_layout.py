@@ -206,3 +206,10 @@ def test_every_line_gap_retry_starts_from_the_widths_the_last_one_learned(monkey
     monkeypatch.setattr(layout, "finish_at", finish_at)
     layout.finish(tmp_path, tmp_path, port.ORIGINAL, 2.0)  # type: ignore[arg-type]
     assert len(seen) == 3 and all(record is seen[0] for record in seen)
+
+
+def test_a_measured_gap_past_the_ink_limit_never_feeds_the_correction() -> None:
+    from muse import layout
+
+    assert layout.next_bias([0.1, 0.2], [0.9, 16.0 * 4.5], [4.5, 4.5]) == [0.1 + 0.2, 0.2]
+    assert layout.next_bias([], [None, -4.5], [4.5, 4.5]) == [0.0, -1.0]

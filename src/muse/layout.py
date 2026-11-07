@@ -328,6 +328,19 @@ def overflowing(sheet: Sheet, probe: pathlib.Path, seated: bool) -> set[int]:
     return {bar - 1 for row in port.rows(sheet.score) if row[0] in crowded or any(row[0] < bar <= row[-1] for bar in extra) for bar in row}
 
 
+INK_LIMIT = 2.0  # staff spaces a measured ink offset may correct; text box and ink differ by about half a point
+
+
+def next_bias(bias: list[float], gaps: list[float | None], spaces: list[float]) -> list[float]:
+    """Each chord's correction plus its measured gap in staff spaces, a gap past the ink limit left out: only a mispaired chord is that far off."""
+    found = []
+    for at, (gap, space) in enumerate(zip(gaps, spaces, strict=True)):
+        was = bias[at] if at < len(bias) else 0.0
+        step = (gap or 0.0) / space
+        found.append(was + step if abs(step) <= INK_LIMIT else was)
+    return found
+
+
 def seat_inked(score_path: pathlib.Path, rendered: Callable[[], pathlib.Path], holds: Callable[[pathlib.Path], bool], noted: list[int] | None = None) -> pathlib.Path:
     """The extension fits each bar's chords, evens empty bars and seats chords; each round passes it every chord's measured ink offset and ink width, until the ink sits on target."""
     bias: list[float] = []
@@ -352,7 +365,7 @@ def seat_inked(score_path: pathlib.Path, rendered: Callable[[], pathlib.Path], h
             return probe  # chords ran together into 1 printed name: the line is crowded, and the caller plans it again with fewer bars
         gaps = chordseat.gaps(rows, lines)
         spaces = [chordseat.space_points(score_path)] * len(gaps)
-        bias = [(bias[at] if at < len(bias) else 0.0) + (gap or 0.0) / space for at, (gap, space) in enumerate(zip(gaps, spaces, strict=True))]
+        bias = next_bias(bias, gaps, spaces)
         inks = [width / space for width, space in zip(chordseat.ink_widths(rows, lines), spaces, strict=True)]
         evened = noted is not None and chordseat.equalize(score_path, probe, {index + 1 for index in noted})  # measured on the print, both ways
         if not evened and all(gap is None or abs(gap - chordseat.GAP) <= chordseat.TOLERANCE for gap in gaps) and not pdfcheck.chord_collisions(probe):
