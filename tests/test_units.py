@@ -610,7 +610,9 @@ def test_a_key_signature_opens_a_bar_and_a_note_accidental_does_not() -> None:
     sharp = 0xE262
     signature = [(100.0, 50.0, 104.0, sharp), (105.0, 48.0, 109.0, sharp), (110.0, 52.0, 114.0, sharp), (120.0, 49.0, 126.0, 0xE0A4)]
     note = [(100.0, 50.0, 104.0, sharp), (104.5, 50.0, 110.0, 0xE0A4)]
-    heads = lambda glyphs: [g for g in glyphs if g[3] == 0xE0A4]
+    def heads(glyphs: list[tuple[float, float, float, int]]) -> list[tuple[float, float, float, int]]:
+        return [g for g in glyphs if g[3] == 0xE0A4]
+
     assert chordseat.signature_ends(signature, heads(signature), 4.5) == [104.0, 109.0, 114.0]
     assert chordseat.signature_ends(note, heads(note), 4.5) == []
 
