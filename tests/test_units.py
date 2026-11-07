@@ -783,3 +783,13 @@ def test_a_job_that_raises_fails_its_renders_and_the_batcher_keeps_serving(tmp_p
 
     threading.Thread(target=second, daemon=True).start()
     assert finished.wait(timeout=5), "the render after a failed job never ran"
+
+
+def test_a_bars_signature_starts_at_its_barline_and_a_courtesy_signature_at_its_end_is_none() -> None:
+    four = 0xE084
+    courtesy = [(562.7, 66.2, 571.6, four), (562.7, 75.8, 571.6, four)]  # at the bar's far end, before the next line
+    opening = [(350.0, 66.2, 358.0, four), (350.0, 75.8, 358.0, four)]  # right after the barline at 347.6
+    assert chordseat.signature_ends(courtesy, [], 4.5, 347.6) == []
+    assert chordseat.signature_ends(opening, [], 4.5, 347.6) == [358.0, 358.0]
+    spread = [(350.0, 66.2, 358.0, four), (400.0, 66.2, 408.0, four)]  # 2 glyphs far apart are no 1 signature
+    assert chordseat.signature_ends(spread, [], 4.5, 347.6) == [358.0]
