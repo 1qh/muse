@@ -392,6 +392,20 @@ def imported(score: Score, work: pathlib.Path, sheet: str, style: pathlib.Path, 
     return path
 
 
+def staff_texts(text: str) -> str:
+    """Every Expression an import made rewritten as staff text with the same placement: expressions share 1 row and overprint, staff texts stack."""
+
+    def rewritten(match: re.Match[str]) -> str:
+        body = match[1]
+        below = re.search(r"<direction>down</direction>", body) is not None
+        body = re.sub(r"\s*<direction>[^<]*</direction>", "", body)
+        if "<placement>" not in body and below:
+            body = "<placement>below</placement>" + body
+        return f"<StaffText>{body}</StaffText>"
+
+    return re.sub(r"<Expression>(.*?)</Expression>", rewritten, text, flags=re.S)
+
+
 def edited(source: pathlib.Path, target: pathlib.Path, spatium: float, distance: float, score: Score) -> None:
     """A copy of an import at 1 size and line gap, breaking lines and pages where the score says."""
     with zipfile.ZipFile(source) as old:
@@ -404,6 +418,7 @@ def edited(source: pathlib.Path, target: pathlib.Path, spatium: float, distance:
         for tag in ("minSystemDistance", "maxSystemDistance"):
             text = re.sub(rf"<{tag}>[^<]*</{tag}>", f"<{tag}>{distance}</{tag}>", text)
         if name.endswith(".mscx"):
+            text = staff_texts(text)
             text = re.sub(r"<LayoutBreak>.*?</LayoutBreak>\s*", "", text, flags=re.S)
             pieces = re.split(r"(?=<Measure)", text)
             count = 0
