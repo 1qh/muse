@@ -646,3 +646,16 @@ def test_a_staff_holding_only_its_chord_row_is_not_idle_and_no_other_chord_row_s
     assert idle_staves([100.0, 150.0], [148.0], [], [80.0]) == []
     # the lower staff holds nothing: neither the top staff's chords nor the next line's chords below it count for it
     assert idle_staves([100.0, 150.0], [95.0], [], [80.0, 185.0]) == [150.0]
+
+
+def test_the_key_check_expects_every_key_the_song_uses_moved_by_its_transposition() -> None:
+    from muse import verify
+
+    bars = [Bar(n, 0, 0.0, 100.0, F(4)) for n in range(1, 5)]
+    bars[0].key, bars[2].key = 3, -2  # A major, then a change to B flat
+    score = Score(bars, [], [])
+    assert verify.expected_keys(score, 3) == {3, -2}
+    assert verify.expected_keys(score, 1) == {1, -4}  # 2 fifths down, the change moves with it
+    assert verify.same_keys({"-2", "3"}, {3, -2})
+    assert not verify.same_keys({"3"}, {3, -2})  # a dropped key change is still caught
+    assert verify.same_keys({"-6"}, {6})  # G flat and F sharp are 1 key

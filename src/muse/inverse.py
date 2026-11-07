@@ -8,7 +8,7 @@ import xml.etree.ElementTree as ET
 
 from muse import chordnames, launch
 from muse.song import decode, song_of, sources
-from muse.verify import PC, bar_pitches, bar_roots, midi, stored_chord_names
+from muse.verify import PC, bar_pitches, bar_roots, expected_keys, midi, same_keys, stored_chord_names
 
 
 def check(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> list[str]:
@@ -27,7 +27,7 @@ def check(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> list[str]
     score = decode(src)
     problems = []
     keys = {k.text for k in root.iter("fifths")}
-    if keys != {str(fifths)}:
+    if not same_keys(keys, expected_keys(score, fifths)):
         problems.append(f"key {keys}")
     for p_i, part in enumerate(root.findall("part")):
         for m, bar in zip(part.findall("measure"), score.bars, strict=False):
