@@ -5,6 +5,8 @@ import pathlib
 import re
 import sys
 
+import pymupdf
+
 from muse import chordseat, pdftext
 
 CHORD = re.compile(r"(?:[A-G][#b♯♭]?)?(?:maj|min|dim|sus|add|aug|m|\d|[#b♯♭()/ Δø°]|[A-G][#b♯♭]?)*")
@@ -109,7 +111,7 @@ def off_page(path: pathlib.Path) -> list[tuple[int, float, str]]:
     found = []
     for number, page in enumerate(pdftext.open(path), 1):
         box = page.rect
-        for block in page.get_text("dict")["blocks"]:
+        for block in page.get_text("dict", flags=pymupdf.TEXT_ACCURATE_BBOXES)["blocks"]:  # ink boxes: a music font's box is a whole line tall and reaches far past its glyph
             for line in block.get("lines", []):
                 for span in line["spans"]:
                     x0, y0, x1, y1 = span["bbox"]

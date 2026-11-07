@@ -619,3 +619,21 @@ def test_a_beat_1_chord_after_a_mid_line_key_change_is_judged_from_the_signature
     rows = [[(0, True), (1, True)]]
     line = {"chords": [40.0, 230.0], "bars": [200.0, 400.0], "openings": [230.0], "start": 40.0}
     assert chordseat.gaps(rows, [line]) == [0.0, 0.0]
+
+
+def test_ink_inside_the_page_is_never_off_it_however_far_the_font_box_reaches(tmp_path) -> None:
+    doc = pymupdf.open()
+    page = doc.new_page()
+    page.insert_text((100, page.rect.height - 3), "a", fontsize=60)
+    path = tmp_path / "edge.pdf"
+    doc.save(path)
+    assert pdfcheck.off_page(path) == []
+
+
+def test_ink_past_the_top_edge_is_still_off_the_page(tmp_path) -> None:
+    doc = pymupdf.open()
+    page = doc.new_page()
+    page.insert_text((100, 10), "Tall", fontsize=40)
+    path = tmp_path / "top.pdf"
+    doc.save(path)
+    assert [what for _, _, what in pdfcheck.off_page(path)] == ["off the page: Tall"]
