@@ -340,7 +340,7 @@ class Decoder:
         self.apply_pitch(new_bars)
         self.chords_and_text(new_bars, sys, my_spans, glyphs, size, s_i)
         self.signs(new_bars, staff_glyphs[top], glyphs, size, top, chord_lo, top + 5)
-        self.wedges(new_bars, lines, top, y_hi)
+        self.wedges(new_bars, lines, max(top - 40, y_lo), y_hi)
         self.volta(new_bars, my_spans)
 
     def keysig(self, bars: list[Bar], top: list[G]) -> None:
@@ -824,10 +824,10 @@ class Decoder:
                     else:
                         bars[-1].to_coda = True
 
-    def wedges(self, bars: list[Bar], lines: list[Any], top: float, y_hi: float) -> None:
+    def wedges(self, bars: list[Bar], lines: list[Any], y_lo: float, y_hi: float) -> None:
         if not bars:
             return
-        cand = [seg for seg in lines if top - 40 < seg[1] < y_hi and abs(seg[2] - seg[0]) > 10]
+        cand = [seg for seg in lines if y_lo < seg[1] < y_hi and abs(seg[2] - seg[0]) > 10]
         for i, a in enumerate(cand):
             for b in cand[i + 1:]:
                 if abs(a[2] - b[0]) < 0.5 and abs(a[3] - b[1]) < 0.5:
