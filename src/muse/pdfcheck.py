@@ -338,7 +338,7 @@ def sign_text_overlaps(path: pathlib.Path) -> list[str]:
         frames = [d["rect"] for d in page.get_drawings() if d.get("color") and tuple(d["color"]) != (0.0, 0.0, 0.0) and chordseat.SIGN_FRAME[0] < d["rect"].width < chordseat.SIGN_FRAME[1]]
         if not frames:
             continue
-        for block in page.get_text("rawdict")["blocks"]:
+        for block in page.get_text("rawdict", flags=pymupdf.TEXT_ACCURATE_BBOXES)["blocks"]:  # ink boxes: a font box reaches past its letters and touches a box the ink never does
             for line in block.get("lines", []):
                 for span in line["spans"]:
                     letters = [c for c in span["chars"] if c["c"].strip() and not 0xE000 <= ord(c["c"]) <= 0xF8FF]  # the sign's own glyph sits inside its box by right
