@@ -211,3 +211,15 @@ def test_the_clef_and_signatures_opening_a_line_never_lift_its_chords(tmp_path: 
     pdf = score_path.with_suffix(".pdf")
     BATCHER.render(score_path, [pdf, pdf.with_suffix(".mpos")], None)
     assert max(spaces for _, _, spaces, _ in pdfcheck.chord_seating(pdf)) <= 1.0  # seated at the half-space gap over the staff; the clef lifts to near 2, the sharps past 2.3
+
+
+def test_italic_cues_below_the_staff_stack_rather_than_overprint(tmp_path: pathlib.Path) -> None:
+    from muse.model import Text
+
+    bars = [held(n, [chord("C")]) for n in range(1, 9)]
+    bars[0].texts = [Text(10.0, 60.0, [("Chorus: a long italic cue running well past the next bar", False, True)], False, "cue", 10.0)]
+    bars[1].texts = [Text(10.0, 60.0, [("(Fill)", False, True)], False, "cue", 10.0)]
+    score_path = imported(tmp_path, bars, {1})
+    pdf = score_path.with_suffix(".pdf")
+    BATCHER.render(score_path, [pdf], None)
+    assert pdfcheck.text_collisions(pdf) == []
