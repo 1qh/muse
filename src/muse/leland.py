@@ -376,7 +376,7 @@ def decode(path: str) -> Score:
                 continue
             for g in staff.glyphs:
                 if g[0] == REPEAT_DOT:
-                    near = min(row_bars, key=lambda n: min(abs(n.left - g[1]), abs(n.right - g[1])))
+                    near = next((n for n in row_bars if n.left <= g[1] < n.right), None) or min(row_bars, key=lambda n: min(abs(n.left - g[1]), abs(n.right - g[1])))  # the bar the dot sits in: a key change can part a start repeat from the double barline ending the bar before
                     if abs(near.left - g[1]) < abs(near.right - g[1]):
                         near.repeat_start = True
                     else:
