@@ -337,7 +337,7 @@ def merged_rows(score: Score, probe: pathlib.Path) -> set[int]:
     return {row[0] for row, line in zip(rows, lines, strict=True) if sum(len(score.bars[number - 1].chords) for number in row) > len(line["chords"])}
 
 
-INK_LIMIT = 2.0  # staff spaces a measured ink offset may correct; text box and ink differ by about half a point
+INK_LIMIT = 5.0  # staff spaces a measured offset may correct: a line's opening read 2 ways differs by up to about 3, a mispaired chord sits a chord's distance away
 
 
 def next_bias(bias: list[float], gaps: list[float | None], spaces: list[float]) -> list[float]:
