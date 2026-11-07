@@ -213,7 +213,7 @@ def page_lines(pdf: pathlib.Path) -> list[dict[str, Any]]:
             start = max([start, *(r.x1 for r in shapes if r.width < 3 and abs(r.y0 - staff_top) < 1 and r.y1 >= bottom - 1 and start <= r.x0 < start + OPENING_REPEAT_REACH and not is_stem(r.x0, heads))])
             opening = start  # the first bar's music starts here; a sign takes chord room, never bar width
             # a sign printed on the chord row takes the place right after the clef, so the chord follows it
-            start = max([start, *(end for end, y in signs_here if above + space * 4 < y <= staff_top + 1 and end < start + top * 2)])  # any sign in this line's own band, as the extension judges it
+            start = max([start, *(end for end, y in signs_here if above + space * 4 < y <= staff_top + 1 and end < start + top * 4)])  # any sign in this line's own band, as the extension judges it, shifted clear of the bar number
             band = sorted((g for g in glyphs if staff_top - reach <= g[1] <= bottom + reach), key=lambda g: g[0])
             openings = [max(signature_ends([g for g in band if g[0] > edge], [g for g in band if HEAD_CODES[0] <= g[3] <= HEAD_CODES[1]], space), default=edge) for edge in bars[:-1]]
             lines.append({"chords": joined, "bars": bars, "openings": openings, "start": start, "opening": opening, "space": space, "rights": rights, "lefts": lefts, "size": top})
@@ -444,3 +444,49 @@ def problems(mscz: pathlib.Path, pdf: pathlib.Path, reach: float | None = None) 
     found = gaps(rows, lines)
     room = spaces_of(rows, lines)
     return [f"chord {index + 1}: gap {gap:.1f} pt, wanted {GAP}" for index, (gap, space) in enumerate(zip(found, room, strict=True)) if gap is not None and (abs(gap - GAP) > TOLERANCE if reach is None else not -TOLERANCE <= gap <= reach * space)]
+
+
+LINE_TEXT_CLEAR = 2.0  # staff spaces a cue below 1 line keeps from a cue above the next, where both share a stretch of the page
+
+
+def line_texts(text: str) -> list[tuple[list[str], list[str]]]:
+    """Per line of the score, its staff texts above and below the staff, as plain words: the score's own placement says which line owns each."""
+    first = text.index('<Staff id="1">', text.index("</Part>"))
+    end = text.find('<Staff id="2">', first)
+    body = text[first:end if end != -1 else text.index("</Score>", first)]
+    measures = [match.group(0) for match in MEASURE.finditer(body)]
+    found = []
+    for row in bar_rows(text):
+        above: list[str] = []
+        below: list[str] = []
+        for number in row:
+            for element in re.findall(r"<StaffText>.*?</StaffText>", measures[number - 1], re.S):
+                inner = re.search(r"<text>(.*?)</text>", element, re.S)
+                words = " ".join(re.sub(r"<[^>]+>", " ", inner.group(1)).split()) if inner else ""
+                if words:
+                    (below if "<placement>below</placement>" in element else above).append(words)
+        found.append((above, below))
+    return found
+
+
+def crowded_line_texts(score_path: pathlib.Path, pdf: pathlib.Path) -> list[str]:
+    """Text on text between 2 lines: a cue the score places below 1 line and a cue it places above the next, sharing a stretch of the page closer than the clear distance."""
+    text = score_text(score_path)[1]
+    owners = line_texts(text)
+    rows = bar_rows(text)
+    boxes = measure_boxes(pdf.with_suffix(".mpos"))
+    space = space_points(score_path)
+    tops = [(int(boxes[row[0] - 1]["page"]), boxes[row[0] - 1]["y"]) for row in rows]
+    pages = list(pdftext.open(pdf))
+    found = []
+    for at in range(len(rows) - 1):
+        (page_no, upper), (next_page, lower) = tops[at], tops[at + 1]
+        if page_no != next_page:
+            continue
+        spans = [(span["text"].strip(), pymupdf.Rect(span["bbox"])) for block in pages[page_no].get_text("dict")["blocks"] for line in block.get("lines", []) for span in line["spans"] if span["text"].strip() and upper + space * 4 < span["bbox"][1] and span["bbox"][3] < lower]
+        mine = [box for words, box in spans if any(words in cue for cue in owners[at][1])]
+        theirs = [(words, box) for words, box in spans if any(words in cue for cue in owners[at + 1][0])]
+        for words, box in theirs:  # a cue both lines print, word for word, belongs by order: the upper copy to the line above
+            if any(other != box and other.y0 < box.y0 and box.x0 < other.x1 and other.x0 < box.x1 and box.y0 - other.y1 < space * LINE_TEXT_CLEAR for other in mine):
+                found.append(f"text on text: {words!r} above line {at + 2} sits too close to a cue below line {at + 1}")
+    return found

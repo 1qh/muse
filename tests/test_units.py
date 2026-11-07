@@ -685,3 +685,24 @@ def test_a_chord_row_lifted_over_an_ending_number_is_not_too_high(tmp_path) -> N
 
     assert highest(sheet(False)) > pdfcheck.MAX_CHORD_SPACES
     assert highest(sheet(True)) <= pdfcheck.MAX_CHORD_SPACES
+
+
+def test_a_cue_above_1_line_too_close_to_a_cue_below_the_line_above_is_text_on_text(monkeypatch, tmp_path) -> None:
+    def page_with(gap: float):
+        spans = [{"text": "Sáo", "bbox": (60.0, 190.0, 80.0, 205.0)}, {"text": "Sáo", "bbox": (60.0, 205.0 + gap, 80.0, 220.0 + gap)}]
+
+        class Page:
+            def get_text(self, kind):
+                return {"blocks": [{"lines": [{"spans": spans}]}]}
+
+        return [Page()]
+
+    monkeypatch.setattr(chordseat, "score_text", lambda path: ("s.mscx", ""))
+    monkeypatch.setattr(chordseat, "bar_rows", lambda text: [[1], [2]])
+    monkeypatch.setattr(chordseat, "line_texts", lambda text: [([], ["Sáo"]), (["Sáo"], [])])  # the same words: 1 below line 1, 1 above line 2
+    monkeypatch.setattr(chordseat, "measure_boxes", lambda mpos: [{"page": 0.0, "y": 150.0}, {"page": 0.0, "y": 260.0}])
+    monkeypatch.setattr(chordseat, "space_points", lambda path: 4.5)
+    monkeypatch.setattr(chordseat.pdftext, "open", lambda pdf: page_with(3.0))
+    assert chordseat.crowded_line_texts(tmp_path / "s.mscz", tmp_path / "s.pdf") == ["text on text: 'Sáo' above line 2 sits too close to a cue below line 1"]
+    monkeypatch.setattr(chordseat.pdftext, "open", lambda pdf: page_with(20.0))
+    assert chordseat.crowded_line_texts(tmp_path / "s.mscz", tmp_path / "s.pdf") == []

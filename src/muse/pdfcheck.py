@@ -328,8 +328,36 @@ def idle_staves(clefs: list[float], heads: list[float], starts: list[float], cho
     return idle
 
 
+SIGN_TEXT_OVERLAP = 0.5  # points of overlap past which a sign's box covers a word
+
+
+def sign_text_overlaps(path: pathlib.Path) -> list[str]:
+    """A sign's coloured box over any printed word, a bar number, chord or mark: the box hides what the reader navigates by."""
+    found = []
+    for number, page in enumerate(pdftext.open(path), 1):
+        frames = [d["rect"] for d in page.get_drawings() if d.get("color") and tuple(d["color"]) != (0.0, 0.0, 0.0) and chordseat.SIGN_FRAME[0] < d["rect"].width < chordseat.SIGN_FRAME[1]]
+        if not frames:
+            continue
+        for block in page.get_text("rawdict")["blocks"]:
+            for line in block.get("lines", []):
+                for span in line["spans"]:
+                    letters = [c for c in span["chars"] if c["c"].strip() and not 0xE000 <= ord(c["c"]) <= 0xF8FF]  # the sign's own glyph sits inside its box by right
+                    if not letters:
+                        continue
+                    box = pymupdf.Rect(letters[0]["bbox"])
+                    for c in letters[1:]:
+                        box |= pymupdf.Rect(c["bbox"])
+                    word = "".join(c["c"] for c in letters)
+                    for frame in frames:
+                        common = frame & box
+                        if not common.is_empty and common.width > SIGN_TEXT_OVERLAP and common.height > SIGN_TEXT_OVERLAP:
+                            found.append(f"p{number}: sign box over {word!r}")
+                            break
+    return found
+
+
 def all_problems(path: pathlib.Path, title: str) -> list[str]:
-    return empty_staves(path) + text_problems(path) + title_problems(path, title) + sign_problems(path) + sign_row_problems(path) + sign_on_chord(path) + seating_problems(path) + [f"text on text: {c[2]}" for c in text_collisions(path)]
+    return empty_staves(path) + text_problems(path) + title_problems(path, title) + sign_problems(path) + sign_row_problems(path) + sign_on_chord(path) + seating_problems(path) + [f"text on text: {c[2]}" for c in text_collisions(path)] + sign_text_overlaps(path)
 
 
 def main() -> None:

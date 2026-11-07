@@ -233,3 +233,35 @@ def test_a_sign_before_a_beat_1_chord_asks_its_bar_to_grow_by_the_sign_never_a_h
     layout.rewrite(natural, layout.unjustified)
     shares = layout.chord_shares(natural, 4, [0, 1, 2, 3])
     assert shares[1] < 4.0, shares
+
+
+def test_a_sign_opening_a_line_clears_its_bar_number_and_its_chord_follows_it(tmp_path: pathlib.Path) -> None:
+    layout.install_extension()
+    bars = [held(n, [chord("C", "maj7")]) for n in range(1, 9)]
+    bars[4].segno = True  # opens the second line, beside that line's bar number
+    bars[4].rehearsal = ["A"]  # a section mark there too, as songs open a section with its sign
+    score_path = imported(tmp_path, bars, {1, 5})
+    pdf = score_path.with_suffix(".pdf")
+
+    def rendered() -> pathlib.Path:
+        BATCHER.render(score_path, [pdf, pdf.with_suffix(".mpos")], None)
+        return pdf
+
+    layout.seat_inked(score_path, rendered, lambda probe: True)
+    assert pdfcheck.sign_text_overlaps(pdf) == []
+    assert chordseat.problems(score_path, pdf) == []
+
+
+def test_a_chord_after_a_sign_mid_line_starts_past_its_box(tmp_path: pathlib.Path) -> None:
+    layout.install_extension()
+    bars = [held(n, [chord("F", "maj7")]) for n in range(1, 9)]
+    bars[2].coda = True  # mid-line: the chord on its beat 1 follows the box
+    score_path = imported(tmp_path, bars, {1, 5})
+    pdf = score_path.with_suffix(".pdf")
+
+    def rendered() -> pathlib.Path:
+        BATCHER.render(score_path, [pdf, pdf.with_suffix(".mpos")], None)
+        return pdf
+
+    layout.seat_inked(score_path, rendered, lambda probe: True)
+    assert pdfcheck.sign_text_overlaps(pdf) == []

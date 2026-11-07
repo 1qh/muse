@@ -18,7 +18,7 @@ function start(measure) {
     var edge = opening(measure)
     var owned = measure.elements
     for (var m = 0; owned && m < owned.length; m++) {
-        if (owned[m].type === Element.MARKER && owned[m].bbox && owned[m].pagePos.x <= measure.pagePos.x + 4) {
+        if (owned[m].type === Element.MARKER && owned[m].bbox && owned[m].pagePos.x - owned[m].offsetX <= measure.pagePos.x + 4) {  // at its bar's start before any shift clear of the bar number
             edge = Math.max(edge, owned[m].pagePos.x + owned[m].bbox.x + owned[m].bbox.width + 0.5)
         }
     }
@@ -179,7 +179,7 @@ function signsOf() {
             var e = owned[i]
             if ((e.type !== Element.MARKER && e.type !== Element.JUMP) || !e.bbox) continue
             var x = e.pagePos.x + e.bbox.x - BOX_PAD
-            if (e.type === Element.MARKER && e.pagePos.x <= m.pagePos.x + 4) continue
+            if (e.type === Element.MARKER && e.pagePos.x - e.offsetX <= m.pagePos.x + 4) continue
             var key = lineKey(m)
             if (!found[key]) found[key] = []
             found[key].push(x)
@@ -306,6 +306,27 @@ function barIndex(measure) {
     return at
 }
 
+var OPENING_SIGN_SHIFT = 4  // spaces a sign opening a line moves right, clear of the line's bar number: 3 digits take about 3.4
+
+function clearOpeningSigns() {
+    // a segno or coda opening a line prints right of the line's bar number; the chord after it starts past it, since start() reads where it prints
+    curScore.startCmd()
+    var m = curScore.firstMeasure
+    while (m) {
+        var before = m.prevMeasure
+        var opens = !before || lineKey(before) !== lineKey(m)
+        var owned = m.elements
+        for (var i = 0; owned && i < owned.length; i++) {
+            var e = owned[i]
+            if (e.type !== Element.MARKER || !e.bbox) continue
+            var atStart = e.pagePos.x - e.offsetX <= m.pagePos.x + 4
+            if (atStart) e.offsetX = opens ? OPENING_SIGN_SHIFT : 0
+        }
+        m = m.nextMeasure
+    }
+    curScore.endCmd()
+}
+
 function measureMode(all) {
     // on an unjustified render: per bar, the share its width must grow so every chord clears the next by the gap; chords sit at fixed shares of their bar, so 1 measurement gives it
     seatStarts(all)
@@ -346,6 +367,7 @@ function main() {
     if (INK.length && INK.length !== all.length) { curScore.setMetaTag("museSeatError", "ink widths for " + INK.length + " chords, the score holds " + all.length); return }
     var noted = curScore.metaTag("museNoted")
     NOTED = noted ? noted.split(",").map(Number) : []
+    clearOpeningSigns()
     if (curScore.metaTag("museMode") === "measure") { measureMode(all); return }
     var rounds = 0
     for (; rounds < FIT_ROUNDS; rounds++) {
@@ -371,6 +393,18 @@ function raiseText(all) {
         var key = lineKey(all[i].measure)
         if (!placed[key]) placed[key] = []
         placed[key].push({ x0: c.pagePos.x + c.bbox.x, x1: c.pagePos.x + c.bbox.x + c.bbox.width, top: c.pagePos.y + c.bbox.y })
+    }
+    var signBar = curScore.firstMeasure
+    while (signBar) {  // a sign's box is an obstacle too: a mark or cue stacks above it, never over it
+        var owned = signBar.elements
+        for (var s = 0; owned && s < owned.length; s++) {
+            var sign = owned[s]
+            if ((sign.type !== Element.MARKER && sign.type !== Element.JUMP) || !sign.bbox) continue
+            var signKey = lineKey(signBar)
+            if (!placed[signKey]) placed[signKey] = []
+            placed[signKey].push({ x0: sign.pagePos.x + sign.bbox.x - BOX_PAD, x1: sign.pagePos.x + sign.bbox.x + sign.bbox.width + BOX_PAD, top: sign.pagePos.y + sign.bbox.y - BOX_PAD })
+        }
+        signBar = signBar.nextMeasure
     }
     var texts = []
     var segment = curScore.firstSegment()
