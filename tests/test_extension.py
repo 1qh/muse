@@ -196,3 +196,18 @@ def test_a_cue_on_a_lines_last_bar_ends_inside_the_margin(tmp_path: pathlib.Path
     layout.seat_inked(score_path, rendered, lambda probe: True)
     assert pdfcheck.past_margin(pdf) == []
     assert pdfcheck.text_collisions(pdf) == []
+
+
+def test_the_clef_and_signatures_opening_a_line_never_lift_its_chords(tmp_path: pathlib.Path) -> None:
+    layout.install_extension()
+    bars = [Bar(n, 0, 0.0, 100.0, F(4), voices=[[Event(10.0, [], F(4))]], chords=[chord("F", "m")]) for n in range(1, 5)]
+    for bar in bars:
+        bar.chords[0].x = 10.0
+        bar.chords[0].root_alter = 1
+    bars[0].key = 3  # 3 sharps: the top sharp reaches above the staff at the line's start
+    score_path = imported(tmp_path, bars, {1})
+    layout.set_tags(score_path, {"museChordGap": f"{layout.CLEAR_SPACES:.4f}"})
+    layout.run_extension(score_path, score_path)
+    pdf = score_path.with_suffix(".pdf")
+    BATCHER.render(score_path, [pdf, pdf.with_suffix(".mpos")], None)
+    assert max(spaces for _, _, spaces, _ in pdfcheck.chord_seating(pdf)) <= 1.0  # seated at the half-space gap over the staff; the clef lifts to near 2, the sharps past 2.3

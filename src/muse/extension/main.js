@@ -63,6 +63,12 @@ function above(segment) {
     return top
 }
 
+function opensLine(segment) {
+    // a clef, key or time signature: chords start after these, so they never lift a chord row
+    var kind = segment.segmentType
+    return kind === Segment.HeaderClef || kind === Segment.Clef || kind === Segment.KeySig || kind === Segment.TimeSig
+}
+
 function lineKey(measure) {
     // a line is 1 system: its page and its height on that page
     var system = measure.parent
@@ -77,7 +83,7 @@ function lift(all) {
     var clear = {}
     while (segment) {
         var key2 = lineKey(segment.parent)
-        clear[key2] = Math.min(clear[key2] === undefined ? 1e9 : clear[key2], above(segment))
+        if (!opensLine(segment)) clear[key2] = Math.min(clear[key2] === undefined ? 1e9 : clear[key2], above(segment))  // no chord sits over the clef and signatures opening a line
         segment = segment.next
     }
     var lineTops = []
