@@ -103,7 +103,8 @@ function lift(all) {
             var system = part.parent
             if (!system.firstMeasure) continue
             var own = lineKey(system.firstMeasure)  // a spanner belongs to the line it is drawn in, never the next line down
-            if (top < Number(own.split(":")[1])) clear[own] = Math.min(clear[own] === undefined ? 1e9 : clear[own], top)
+            var staffTop = Number(own.split(":")[1])
+            if (top < staffTop && top > staffTop - SPANNER_REACH) clear[own] = Math.min(clear[own] === undefined ? 1e9 : clear[own], top)  // farther up is a reading the fitting left stale, from the line above
         }
     }
     var m = curScore.firstMeasure
@@ -129,6 +130,8 @@ function lift(all) {
 
 var GAP = 0.5  // spaces between a line's chords and the highest thing below them
 
+var SPANNER_REACH = 10  // spaces a reading may lie from its own line or barline: a volta, hairpin or beat-1 chord sits within a few; farther is stale
+
 var TEXT_SLACK = 1.0  // spaces of room text placement keeps: it reads positions inside the launch, which differ a little from what prints
 
 var CLEAR = 0  // spaces of clear gap between 2 chords, passed by the caller
@@ -151,7 +154,7 @@ function seatStarts(all) {
             var item = all[i]
             if (item.segment.tick !== item.measure.firstSegment.tick) continue
             var gap = left(item) - start(item.measure) + (BIAS[i] || 0)
-            if (Math.abs(gap) > item.measure.bbox.width) continue  // a chord read farther off than its own bar is a misread position; the final checks judge where it prints
+            if (Math.abs(gap) > SPANNER_REACH) continue  // a beat-1 chord sits within a few spaces of its barline: farther is a position the fitting left stale; the final checks judge where it prints
             if (Math.abs(gap) > 0.05) {
                 item.chord.autoplace = false
                 item.chord.offsetX = item.chord.offsetX - gap
