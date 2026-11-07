@@ -639,3 +639,10 @@ def test_ink_past_the_top_edge_is_still_off_the_page(tmp_path) -> None:
     path = tmp_path / "top.pdf"
     doc.save(path)
     assert [what for _, _, what in pdfcheck.off_page(path)] == ["off the page: Tall"]
+
+
+def test_a_staff_holding_only_its_chord_row_is_not_idle_and_no_other_chord_row_saves_a_staff() -> None:
+    # 2 staves at clef heights 100 and 150; the top one holds only rests under its chords at 80
+    assert idle_staves([100.0, 150.0], [148.0], [], [80.0]) == []
+    # the lower staff holds nothing: neither the top staff's chords nor the next line's chords below it count for it
+    assert idle_staves([100.0, 150.0], [95.0], [], [80.0, 185.0]) == [150.0]
