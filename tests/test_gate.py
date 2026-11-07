@@ -287,9 +287,36 @@ def test_print_mode_alone_lets_a_bar_of_crowded_chords_out_of_the_even_bars_judg
     seen = {}
     crowded = Bar(7, 0, 0.0, 100.0, F(4), chords=[Chord(0.0, "D", 0, "m7"), Chord(50.0, "E", 0, "m7")])
     monkeypatch.setattr(gate.mode, "PRINT", printing)
+    monkeypatch.setattr(gate, "chord_bound_bars", lambda score, pdf: set())
     monkeypatch.setattr(gate, "decode", lambda src: Score([crowded], [], []))
     monkeypatch.setattr(gate, "measured", lambda *args: tmp_path / "x.pdf")
     monkeypatch.setattr(gate, "signed_bars", lambda path: set())
     monkeypatch.setattr(gate.chordseat, "uneven", lambda score, pdf, noted: seen.setdefault("noted", noted) and [])
     gate.even_bars(tmp_path / "s", tmp_path / "s.mscz", tmp_path / "s.pdf", tmp_path, None, False)
     assert (7 in seen["noted"]) == printing
+
+
+def test_a_bar_whose_chord_crowds_the_next_is_chord_bound_and_a_roomy_bar_is_not(monkeypatch, tmp_path) -> None:
+    from muse import chordseat
+
+    # 4 bars of 36 pt, the third 41.6 pt; its chord ends 10.3 pt before the next bar's chord, the others leave 13 pt or more
+    line = {"opening": 0.0, "bars": [36.0, 72.0, 113.6, 149.6], "size": 16.0, "lefts": [-1.0, 35.0, 71.0, 112.6], "rights": [22.0, 58.0, 102.3, 130.0]}
+    monkeypatch.setattr(chordseat, "score_text", lambda path: ("s.mscx", ""))
+    monkeypatch.setattr(chordseat, "bar_rows", lambda text: [[1, 2, 3, 4]])
+    monkeypatch.setattr(chordseat, "rows_of", lambda text: [[(0, True)]])
+    monkeypatch.setattr(chordseat, "matched", lambda text, pdf: [line])
+    monkeypatch.setattr(chordseat, "CHORD_GAP", 0.5)
+    monkeypatch.setattr(chordseat, "EQUAL_TOLERANCE", 4.0)
+    assert gate.chord_bound_bars(tmp_path / "s.mscz", tmp_path / "s.pdf") == {3}
+
+
+def test_print_mode_hands_chord_bound_bars_to_the_judgement(monkeypatch, tmp_path) -> None:
+    seen = {}
+    monkeypatch.setattr(gate.mode, "PRINT", True)
+    monkeypatch.setattr(gate, "chord_bound_bars", lambda score, pdf: {9})
+    monkeypatch.setattr(gate, "decode", lambda src: Score([], [], []))
+    monkeypatch.setattr(gate, "measured", lambda *args: tmp_path / "x.pdf")
+    monkeypatch.setattr(gate, "signed_bars", lambda path: set())
+    monkeypatch.setattr(gate.chordseat, "uneven", lambda score, pdf, noted: seen.setdefault("noted", noted) and [])
+    gate.even_bars(tmp_path / "s", tmp_path / "s.mscz", tmp_path / "s.pdf", tmp_path, None, False)
+    assert 9 in seen["noted"]

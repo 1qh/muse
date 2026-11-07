@@ -302,8 +302,33 @@ def even_bars(src: pathlib.Path, score_path: pathlib.Path, pdf: pathlib.Path, wo
     score = decode(src)
     if reduced:
         piano.reduce(score)
-    widened = {bar.number for bar in score.bars if len(bar.chords) > 1} if mode.PRINT else set()  # print mode lets a bar widen for its own crowded chords
-    return chordseat.uneven(score_path, measured(score_path, pdf, work, options), {bar.number for bar in score.bars if piano.has_notes(bar)} | signed_bars(score_path) | widened)
+    probe = measured(score_path, pdf, work, options)
+    widened = ({bar.number for bar in score.bars if len(bar.chords) > 1} | chord_bound_bars(score_path, probe)) if mode.PRINT else set()  # print mode lets a bar widen for its own chords: beat-spaced chords in 1 bar, or a chord crowding the next
+    return chordseat.uneven(score_path, probe, {bar.number for bar in score.bars if piano.has_notes(bar)} | signed_bars(score_path) | widened)
+
+
+BARLINE_LEAD = 2.0  # points a beat-1 chord's ink may start left of its own barline
+
+
+def chord_bound_bars(score_path: pathlib.Path, pdf: pathlib.Path) -> set[int]:
+    """1-based bars whose chords leave a gap within the even-bars tolerance of the clear chord gap, between 2 of their own chords or before the next bar's first: the chords, never the line, set their width."""
+    text = chordseat.score_text(score_path)[1]
+    rows = [row for row, chords in zip(chordseat.bar_rows(text), chordseat.rows_of(text), strict=True) if chords]
+    found = set()
+    for row, line in zip(rows, chordseat.matched(text, pdf), strict=False):
+        edges = [line["opening"], *line["bars"]]
+        if len(edges) - 1 != len(row):
+            continue
+        boxes = sorted(zip(line["lefts"], line["rights"], strict=True))
+        clear = chordseat.CHORD_GAP * line["size"]
+        for at, bar in enumerate(row[:-1]):
+            mine = [box for box in boxes if edges[at] - BARLINE_LEAD <= box[0] < edges[at + 1] - BARLINE_LEAD]
+            after = [box for box in boxes if edges[at + 1] - BARLINE_LEAD <= box[0] < edges[at + 2] - BARLINE_LEAD][:1]
+            chain = mine + after
+            gaps = [nxt[0] - box[1] for box, nxt in zip(chain, chain[1:], strict=False)]
+            if mine and gaps and min(gaps) <= clear + chordseat.EQUAL_TOLERANCE:
+                found.add(bar)
+    return found
 
 
 def signed_bars(score_path: pathlib.Path) -> set[int]:
