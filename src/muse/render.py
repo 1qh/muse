@@ -68,14 +68,16 @@ class Batcher:
                         began = time.monotonic()
                         try:
                             results = self.run(batch)
+                        except (OSError, subprocess.SubprocessError, ValueError) as error:  # a job that raises fails its own renders; the batcher keeps serving
+                            results = {item["ticket"]: f"job failed: {error}" for item in batch}
                         finally:
                             self.lock.acquire()
                             self.seconds += time.monotonic() - began
+                            self.flushing = False
+                            self.lock.notify_all()
                         self.done.update(results)
                         self.jobs += 1
                         self.renders += len(batch)
-                        self.flushing = False
-                        self.lock.notify_all()
                     else:
                         self.lock.wait(timeout=1.0)
                 failure = self.done.pop(ticket)

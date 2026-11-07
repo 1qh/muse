@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import concurrent.futures
+import faulthandler
 import json
 import os
 import pathlib
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -146,6 +148,7 @@ def child_main(src: pathlib.Path, stage: pathlib.Path, work: pathlib.Path) -> No
 
 
 def main() -> None:
+    faulthandler.register(signal.SIGUSR1, all_threads=True)  # `kill -USR1 <pid>` prints where every thread waits, no debugger needed
     if sys.argv[1:2] == [CHILD_FLAG]:
         child_main(*map(pathlib.Path, sys.argv[2:5]))
         return

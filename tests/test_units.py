@@ -754,3 +754,32 @@ def test_ink_widths_run_from_each_chords_box_left_never_its_ink_left() -> None:
     rows = [[(0, True), (1, True)]]
     lines = [{"chords": [52.0, 112.0], "lefts": [50.0, 110.0], "rights": [70.0, 125.0]}]  # ink starts 2 pt inside each box
     assert chordseat.ink_widths(rows, lines) == [20.0, 15.0]
+
+
+def test_a_job_that_raises_fails_its_renders_and_the_batcher_keeps_serving(tmp_path) -> None:
+    import threading
+
+    import pytest
+
+    from muse import render
+
+    batcher = render.Batcher()
+    calls = []
+
+    def run(batch):
+        calls.append(len(batch))
+        if len(calls) == 1:
+            raise OSError("mscore vanished")
+        return {item["ticket"]: None for item in batch}
+
+    batcher.run = run  # type: ignore[method-assign]
+    with pytest.raises(render.RenderFailed, match="job failed: mscore vanished"):
+        batcher.render(tmp_path / "a.mscz", [tmp_path / "a.pdf"])
+    finished = threading.Event()
+
+    def second() -> None:
+        batcher.render(tmp_path / "b.mscz", [tmp_path / "b.pdf"])
+        finished.set()
+
+    threading.Thread(target=second, daemon=True).start()
+    assert finished.wait(timeout=5), "the render after a failed job never ran"
