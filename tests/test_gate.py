@@ -258,26 +258,23 @@ def test_a_purge_removes_only_sheet_versions_the_current_sheets_do_not_hold():
     assert publish.superseded(tree, history) == ["old", "older"]
 
 
-def test_a_bar_carrying_a_sign_stays_out_of_the_even_bars_judgement(tmp_path) -> None:
-    import zipfile
+def test_a_bar_carrying_a_sign_stays_out_of_the_even_bars_judgement() -> None:
+    from muse import chordseat
 
     bars = ["<Measure><voice/></Measure>", "<Measure><Marker><subtype>coda</subtype></Marker></Measure>", "<Measure><Jump><jumpTo>x</jumpTo></Jump></Measure>", "<Measure><voice/></Measure>"]
     lower = "<Measure><Marker><subtype>segno</subtype></Marker></Measure>" * 4
     text = f'<museScore><Score><Part></Part><Staff id="1">{"".join(bars)}</Staff><Staff id="2">{lower}</Staff></Score></museScore>'
-    path = tmp_path / "s.mscz"
-    with zipfile.ZipFile(path, "w") as z:
-        z.writestr("s.mscx", text)
-    assert gate.signed_bars(path) == {2, 3}
+    assert chordseat.signed_bars(text) == {2, 3}
 
 
-def test_even_bars_hands_the_sign_bars_to_the_judgement(monkeypatch, tmp_path) -> None:
-    seen = {}
-    monkeypatch.setattr(gate, "decode", lambda src: Score([], [], []))
-    monkeypatch.setattr(gate, "measured", lambda *args: tmp_path / "x.pdf")
-    monkeypatch.setattr(gate, "signed_bars", lambda path: {41})
-    monkeypatch.setattr(gate.chordseat, "uneven", lambda score, pdf, noted: seen.setdefault("noted", noted) and [])
-    gate.even_bars(tmp_path / "s", tmp_path / "s.mscz", tmp_path / "s.pdf", tmp_path, None, False)
-    assert 41 in seen["noted"]
+def test_a_sign_bar_leaves_both_the_evening_and_the_judgement_of_empty_bars() -> None:
+    from muse import chordseat
+
+    harmony = "<Harmony><harmonyInfo><root>14</root><name></name></harmonyInfo></Harmony>"
+    bars = [f"<Measure><voice>{harmony}</voice></Measure>", f"<Measure><Marker><subtype>coda</subtype></Marker><voice>{harmony}</voice></Measure>", f"<Measure><voice>{harmony}</voice></Measure>"]
+    text = f'<museScore><Score><Part></Part><Staff id="1">{"".join(bars)}</Staff></Score></museScore>'
+    line = {"opening": 0.0, "bars": [30.0, 70.0, 100.0]}
+    assert chordseat.empty_widths(text, [line], set()) == [(1, 30.0, 30.0), (3, 30.0, 30.0)]
 
 
 @pytest.mark.parametrize("printing", [True, False])
@@ -290,7 +287,6 @@ def test_print_mode_alone_lets_a_bar_of_crowded_chords_out_of_the_even_bars_judg
     monkeypatch.setattr(gate, "chord_bound_bars", lambda score, pdf: set())
     monkeypatch.setattr(gate, "decode", lambda src: Score([crowded], [], []))
     monkeypatch.setattr(gate, "measured", lambda *args: tmp_path / "x.pdf")
-    monkeypatch.setattr(gate, "signed_bars", lambda path: set())
     monkeypatch.setattr(gate.chordseat, "uneven", lambda score, pdf, noted: seen.setdefault("noted", noted) and [])
     gate.even_bars(tmp_path / "s", tmp_path / "s.mscz", tmp_path / "s.pdf", tmp_path, None, False)
     assert (7 in seen["noted"]) == printing
@@ -316,7 +312,6 @@ def test_print_mode_hands_chord_bound_bars_to_the_judgement(monkeypatch, tmp_pat
     monkeypatch.setattr(gate, "chord_bound_bars", lambda score, pdf: {9})
     monkeypatch.setattr(gate, "decode", lambda src: Score([], [], []))
     monkeypatch.setattr(gate, "measured", lambda *args: tmp_path / "x.pdf")
-    monkeypatch.setattr(gate, "signed_bars", lambda path: set())
     monkeypatch.setattr(gate.chordseat, "uneven", lambda score, pdf, noted: seen.setdefault("noted", noted) and [])
     gate.even_bars(tmp_path / "s", tmp_path / "s.mscz", tmp_path / "s.pdf", tmp_path, None, False)
     assert 9 in seen["noted"]

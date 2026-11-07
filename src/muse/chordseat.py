@@ -384,8 +384,17 @@ def widths_of(line: dict[str, Any]) -> list[float]:
     return [right - left for left, right in zip(edges, edges[1:], strict=False)]
 
 
+def signed_bars(text: str) -> set[int]:
+    """1-based bars of the score's first staff that carry a segno, coda or jump: the sign's own room widens its bar by right."""
+    first = text.index('<Staff id="1">', text.index("</Part>"))
+    end = text.find('<Staff id="2">', first)
+    body = text[first:end if end != -1 else text.index("</Score>", first)]
+    return {number for number, match in enumerate(MEASURE.finditer(body), 1) if "<Marker>" in match.group(0) or "<Jump>" in match.group(0)}
+
+
 def empty_widths(text: str, lines: list[dict[str, Any]], noted: set[int]) -> list[tuple[int, float, float]]:
-    """(bar, width, the line's mean empty width) for each bar with no notes, on lines whose barlines match the score."""
+    """(bar, width, the line's mean empty width) for each bar with no notes and no sign, on lines whose barlines match the score: evening and judgement share this 1 definition."""
+    noted = noted | signed_bars(text)
     found = []
     chorded = [row for row, chords in zip(bar_rows(text), rows_of(text), strict=True) if chords]
     for row, line in zip(chorded, lines, strict=False):

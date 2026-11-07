@@ -316,6 +316,7 @@ def test_a_chord_high_above_an_empty_staff_is_a_problem(monkeypatch, tmp_path):
 
 def test_uneven_empty_bars_are_found_and_notes_are_ignored(monkeypatch, tmp_path):
     monkeypatch.setattr(chordseat, "score_text", lambda _: ("x", ""))
+    monkeypatch.setattr(chordseat, "signed_bars", lambda _: set())
     monkeypatch.setattr(chordseat, "bar_rows", lambda _: [[1, 2, 3, 4]])
     monkeypatch.setattr(chordseat, "rows_of", lambda _: [[(0, True)]])
     line = {"chords": [50.0], "bars": [100.0, 150.0, 210.0, 300.0], "start": 50.0, "opening": 50.0, "space": 4.0}
