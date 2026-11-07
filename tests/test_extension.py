@@ -2,6 +2,7 @@
 import pathlib
 import re
 import shutil
+import zipfile
 from fractions import Fraction as F
 
 import pymupdf
@@ -305,3 +306,28 @@ def test_a_word_over_a_dynamic_is_text_on_text(tmp_path: pathlib.Path) -> None:
 
     assert pdfcheck.symbol_text_overlaps(sheet(True)) == ["text on text: p1: dynamic or tempo note over 'Coda'"]
     assert pdfcheck.symbol_text_overlaps(sheet(False)) == []
+
+
+def test_a_volta_never_lifts_the_chords_it_stands_over(tmp_path: pathlib.Path) -> None:
+    layout.install_extension()
+
+    def seated(volta: bool) -> list[float]:
+        home = tmp_path / str(volta)
+        home.mkdir()
+        bars = [Bar(n, 0, 0.0, 100.0, F(4), voices=[[Event(10.0, [], F(4))]], chords=[chord("F", "m")]) for n in range(1, 5)]
+        for bar in bars:
+            bar.chords[0].x = 10.0
+        bars[1].chords = []  # with no chord under it a volta sits low, within reach of the line's other chords
+        if volta:
+            bars[1].volta, bars[1].volta_stop = "1", "1"
+        score_path = imported(home, bars, {1})
+        layout.set_tags(score_path, {"museChordGap": f"{layout.CLEAR_SPACES:.4f}"})
+        layout.run_extension(score_path, score_path)
+        with zipfile.ZipFile(score_path) as saved:
+            assert any(b"<Volta" in saved.read(name) for name in saved.namelist() if name.endswith(".mscx")) == volta
+        pdf = score_path.with_suffix(".pdf")
+        BATCHER.render(score_path, [pdf, pdf.with_suffix(".mpos")], None)
+        return [height for page in chord_heights(pdf) for height in page]
+
+    plain, under = seated(False), seated(True)
+    assert under == pytest.approx(plain, abs=0.5)  # MuseScore stacks the volta over the chords; lifting the chords over it climbs instead
