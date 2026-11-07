@@ -11,9 +11,9 @@ import zipfile
 from fractions import Fraction as F
 
 from muse import chordnames, launch, scorefile
+from muse.model import Score
 from muse.musicxml import chord_onsets, times
 from muse.pdfcheck import title_problems
-from muse.model import Score
 from muse.song import decode, song_of, sources
 
 BANNED = ["Copyright", "Contact", "Sáng tác", "Trình bày"]
