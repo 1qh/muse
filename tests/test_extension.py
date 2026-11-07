@@ -1,8 +1,10 @@
 """The seating extension inside MuseScore, on scores built in code: it measures chord room and fits, evens and seats chords."""
 import pathlib
+import re
 import shutil
 from fractions import Fraction as F
 
+import pymupdf
 import pytest
 
 from muse import chordseat, layout, pdfcheck, port
@@ -282,3 +284,24 @@ def test_raised_cues_reserve_their_height_so_they_never_reach_the_line_above(tmp
 
     layout.seat_inked(score_path, rendered, lambda probe: True)
     assert pdfcheck.text_collisions(pdf) == []
+
+
+def test_a_word_over_a_dynamic_is_text_on_text(tmp_path: pathlib.Path) -> None:
+    launcher = pathlib.Path(shutil.which("mscore") or "").resolve()
+    script = launcher.read_bytes()[:2] == b"#!"
+    binary = pathlib.Path(re.findall(r'exec "([^"]+)"', launcher.read_text())[0]) if script else launcher  # a package manager installs a script that execs the app
+    font = binary.parent.parent / "Resources" / "fonts" / "BravuraText.otf"
+    assert font.exists(), font
+
+    def sheet(over: bool) -> pathlib.Path:
+        doc = pymupdf.open()
+        page = doc.new_page()
+        page.insert_font(fontname="bravura", fontfile=str(font))
+        page.insert_text((100, 125), chr(0xE52D), fontname="bravura", fontsize=20)  # mf
+        page.insert_text((104 if over else 160, 122), "Coda", fontsize=10)
+        path = tmp_path / f"dynamic-{over}.pdf"
+        doc.save(path)
+        return path
+
+    assert pdfcheck.symbol_text_overlaps(sheet(True)) == ["text on text: p1: dynamic or tempo note over 'Coda'"]
+    assert pdfcheck.symbol_text_overlaps(sheet(False)) == []
