@@ -21,6 +21,7 @@ MPOS_UNITS = 200.0  # position export units per point
 LEGACY_MPOS_UNITS = 60.0  # MuseScore 3 writes other units
 LEGACY_EXTENT = 50000.0  # a line reaches past this only in the larger units
 DEFAULT_SPACE = 3.4
+SIGNATURE_GAP = 2.0  # staff spaces between 2 glyphs of 1 signature run, at most
 LEDGER_REACH = 6.0  # staff spaces above and below a staff its notes can reach on ledger lines
 OPENING_REPEAT_REACH = 14.0
 INK_STROKE_SHARE = 0.1
@@ -215,7 +216,7 @@ def page_lines(pdf: pathlib.Path) -> list[dict[str, Any]]:
             # a sign printed on the chord row takes the place right after the clef, so the chord follows it
             start = max([start, *(end for end, y in signs_here if above + space * 4 < y <= staff_top + 1 and end < start + top * 4)])  # any sign in this line's own band, as the extension judges it, shifted clear of the bar number
             band = sorted((g for g in glyphs if staff_top - reach <= g[1] <= bottom + reach), key=lambda g: g[0])
-            openings = [max(signature_ends([g for g in band if g[0] > edge], [g for g in band if HEAD_CODES[0] <= g[3] <= HEAD_CODES[1]], space), default=edge) for edge in bars[:-1]]
+            openings = [max(signature_ends([g for g in band if g[0] > edge], [g for g in band if HEAD_CODES[0] <= g[3] <= HEAD_CODES[1]], space, edge), default=edge) for edge in bars[:-1]]  # a bar's signature starts right at its barline
             lines.append({"chords": joined, "bars": bars, "openings": openings, "start": start, "opening": opening, "space": space, "rights": rights, "lefts": lefts, "size": top})
     return lines
 
@@ -225,11 +226,13 @@ def is_stem(x: float, heads: list[tuple[float, float]]) -> bool:
     return any(abs(x - left) < STEM_REACH or abs(x - right) < STEM_REACH for left, right in heads)
 
 
-def signature_ends(glyphs: list[tuple[float, float, float, int]], heads: list[tuple[float, float, float, int]] | None = None, space: float = DEFAULT_SPACE) -> list[float]:
+def signature_ends(glyphs: list[tuple[float, float, float, int]], heads: list[tuple[float, float, float, int]] | None = None, space: float = DEFAULT_SPACE, begin: float | None = None) -> list[float]:
     """Right edges of the unbroken run of clef, key and time from a line's or bar's start; an accidental on a note, which its head follows at once on the same height, is no part of it."""
     ends: list[float] = []
     for glyph in glyphs:
         if not is_signature(glyph[3]):
+            break
+        if glyph[0] - (ends[-1] if ends else begin if begin is not None else glyph[0]) > space * SIGNATURE_GAP:  # a signature prints as 1 tight run right after its barline: a far glyph, such as a courtesy signature at the line's end, starts nothing here
             break
         if heads and 0xE260 <= glyph[3] <= 0xE264 and any(0 < head[0] - glyph[2] < space * 1.5 and abs(head[1] - glyph[1]) < space * 0.3 for head in heads):
             break
