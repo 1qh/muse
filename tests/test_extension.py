@@ -331,3 +331,23 @@ def test_a_volta_never_lifts_the_chords_it_stands_over(tmp_path: pathlib.Path) -
 
     plain, under = seated(False), seated(True)
     assert under == pytest.approx(plain, abs=0.5)  # MuseScore stacks the volta over the chords; lifting the chords over it climbs instead
+
+
+def test_a_slur_far_above_the_staff_lifts_its_line_chords_over_it(tmp_path: pathlib.Path) -> None:
+    layout.install_extension()
+
+    def seated(slurred: bool) -> float:
+        home = tmp_path / str(slurred)
+        home.mkdir()
+        bars = [held(n, [chord("C")]) for n in range(1, 5)]
+        first, second = Head(10.0, 0.0, "C", 8), Head(30.0, 0.0, "C", 8)  # 3 octaves up: the slur over them tops 10 staff spaces above the staff
+        first.slur_start, second.slur_stop = slurred, slurred
+        bars[0].voices = [[Event(10.0, [first], F(2)), Event(30.0, [second], F(2))]]
+        score_path = imported(home, bars, {1})
+        layout.set_tags(score_path, {"museChordGap": f"{layout.CLEAR_SPACES:.4f}"})
+        layout.run_extension(score_path, score_path)
+        pdf = score_path.with_suffix(".pdf")
+        BATCHER.render(score_path, [pdf, pdf.with_suffix(".mpos")], None)
+        return chord_heights(pdf)[0][0]
+
+    assert seated(True) > seated(False) + 1.0  # the chords clear the slur, never print through it
