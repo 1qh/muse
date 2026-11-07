@@ -324,8 +324,17 @@ def overflowing(sheet: Sheet, probe: pathlib.Path, seated: bool) -> set[int]:
     """0-based bars of every line the render wrapped, and once seated, every line still crowded."""
     wanted, got = sheet.starts(), sorted({1, *port.system_starts(probe)})
     extra = set(got) - set(wanted)
-    crowded = port.crowded_rows(probe, wanted) if seated and not extra else set()
+    crowded = port.crowded_rows(probe, wanted) | merged_rows(sheet.score, probe) if seated and not extra else set()
     return {bar - 1 for row in port.rows(sheet.score) if row[0] in crowded or any(row[0] < bar <= row[-1] for bar in extra) for bar in row}
+
+
+def merged_rows(score: Score, probe: pathlib.Path) -> set[int]:
+    """First bar of every line printing fewer chords than the score holds: 2 chords that touch print as 1 word, the tightest crowding of all."""
+    rows = [row for row in port.rows(score) if any(score.bars[number - 1].chords for number in row)]
+    lines = chordseat.page_lines(probe)
+    if len(rows) != len(lines):
+        return set()  # lines that do not pair are the wrapped-line check's to report
+    return {row[0] for row, line in zip(rows, lines, strict=True) if sum(len(score.bars[number - 1].chords) for number in row) > len(line["chords"])}
 
 
 INK_LIMIT = 2.0  # staff spaces a measured ink offset may correct; text box and ink differ by about half a point
