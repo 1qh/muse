@@ -212,7 +212,9 @@ def page_lines(pdf: pathlib.Path) -> list[dict[str, Any]]:
             opening = start  # the first bar's music starts here; a sign takes chord room, never bar width
             # a sign printed on the chord row takes the place right after the clef, so the chord follows it
             start = max([start, *(end for end, y in signs_here if above + space * 4 < y <= staff_top + 1 and end < start + top * 2)])  # any sign in this line's own band, as the extension judges it
-            lines.append({"chords": joined, "bars": bars, "start": start, "opening": opening, "space": space, "rights": rights, "lefts": lefts, "size": top})
+            band = sorted((g for g in glyphs if staff_top - 8 <= g[1] <= bottom + 8), key=lambda g: g[0])
+            openings = [max(signature_ends([g for g in band if g[0] > edge], [g for g in band if HEAD_CODES[0] <= g[3] <= HEAD_CODES[1]], space), default=edge) for edge in bars[:-1]]
+            lines.append({"chords": joined, "bars": bars, "openings": openings, "start": start, "opening": opening, "space": space, "rights": rights, "lefts": lefts, "size": top})
     return lines
 
 
@@ -221,11 +223,13 @@ def is_stem(x: float, heads: list[tuple[float, float]]) -> bool:
     return any(abs(x - left) < STEM_REACH or abs(x - right) < STEM_REACH for left, right in heads)
 
 
-def signature_ends(glyphs: list[tuple[float, float, float, int]]) -> list[float]:
-    """Right edges of the unbroken run of clef, key and time from a line's start; an accidental on a note later in the bar is no part of it."""
+def signature_ends(glyphs: list[tuple[float, float, float, int]], heads: list[tuple[float, float, float, int]] | None = None, space: float = DEFAULT_SPACE) -> list[float]:
+    """Right edges of the unbroken run of clef, key and time from a line's or bar's start; an accidental on a note, which its head follows at once on the same height, is no part of it."""
     ends: list[float] = []
     for glyph in glyphs:
         if not is_signature(glyph[3]):
+            break
+        if heads and 0xE260 <= glyph[3] <= 0xE264 and any(0 < head[0] - glyph[2] < space * 1.5 and abs(head[1] - glyph[1]) < space * 0.3 for head in heads):
             break
         ends.append(glyph[2])
     return ends
@@ -262,7 +266,7 @@ def gaps(rows: list[list[tuple[int, bool]]], lines: list[dict[str, Any]]) -> lis
             if not beat:
                 found.append(None)
                 continue
-            edge = line["start"] if place == 0 else line["bars"][place - 1]
+            edge = line["start"] if place == 0 else line["openings"][place - 1]
             found.append(left - edge)
     return found
 

@@ -604,3 +604,18 @@ def test_a_chord_the_print_lacks_is_a_problem_never_an_error(monkeypatch, tmp_pa
     monkeypatch.setattr(chordseat, "matched", lambda text, pdf: lines)
     found = chordseat.problems(tmp_path / "s.mscz", tmp_path / "s.pdf")
     assert found == ["chords missing from the print: line 1 holds 2 chords in the score, 1 in the PDF"]
+
+
+def test_a_key_signature_opens_a_bar_and_a_note_accidental_does_not() -> None:
+    sharp = 0xE262
+    signature = [(100.0, 50.0, 104.0, sharp), (105.0, 48.0, 109.0, sharp), (110.0, 52.0, 114.0, sharp), (120.0, 49.0, 126.0, 0xE0A4)]
+    note = [(100.0, 50.0, 104.0, sharp), (104.5, 50.0, 110.0, 0xE0A4)]
+    heads = lambda glyphs: [g for g in glyphs if g[3] == 0xE0A4]
+    assert chordseat.signature_ends(signature, heads(signature), 4.5) == [104.0, 109.0, 114.0]
+    assert chordseat.signature_ends(note, heads(note), 4.5) == []
+
+
+def test_a_beat_1_chord_after_a_mid_line_key_change_is_judged_from_the_signature_end() -> None:
+    rows = [[(0, True), (1, True)]]
+    line = {"chords": [40.0, 230.0], "bars": [200.0, 400.0], "openings": [230.0], "start": 40.0}
+    assert chordseat.gaps(rows, [line]) == [0.0, 0.0]
