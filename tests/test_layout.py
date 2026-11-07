@@ -78,7 +78,7 @@ def test_plan_starts_a_line_at_every_section_mark() -> None:
 def test_piano_plan_lets_a_label_sit_second_after_a_lone_mark_bar() -> None:
     bars = [noted(1), noted(2), empty(3, rehearsal=["A"]), empty(4, texts=[lyric("Verse1")]), empty(5)]
     score = Score(bars, [], [])
-    assert 4 in layout.plan(score, [10.0] * 5, ROOM)  # band sheet: the label opens its own line
+    assert 4 not in layout.plan(score, [10.0] * 5, ROOM)  # every sheet: the 1-bar mark section takes the label's line
     assert 4 not in layout.plan(score, [10.0] * 5, ROOM, port.PIANO)
 
 
@@ -255,7 +255,7 @@ def test_the_seated_overflow_check_reports_lines_whose_chords_merged(monkeypatch
     assert layout.overflowing(sheet, tmp_path / "p.pdf", seated=True) == {2, 3}
 
 
-def test_a_1_bar_section_shares_its_piano_line_with_the_next_section_whatever_opens_it() -> None:
+def test_a_1_bar_section_shares_its_line_with_the_next_section_whatever_opens_it() -> None:
     from fractions import Fraction as F
 
     from muse import layout, port
@@ -266,4 +266,4 @@ def test_a_1_bar_section_shares_its_piano_line_with_the_next_section_whatever_op
     bars[3].rehearsal = ["A2"]  # the next section opens on a mark, not a label
     score = Score(bars, [], [])
     assert layout.blocks_of(score, port.PIANO) == [[0, 1], [2, 3, 4]]
-    assert layout.blocks_of(score, port.ORIGINAL) == [[0, 1], [2], [3, 4]]
+    assert layout.blocks_of(score, port.ORIGINAL) == [[0, 1], [2, 3, 4]]  # band sheets too: no stranded single bar on any sheet

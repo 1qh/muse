@@ -223,3 +223,13 @@ def test_italic_cues_below_the_staff_stack_rather_than_overprint(tmp_path: pathl
     pdf = score_path.with_suffix(".pdf")
     BATCHER.render(score_path, [pdf], None)
     assert pdfcheck.text_collisions(pdf) == []
+
+
+def test_a_sign_before_a_beat_1_chord_asks_its_bar_to_grow_by_the_sign_never_a_hundredfold(tmp_path: pathlib.Path) -> None:
+    layout.install_extension()
+    bars = [held(n, [chord("F", "maj7")]) for n in range(1, 5)]
+    bars[1].segno = True  # the sign takes fixed room before the chord
+    natural = imported(tmp_path, bars, {1})
+    layout.rewrite(natural, layout.unjustified)
+    shares = layout.chord_shares(natural, 4, [0, 1, 2, 3])
+    assert shares[1] < 4.0, shares

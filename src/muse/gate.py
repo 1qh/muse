@@ -177,8 +177,6 @@ def piano_problems(src: pathlib.Path, sheet: pathlib.Path) -> list[str]:
             problems.append(f"bar {number}: rest not hidden")
         if len(held.chords) != len(bar.chords):
             problems.append(f"bar {number}: {len(held.chords)} chords, source has {len(bar.chords)}")
-    starts = [1] + [number + 1 for number, measure in enumerate(staves[0].findall("Measure"), 1) if measure.find("LayoutBreak") is not None and number < len(bars)]
-    problems += [f"bar {first}: lone bar on a line" for first in piano.lone_lines(starts, len(bars))]
     return problems
 
 
@@ -294,7 +292,9 @@ def chord_starts(score_path: pathlib.Path, score: Score) -> list[str]:
     tied_labels = sorted((labels - opening) & tied_in)
     if tied_labels:
         print(f"{score_path.name}: a tie holds these lyric labels inside a line: {tied_labels}", flush=True)
-    return [f"bar {bar}: line starts without its chord" for bar in found if bar not in marks] + [f"bar {bar}: lyric label inside a line" for bar in sorted(labels - opening - tied_in - after_mark)]
+    starts = sorted(opening)
+    lone = [f"bar {first}: lone bar on a line" for first in piano.lone_lines(starts, len(score.bars))]  # no stranded single bar on any sheet
+    return [f"bar {bar}: line starts without its chord" for bar in found if bar not in marks] + [f"bar {bar}: lyric label inside a line" for bar in sorted(labels - opening - tied_in - after_mark)] + lone
 
 
 def even_bars(src: pathlib.Path, score_path: pathlib.Path, pdf: pathlib.Path, work: pathlib.Path, options: dict[str, object] | None, reduced: bool) -> list[str]:

@@ -235,10 +235,10 @@ def test_a_piano_label_may_follow_a_mark_that_opens_its_line(monkeypatch, tmp_pa
     def bar(number, **extra):
         return Bar(number, 0, 0.0, 100.0, F(4), voices=[], chords=[Chord(0.0, "A", 0, "")], **extra)
 
-    score = Score([bar(1), bar(2, rehearsal=["B"]), bar(3, texts=[Text(0.0, 0.0, [("End: words", True, True)], False)]), bar(4)], [], [])
+    score = Score([bar(1), bar(2), bar(3, rehearsal=["B"]), bar(4, texts=[Text(0.0, 0.0, [("End: words", True, True)], False)]), bar(5)], [], [])
     monkeypatch.setattr(chordseat, "score_text", lambda path: (None, ""))
     monkeypatch.setattr(chordseat, "chordless_starts", lambda text: [])
-    monkeypatch.setattr(chordseat, "bar_rows", lambda text: [[1], [2, 3, 4]])
+    monkeypatch.setattr(chordseat, "bar_rows", lambda text: [[1, 2], [3, 4, 5]])
     assert gate.chord_starts(tmp_path / "x-piano-final.mscz", score) == []
     assert gate.chord_starts(tmp_path / "x-original.mscz", score)
 
