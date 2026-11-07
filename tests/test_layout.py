@@ -187,13 +187,13 @@ def test_finish_widens_the_line_gap_while_text_meets_text(monkeypatch: pytest.Mo
         layout.finish(tmp_path, tmp_path, port.ORIGINAL, 2.0)
 
 
-def test_a_piano_label_may_sit_second_after_a_mark_bar_opening_its_line() -> None:
+def test_a_label_may_sit_second_after_a_mark_bar_opening_its_line_on_any_sheet() -> None:
     bars = [noted(1), empty(2, rehearsal=["A"]), empty(3, texts=[lyric("Chorus")]), empty(4)]
     score = Score(bars, [], [])
     for bar in score.bars:
         bar.new_system = bar.number == 2
     assert port.line_rule_breaks(score, port.PIANO) == []
-    assert port.line_rule_breaks(score, port.ORIGINAL) == [3]
+    assert port.line_rule_breaks(score, port.ORIGINAL) == []
 
 
 def test_plan_breaks_a_soft_rule_rather_than_overflow_a_line() -> None:
