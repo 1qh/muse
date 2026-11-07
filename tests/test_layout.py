@@ -105,12 +105,20 @@ def candidate(size: float, share: float = 0.0, fill: float = 0.9, good: bool = T
     return {"size": size, "share": share, "fill": fill, "good": good, "lone": lone, "lines": lines}
 
 
-def test_choose_takes_the_largest_size_that_fills_its_pages_first() -> None:
+@pytest.fixture
+def strict_choice(monkeypatch) -> None:
+    """The choice rules at their strict values, whatever mode the run is in: these tests pin the rules, not the mode."""
+    monkeypatch.setattr(port, "PAGE_FILL", 0.85)
+    monkeypatch.setattr(port, "MAX_SHORT_SHARE", 0.15)
+    monkeypatch.setattr(port, "RELAXED_SHORT_SHARE", 0.30)
+
+
+def test_choose_takes_the_largest_size_that_fills_its_pages_first(strict_choice: None) -> None:
     found = [candidate(2.0, fill=0.5), candidate(1.8, fill=0.9), candidate(1.6, fill=0.95)]
     assert layout.choose(found, port.ORIGINAL)[:2] == [1.8, 1.6]
 
 
-def test_choose_takes_the_wider_short_line_share_only_when_no_size_holds_the_base_share() -> None:
+def test_choose_takes_the_wider_short_line_share_only_when_no_size_holds_the_base_share(strict_choice: None) -> None:
     found = [candidate(2.0, share=0.25), candidate(1.6, share=0.10)]
     assert layout.choose(found, port.ORIGINAL)[0] == 1.6
     found = [candidate(2.0, share=0.25), candidate(1.6, share=0.28)]
@@ -145,7 +153,7 @@ def test_space_points_reads_the_scores_own_staff_space(tmp_path: pathlib.Path) -
     assert chordseat.space_points(score) == pytest.approx(1.6 * 72 / 25.4)
 
 
-def test_choose_packs_a_piano_sheet_into_the_fewest_lines_then_the_largest_notes() -> None:
+def test_choose_packs_a_piano_sheet_into_the_fewest_lines_then_the_largest_notes(strict_choice: None) -> None:
     found = [candidate(2.0, lines=30), candidate(1.6, lines=22), candidate(1.5, lines=20), candidate(1.4, lines=20)]
     assert layout.choose(found, port.PIANO)[0] == 1.5
     assert layout.choose([candidate(1.5, lines=20, share=0.4), candidate(1.8, lines=24)], port.PIANO)[0] == 1.8  # short lines still bound a piano sheet
