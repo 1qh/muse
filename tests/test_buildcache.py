@@ -41,10 +41,10 @@ def test_piano_code_is_outside_the_other_sheets_key():
     assert "piano.py" in {p.name for p in buildcache.code_files()}
 
 
-def test_workers_follow_the_free_cores():
-    assert build.free_workers(19, cores=10, load=55.0) == 1
-    assert build.free_workers(19, cores=10, load=4.0) == 6
-    assert build.free_workers(2, cores=10, load=0.0) == 2
+def test_workers_follow_the_cores_never_a_load_sample():
+    assert build.free_workers(19, cores=8) == 8
+    assert build.free_workers(2, cores=10) == 2
+    assert build.free_workers(0, cores=10) == 1
 
 
 def test_gate_code_is_outside_every_build_key():
