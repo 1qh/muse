@@ -265,3 +265,17 @@ def test_a_chord_after_a_sign_mid_line_starts_past_its_box(tmp_path: pathlib.Pat
 
     layout.seat_inked(score_path, rendered, lambda probe: True)
     assert pdfcheck.sign_text_overlaps(pdf) == []
+
+
+def test_a_long_cue_on_a_lines_last_bar_is_pulled_back_inside_the_margin(tmp_path: pathlib.Path) -> None:
+    from muse.model import Text
+
+    layout.install_extension()
+    bars = [held(n, [chord("C")]) for n in range(1, 9)]
+    bars[3].texts = [Text(10.0, -60.0, [("A long band cue that runs past the end of its line", True, False)], True, "cue", 10.0)]  # the last bar of line 1
+    score_path = imported(tmp_path, bars, {1, 5})
+    layout.set_tags(score_path, {"museChordGap": f"{layout.CLEAR_SPACES:.4f}"})
+    layout.run_extension(score_path, score_path)
+    pdf = score_path.with_suffix(".pdf")
+    BATCHER.render(score_path, [pdf, pdf.with_suffix(".mpos")], None)
+    assert pdfcheck.past_margin(pdf) == []
