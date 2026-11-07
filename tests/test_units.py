@@ -793,3 +793,21 @@ def test_a_bars_signature_starts_at_its_barline_and_a_courtesy_signature_at_its_
     assert chordseat.signature_ends(opening, [], 4.5, 347.6) == [358.0, 358.0]
     spread = [(350.0, 66.2, 358.0, four), (400.0, 66.2, 408.0, four)]  # 2 glyphs far apart are no 1 signature
     assert chordseat.signature_ends(spread, [], 4.5, 347.6) == [358.0]
+
+
+def test_a_run_past_its_deadline_is_sampled_before_it_is_killed(monkeypatch, tmp_path) -> None:
+    import pathlib
+    import shutil
+    import subprocess
+
+    import pytest
+
+    from muse import launch
+
+    if shutil.which("sample") is None:
+        pytest.skip("the native sampler ships only on macOS; elsewhere a timeout carries no sample by design")
+    monkeypatch.setattr(launch, "HANGS", tmp_path)
+    with pytest.raises(subprocess.TimeoutExpired) as caught:
+        launch.heavy(["sleep", "30"], 1.0)
+    where = str(caught.value.output).removeprefix("stack sampled to ")
+    assert pathlib.Path(where).exists()

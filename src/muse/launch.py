@@ -3,8 +3,11 @@ from __future__ import annotations
 
 import os
 import pathlib
+import shutil
 import subprocess
+import tempfile
 import threading
+import time
 
 SLOTS_VARIABLE = "MUSE_LAUNCH_SLOTS"
 LAUNCHES = {"count": 0}
@@ -19,11 +22,37 @@ def slots() -> int:
 GATE = threading.BoundedSemaphore(slots())
 
 
+HANGS = pathlib.Path(tempfile.gettempdir()) / "muse-hangs"  # native stacks of runs that passed their deadline
+SAMPLE_SECONDS = 3
+
+
 def heavy(argv: list[str], timeout: float, check: bool = False, cwd: pathlib.Path | None = None) -> subprocess.CompletedProcess[str]:
-    """1 run of a heavy tool, MuseScore or the optical cross-check, waiting for a free slot first; the timeout counts only the run, never the wait; with check, a failed run raises."""
+    """1 run of a heavy tool, MuseScore or the optical cross-check, waiting for a free slot first; the timeout counts only the run, never the wait; with check, a failed run raises; a run past its deadline is sampled before it is killed."""
     with GATE:
         LAUNCHES["count"] += 1
-        return subprocess.run(argv, capture_output=True, text=True, timeout=timeout, stdin=subprocess.DEVNULL, check=check, cwd=cwd)
+        with subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, stdin=subprocess.DEVNULL, cwd=cwd) as process:
+            try:
+                out, err = process.communicate(timeout=timeout)
+            except subprocess.TimeoutExpired as expired:
+                where = sample(process.pid)
+                process.kill()
+                process.communicate()
+                raise subprocess.TimeoutExpired(argv, timeout, output=f"stack sampled to {where}") from expired
+        done = subprocess.CompletedProcess(argv, process.returncode, out, err)
+        if check:
+            done.check_returncode()
+        return done
+
+
+def sample(pid: int) -> pathlib.Path | None:
+    """The native stack of a running process, written where a reader can find it after the process is gone; none where the sampler is absent."""
+    tool = shutil.which("sample")
+    if tool is None:
+        return None
+    HANGS.mkdir(parents=True, exist_ok=True)
+    target = HANGS / f"{pid}-{int(time.time())}.sample"
+    subprocess.run([tool, str(pid), str(SAMPLE_SECONDS), "-file", str(target)], capture_output=True, stdin=subprocess.DEVNULL, timeout=SAMPLE_SECONDS * 10, check=False)
+    return target
 
 
 def mscore(args: list[str], timeout: float, command: str = "mscore", check: bool = False) -> subprocess.CompletedProcess[str]:
