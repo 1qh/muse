@@ -232,9 +232,13 @@ var TRIED = {}  // per bar tick, the last stretch set and the shortfall it left
 
 function widen(short) {
     // each bar's next stretch from its own measured response of shortfall to stretch: chords inside a bar sit at shares of it, so a wider bar closes their gap by only a part of what it grew
+    var perLine = {}  // bars per line: a bar alone on its line already spans it, so a wider stretch moves nothing and only runs away
+    var all = measures()
+    for (var j = 0; j < all.length; j++) perLine[lineKey(all[j])] = (perLine[lineKey(all[j])] || 0) + 1
     curScore.startCmd()
     for (var i = 0; i < short.length; i++) {
         var m = short[i].measure
+        if (perLine[lineKey(m)] === 1) continue
         var w = m.bbox.width
         var s = m.userStretch
         var lack = short[i].lack
