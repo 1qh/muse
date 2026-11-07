@@ -97,11 +97,10 @@ def song(src: pathlib.Path, out_dir: pathlib.Path, work: pathlib.Path) -> dict[s
     return report
 
 
-def free_workers(count: int, cores: int | None = None, load: float | None = None) -> int:
-    """Workers the machine can run now: its free cores, at least 1."""
+def free_workers(count: int, cores: int | None = None) -> int:
+    """1 worker per song up to the cores, at least 1; launch slots, never a load sample, keep heavy runs within the cores."""
     cores = cores if cores is not None else os.cpu_count() or 1
-    load = load if load is not None else os.getloadavg()[0]
-    return max(1, min(count, port.MAX_WORKERS, int(cores - load)))
+    return max(1, min(count, port.MAX_WORKERS, cores))
 
 
 PRIORITY = "PRIORITY.txt"  # in the private repo: song names to build first, in order
