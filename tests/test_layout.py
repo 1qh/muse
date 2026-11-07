@@ -76,10 +76,18 @@ def test_plan_starts_a_line_at_every_section_mark() -> None:
 
 
 def test_piano_plan_lets_a_label_sit_second_after_a_lone_mark_bar() -> None:
+    bars = [noted(1), noted(2), empty(3, rehearsal=["A"]), empty(4, texts=[lyric("Verse1")]), empty(5)]
+    score = Score(bars, [], [])
+    assert 4 in layout.plan(score, [10.0] * 5, ROOM)  # band sheet: the label opens its own line
+    assert 4 not in layout.plan(score, [10.0] * 5, ROOM, port.PIANO)
+
+
+def test_piano_plan_leaves_no_section_of_1_bar_alone_on_a_line() -> None:
     bars = [noted(1), empty(2, rehearsal=["A"]), empty(3, texts=[lyric("Verse1")]), empty(4)]
     score = Score(bars, [], [])
-    assert 3 in layout.plan(score, [10.0] * 4, ROOM)  # band sheet: the label opens its own line
-    assert 3 not in layout.plan(score, [10.0] * 4, ROOM, port.PIANO)
+    starts = sorted(layout.plan(score, [10.0] * 4, ROOM, port.PIANO))
+    lengths = [b - a for a, b in zip(starts, [*starts[1:], 5], strict=False)]
+    assert 1 not in lengths
 
 
 def test_plan_evens_empty_bars_in_its_width_estimate() -> None:
@@ -245,3 +253,17 @@ def test_the_seated_overflow_check_reports_lines_whose_chords_merged(monkeypatch
     monkeypatch.setattr(port, "crowded_rows", lambda probe, wanted: set())
     monkeypatch.setattr(layout, "merged_rows", lambda score, probe: {3})
     assert layout.overflowing(sheet, tmp_path / "p.pdf", seated=True) == {2, 3}
+
+
+def test_a_1_bar_section_shares_its_piano_line_with_the_next_section_whatever_opens_it() -> None:
+    from fractions import Fraction as F
+
+    from muse import layout, port
+    from muse.model import Bar, Score
+
+    bars = [Bar(n, 0, 0.0, 100.0, F(4)) for n in range(1, 6)]
+    bars[2].rehearsal = ["A1"]  # a section of 1 bar
+    bars[3].rehearsal = ["A2"]  # the next section opens on a mark, not a label
+    score = Score(bars, [], [])
+    assert layout.blocks_of(score, port.PIANO) == [[0, 1], [2, 3, 4]]
+    assert layout.blocks_of(score, port.ORIGINAL) == [[0, 1], [2], [3, 4]]

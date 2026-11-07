@@ -218,14 +218,14 @@ def chord_shares(natural: pathlib.Path, bars: int, noted: list[int]) -> list[flo
 
 
 def blocks_of(score: Score, variant: str | None) -> list[list[int]]:
-    """0-based bars of each section; on a piano sheet a lone mark bar joins the label block after it, so the label sits second."""
+    """0-based bars of each section; on a piano sheet a section of 1 bar joins the block after it, so that block's mark or label sits second."""
     blocks = [list(block) for block in port.sections(score)]
     if variant != port.PIANO:
         return blocks
     joined: list[list[int]] = []
     for block in blocks:
         previous = joined[-1] if joined else None
-        if previous is not None and len(previous) == 1 and piano.label_of(score.bars[block[0]]):
+        if previous is not None and len(previous) == 1:
             previous.extend(block)
         else:
             joined.append(block)
