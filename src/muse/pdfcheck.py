@@ -282,9 +282,14 @@ def text_collisions(path: pathlib.Path) -> list[tuple[int, float, str]]:
 def empty_staves(path: pathlib.Path) -> list[str]:
     """A staff with no notehead sharing its line with another staff; a bar number starts each line after the first."""
     found = []
+    try:
+        size: float | None = chordseat.chord_size(path)
+    except ValueError:
+        size = None  # a sheet with no chords: only noteheads hold a staff
     for number, page in enumerate(pdftext.open(path), 1):
         clefs: list[float] = []
         heads: list[float] = []
+        chords: list[float] = []  # the chord row over a staff: the band reads its chords from it
         starts: list[float] = []
         for block in page.get_text("rawdict")["blocks"]:
             for line in block.get("lines", []):
@@ -298,12 +303,14 @@ def empty_staves(path: pathlib.Path) -> list[str]:
                     text = "".join(ch["c"] for ch in span["chars"]).strip()
                     if text.isdigit() and span["bbox"][0] < BAR_NUMBER_X and "Italic" in span["font"]:
                         starts.append(span["bbox"][1])
-        found += [f"p{number}: empty staff at height {clef:.0f}" for clef in idle_staves(clefs, heads, starts)]
+                    elif size is not None and text and abs(span["size"] - size) < 0.05 and CHORD.fullmatch(text):
+                        chords.append(span["origin"][1])
+        found += [f"p{number}: empty staff at height {clef:.0f}" for clef in idle_staves(clefs, heads, starts, chords)]
     return found
 
 
-def idle_staves(clefs: list[float], heads: list[float], starts: list[float]) -> list[float]:
-    """Staff heights with no notehead on a line of several staves; duplicates of 1 clef height count once."""
+def idle_staves(clefs: list[float], heads: list[float], starts: list[float], chords: list[float] | None = None) -> list[float]:
+    """Staff heights with no notehead and no chord row of their own above them, on a line of several staves; duplicates of 1 clef height count once."""
     lines: dict[int, list[float]] = {}
     for clef in sorted(set(round(c, 1) for c in clefs)):
         lines.setdefault(sum(1 for start in starts if start < clef), []).append(clef)
@@ -314,7 +321,7 @@ def idle_staves(clefs: list[float], heads: list[float], starts: list[float]) -> 
         for at, clef in enumerate(staves):
             high = (clef + staves[at - 1]) / 2 if at else clef - STAFF_REACH
             low = (clef + staves[at + 1]) / 2 if at + 1 < len(staves) else clef + STAFF_REACH
-            if not any(high <= head <= low for head in heads):
+            if not any(high <= head <= low for head in heads) and not any(high <= chord <= clef for chord in chords or []):
                 idle.append(clef)
     return idle
 
