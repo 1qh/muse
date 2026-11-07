@@ -302,7 +302,16 @@ def even_bars(src: pathlib.Path, score_path: pathlib.Path, pdf: pathlib.Path, wo
     score = decode(src)
     if reduced:
         piano.reduce(score)
-    return chordseat.uneven(score_path, measured(score_path, pdf, work, options), {bar.number for bar in score.bars if piano.has_notes(bar)})
+    return chordseat.uneven(score_path, measured(score_path, pdf, work, options), {bar.number for bar in score.bars if piano.has_notes(bar)} | signed_bars(score_path))
+
+
+def signed_bars(score_path: pathlib.Path) -> set[int]:
+    """1-based bars of the score's first staff that carry a segno, coda or jump: the sign's own room widens its bar by right."""
+    text = chordseat.score_text(score_path)[1]
+    first = text.index('<Staff id="1">', text.index("</Part>"))
+    end = text.find('<Staff id="2">', first)
+    body = text[first:end if end != -1 else text.index("</Score>", first)]
+    return {number for number, match in enumerate(chordseat.MEASURE.finditer(body), 1) if "<Marker>" in match.group(0) or "<Jump>" in match.group(0)}
 
 
 def cached_check(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> tuple[list[str], list[str], bool]:
