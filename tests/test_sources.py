@@ -152,3 +152,46 @@ def test_every_leland_source_decodes_each_printed_ending_once() -> None:
         if printed != decoded:
             wrong[path.stem] = (printed, decoded)
     assert not wrong
+
+
+def test_every_leland_source_decodes_each_printed_repeat_barline_once() -> None:
+    import pymupdf
+
+    from muse import leland
+    from muse.song import encoding
+
+    sources = [path for folder in os.environ["MUSE_SOURCES"].split(os.pathsep) for path in sorted(pathlib.Path(folder).glob("*.pdf")) if encoding(path) == "leland"]
+    assert sources, "no Leland source found: the guard would judge nothing"
+    wrong = {}
+    for path in sources:
+        printed = 0
+        for page in pymupdf.open(path):
+            dots = sorted((c["origin"][0], c["origin"][1]) for block in page.get_text("rawdict")["blocks"] for line in block.get("lines", []) for span in line["spans"] for c in span["chars"] if ord(c["c"]) == leland.REPEAT_DOT)
+            barlines: list[tuple[float, float]] = []  # 1 per printed repeat barline: its dots on every staff of the line stand in 1 column
+            for x, y in dots:
+                if not any(abs(x - bx) < 2 and abs(y - by) < 120 for bx, by in barlines):
+                    barlines.append((x, y))
+            printed += len(barlines)
+        bars = decode(path).bars
+        decoded = sum(1 for bar in bars if bar.repeat_start) + sum(1 for bar in bars if bar.repeat_end)
+        if printed != decoded:
+            wrong[path.stem] = (printed, decoded)
+    assert not wrong
+
+
+def test_every_leland_repeat_end_after_another_has_its_own_start() -> None:
+    from muse.song import encoding
+
+    sources = [path for folder in os.environ["MUSE_SOURCES"].split(os.pathsep) for path in sorted(pathlib.Path(folder).glob("*.pdf")) if encoding(path) == "leland"]
+    assert sources, "no Leland source found: the guard would judge nothing"
+    wrong = {}
+    for path in sources:
+        open_start, closed = False, False
+        for bar in decode(path).bars:
+            if bar.repeat_start:
+                open_start = True
+            if bar.repeat_end:
+                if closed and not open_start:
+                    wrong.setdefault(path.stem, []).append(bar.number)
+                open_start, closed = False, True
+    assert not wrong
