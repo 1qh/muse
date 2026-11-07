@@ -120,7 +120,7 @@ def check(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> list[str]
     counts = [len(p.findall("measure")) for p in parts]
     if any(c != len(score.bars) for c in counts):
         problems.append(f"bar count {counts} vs {len(score.bars)}")
-    keys = {k.text for k in root.iter("fifths")}
+    keys = {k.text for k in root.iter("fifths") if k.text}
     if not same_keys(keys, expected_keys(score, fifths)):
         problems.append(f"key {keys}")
     tempo = next((b.tempo for b in score.bars if b.tempo), None)

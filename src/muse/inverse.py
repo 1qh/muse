@@ -26,7 +26,7 @@ def check(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> list[str]
     root = ET.parse(xml).getroot()
     score = decode(src)
     problems = []
-    keys = {k.text for k in root.iter("fifths")}
+    keys = {k.text for k in root.iter("fifths") if k.text}
     if not same_keys(keys, expected_keys(score, fifths)):
         problems.append(f"key {keys}")
     for p_i, part in enumerate(root.findall("part")):
