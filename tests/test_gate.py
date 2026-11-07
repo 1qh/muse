@@ -256,3 +256,25 @@ def test_a_purge_removes_only_sheet_versions_the_current_sheets_do_not_hold():
     tree = "100644 blob aaa\tSong/Song-Em.pdf\n100644 blob bbb\tSong/Song-Em.mscz\n"
     history = "c0mmit\naaa Song/Song-Em.pdf\nbbb Song/Song-Em.mscz\nold Song/Song-Em.pdf\nolder Other/Other-Am.mscz\nnotes README.md\n"
     assert publish.superseded(tree, history) == ["old", "older"]
+
+
+def test_a_bar_carrying_a_sign_stays_out_of_the_even_bars_judgement(tmp_path) -> None:
+    import zipfile
+
+    bars = ["<Measure><voice/></Measure>", "<Measure><Marker><subtype>coda</subtype></Marker></Measure>", "<Measure><Jump><jumpTo>x</jumpTo></Jump></Measure>", "<Measure><voice/></Measure>"]
+    lower = "<Measure><Marker><subtype>segno</subtype></Marker></Measure>" * 4
+    text = f'<museScore><Score><Part></Part><Staff id="1">{"".join(bars)}</Staff><Staff id="2">{lower}</Staff></Score></museScore>'
+    path = tmp_path / "s.mscz"
+    with zipfile.ZipFile(path, "w") as z:
+        z.writestr("s.mscx", text)
+    assert gate.signed_bars(path) == {2, 3}
+
+
+def test_even_bars_hands_the_sign_bars_to_the_judgement(monkeypatch, tmp_path) -> None:
+    seen = {}
+    monkeypatch.setattr(gate, "decode", lambda src: Score([], [], []))
+    monkeypatch.setattr(gate, "measured", lambda *args: tmp_path / "x.pdf")
+    monkeypatch.setattr(gate, "signed_bars", lambda path: {41})
+    monkeypatch.setattr(gate.chordseat, "uneven", lambda score, pdf, noted: seen.setdefault("noted", noted) and [])
+    gate.even_bars(tmp_path / "s", tmp_path / "s.mscz", tmp_path / "s.pdf", tmp_path, None, False)
+    assert 41 in seen["noted"]
