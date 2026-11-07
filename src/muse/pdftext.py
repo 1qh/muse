@@ -17,15 +17,17 @@ class Page:
 
     def __init__(self, page: Any) -> None:
         self.page = page
-        self.texts: dict[str, Any] = {}
+        self.texts: dict[tuple[str, int | None], Any] = {}
         self.drawings: list[Any] | None = None
         self.lock = threading.Lock()
 
-    def get_text(self, kind: str = "text") -> Any:
+    def get_text(self, kind: str = "text", flags: int | None = None) -> Any:
+        """1 parse per kind and flags: flags change the boxes, so each set is its own parse."""
         with self.lock:
-            if kind not in self.texts:
-                self.texts[kind] = self.page.get_text(kind)
-            return self.texts[kind]
+            key = (kind, flags)
+            if key not in self.texts:
+                self.texts[key] = self.page.get_text(kind) if flags is None else self.page.get_text(kind, flags=flags)
+            return self.texts[key]
 
     def get_drawings(self) -> list[Any]:
         with self.lock:
