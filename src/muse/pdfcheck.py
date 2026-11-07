@@ -351,7 +351,7 @@ def sign_text_overlaps(path: pathlib.Path) -> list[str]:
                     for frame in frames:
                         common = frame & box
                         if not common.is_empty and common.width > SIGN_TEXT_OVERLAP and common.height > SIGN_TEXT_OVERLAP:
-                            found.append(f"p{number}: sign box over {word!r}")
+                            found.append(f"text on text: p{number}: sign box over {word!r}")  # a box reaching the line above clears as text does, by a wider line gap
                             break
     return found
 
