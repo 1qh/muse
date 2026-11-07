@@ -218,10 +218,8 @@ def chord_shares(natural: pathlib.Path, bars: int, noted: list[int]) -> list[flo
 
 
 def blocks_of(score: Score, variant: str | None) -> list[list[int]]:
-    """0-based bars of each section; on a piano sheet a section of 1 bar joins the block after it, so that block's mark or label sits second."""
+    """0-based bars of each section; a section of 1 bar joins the block after it, so that block's mark or label sits second rather than the bar standing alone."""
     blocks = [list(block) for block in port.sections(score)]
-    if variant != port.PIANO:
-        return blocks
     joined: list[list[int]] = []
     for block in blocks:
         previous = joined[-1] if joined else None
@@ -301,7 +299,7 @@ def candidate(src: pathlib.Path, work: pathlib.Path, variant: str, size: float) 
         lines = port.rows(sheet.score)
         good = held  # chords are seated, and so judged for crowding, only on the size that is finished
         return {"size": size, "held": held, "share": port.short_line_share(lines), "fill": port.page_fill(probe), "good": good, "lines": len(lines),
-                "lone": bool(piano.lone_lines(wanted, len(sheet.score.bars))) if variant == port.PIANO else False}
+                "lone": bool(piano.lone_lines(wanted, len(sheet.score.bars)))}  # no stranded single bar on any sheet
 
 
 def ranked(fit: list[dict[str, Any]], variant: str) -> list[float]:

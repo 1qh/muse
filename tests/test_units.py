@@ -397,14 +397,17 @@ def test_a_lyric_label_starts_a_line():
 
 def test_the_gate_refuses_a_label_inside_a_line(monkeypatch, tmp_path):
     from muse import gate
-    labelled = Bar(2, 0, 0.0, 100.0, F(4), voices=[], texts=[Text(0.0, 0.0, [("Chorus-a: words", True, True)], False)])
-    first = Bar(1, 0, 0.0, 100.0, F(4), voices=[])
+    plain = [Bar(n, 0, 0.0, 100.0, F(4), voices=[]) for n in (1, 2, 4)]
+    labelled = Bar(3, 0, 0.0, 100.0, F(4), voices=[], texts=[Text(0.0, 0.0, [("Chorus-a: words", True, True)], False)])
+    score = Score([plain[0], plain[1], labelled, plain[2]], [], [])
     monkeypatch.setattr(chordseat, "score_text", lambda _: ("x", ""))
     monkeypatch.setattr(chordseat, "chordless_starts", lambda _: [])
-    monkeypatch.setattr(chordseat, "bar_rows", lambda _: [[1, 2]])
-    assert gate.chord_starts(tmp_path, Score([first, labelled], [], [])) == ["bar 2: lyric label inside a line"]
-    monkeypatch.setattr(chordseat, "bar_rows", lambda _: [[1], [2]])
-    assert gate.chord_starts(tmp_path, Score([first, labelled], [], [])) == []
+    monkeypatch.setattr(chordseat, "bar_rows", lambda _: [[1, 2, 3, 4]])
+    assert gate.chord_starts(tmp_path, score) == ["bar 3: lyric label inside a line"]
+    monkeypatch.setattr(chordseat, "bar_rows", lambda _: [[1, 2], [3, 4]])
+    assert gate.chord_starts(tmp_path, score) == []
+    monkeypatch.setattr(chordseat, "bar_rows", lambda _: [[1, 2], [3], [4]])
+    assert gate.chord_starts(tmp_path, score) == ["bar 3: lone bar on a line", "bar 4: lone bar on a line"]
 
 
 def test_no_chord_stretches_a_bar():

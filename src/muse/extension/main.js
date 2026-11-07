@@ -328,6 +328,7 @@ function measureMode(all) {
         }
         var room = right(a) - left(a) + CLEAR + MARGIN
         var wanted = next > at ? room / (next - at) : width
+        if (a.segment.tick === tickOf(bar) && next > 0) wanted = (left(a) - edge + room) / next  // a beat-1 chord sits a fixed distance in, past any sign: absolute room before the next chord's share
         need[tickOf(bar)] = Math.max(need[tickOf(bar)] || width, wanted)
     }
     curScore.setMetaTag("museSeatError", "")
