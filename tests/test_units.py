@@ -659,3 +659,25 @@ def test_the_key_check_expects_every_key_the_song_uses_moved_by_its_transpositio
     assert verify.same_keys({"-2", "3"}, {3, -2})
     assert not verify.same_keys({"3"}, {3, -2})  # a dropped key change is still caught
     assert verify.same_keys({"-6"}, {6})  # G flat and F sharp are 1 key
+
+
+def test_a_chord_row_lifted_over_an_ending_number_is_not_too_high(tmp_path) -> None:
+    def sheet(number: bool):
+        doc = pymupdf.open()
+        page = doc.new_page()
+        top, gap = 300.0, 5.0
+        for line in range(5):
+            page.draw_line((40, top + line * gap), (560, top + line * gap), width=0.5)
+        for at, name in enumerate(["Em", "D", "C", "G"]):
+            page.insert_text((60 + at * 120, top - 3.9 * gap), name, fontsize=14)
+        if number:
+            page.insert_text((420, top - 0.6 * gap), "1.", fontsize=10)
+        path = tmp_path / f"ending-{number}.pdf"
+        doc.save(path)
+        return path
+
+    def highest(path) -> float:
+        return max(spaces for _, _, spaces, _ in pdfcheck.chord_seating(path))
+
+    assert highest(sheet(False)) > pdfcheck.MAX_CHORD_SPACES
+    assert highest(sheet(True)) <= pdfcheck.MAX_CHORD_SPACES

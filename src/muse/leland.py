@@ -326,7 +326,8 @@ def decode(path: str) -> Score:
                 groups[-1].append(staff)
             else:
                 groups.append([staff])
-        for group in groups:
+        owners = text_owners(spans, groups)
+        for at_group, group in enumerate(groups):
             staff = group[0]
             row_bars: list[Bar] = []
             for a, b in zip(staff.cols, staff.cols[1:], strict=False):
@@ -384,7 +385,7 @@ def decode(path: str) -> Score:
                     next((n for n in row_bars if n.left - 8 <= g[1] < n.right), row_bars[-1]).segno = True
                 elif g[0] == CODA and g[2] < staff.base:
                     next((n for n in row_bars if n.left - 8 <= g[1] < n.right), row_bars[-1]).coda = True
-            row_text(spans, staff.base, staff.top, row_bars, previous, flags, group, boxes)
+            row_text([span for span, owner in zip(spans, owners, strict=True) if owner == at_group], staff.base, staff.top, row_bars, previous, flags, group, boxes)
             for bar in row_bars:
                 for chord in bar.chords:
                     previous = chord
@@ -396,11 +397,26 @@ def decode(path: str) -> Score:
     return Score(bars, [], flags, second)
 
 
+TEXT_ABOVE = 40.0  # points above a line's top staff its text window reaches
+TEXT_BELOW = 34.0  # points below its bottom staff
+
+
+def text_owners(spans: list[Any], groups: list[list[Staff]]) -> list[int | None]:
+    """The 1 line each text belongs to: in the window of 1 line, that line; where 2 windows overlap, the line whose staff it sits above, since chords, endings and marks print above their staff."""
+    owners: list[int | None] = []
+    for span in spans:
+        y = span[2]
+        near = [at for at, group in enumerate(groups) if group[0].top - TEXT_ABOVE < y < group[-1].base + TEXT_BELOW]
+        above = [at for at in near if y < groups[at][0].top]
+        owners.append(min(above, key=lambda at: groups[at][0].top) if above else (near[0] if near else None))
+    return owners
+
+
 def row_text(spans: list[Any], base: float, top: float, row: list[Bar], previous: Chord | None, flags: list[Issue], group: list[Staff], boxes: list[Any]) -> None:
     bottom = group[-1].base
     for span in spans:
         text = span[0].strip()
-        if not (top - 40 < span[2] < bottom + 34) or span[2] < CREDIT_TOP or span[2] > CREDIT_BOTTOM:
+        if not (top - TEXT_ABOVE < span[2] < bottom + TEXT_BELOW) or span[2] < CREDIT_TOP or span[2] > CREDIT_BOTTOM:
             continue
         font = span[4]
         target = next((n for n in row if n.left - 4 <= span[1] < n.right - 1), row[-1])
