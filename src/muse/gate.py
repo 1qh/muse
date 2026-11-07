@@ -15,7 +15,7 @@ from functools import partial
 
 import pymupdf
 
-from muse import buildcache, chordnames, chordseat, inverse, launch, navigate, pdfcheck, piano, port, scorefile, verify
+from muse import buildcache, chordnames, chordseat, inverse, launch, mode, navigate, pdfcheck, piano, port, scorefile, verify
 from muse.model import Score
 from muse.song import Song, decode, song_of, sources
 
@@ -302,7 +302,8 @@ def even_bars(src: pathlib.Path, score_path: pathlib.Path, pdf: pathlib.Path, wo
     score = decode(src)
     if reduced:
         piano.reduce(score)
-    return chordseat.uneven(score_path, measured(score_path, pdf, work, options), {bar.number for bar in score.bars if piano.has_notes(bar)} | signed_bars(score_path))
+    widened = {bar.number for bar in score.bars if len(bar.chords) > 1} if mode.PRINT else set()  # print mode lets a bar widen for its own crowded chords
+    return chordseat.uneven(score_path, measured(score_path, pdf, work, options), {bar.number for bar in score.bars if piano.has_notes(bar)} | signed_bars(score_path) | widened)
 
 
 def signed_bars(score_path: pathlib.Path) -> set[int]:

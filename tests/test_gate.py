@@ -278,3 +278,18 @@ def test_even_bars_hands_the_sign_bars_to_the_judgement(monkeypatch, tmp_path) -
     monkeypatch.setattr(gate.chordseat, "uneven", lambda score, pdf, noted: seen.setdefault("noted", noted) and [])
     gate.even_bars(tmp_path / "s", tmp_path / "s.mscz", tmp_path / "s.pdf", tmp_path, None, False)
     assert 41 in seen["noted"]
+
+
+@pytest.mark.parametrize("printing", [True, False])
+def test_print_mode_alone_lets_a_bar_of_crowded_chords_out_of_the_even_bars_judgement(monkeypatch, tmp_path, printing) -> None:
+    from muse.model import Chord
+
+    seen = {}
+    crowded = Bar(7, 0, 0.0, 100.0, F(4), chords=[Chord(0.0, "D", 0, "m7"), Chord(50.0, "E", 0, "m7")])
+    monkeypatch.setattr(gate.mode, "PRINT", printing)
+    monkeypatch.setattr(gate, "decode", lambda src: Score([crowded], [], []))
+    monkeypatch.setattr(gate, "measured", lambda *args: tmp_path / "x.pdf")
+    monkeypatch.setattr(gate, "signed_bars", lambda path: set())
+    monkeypatch.setattr(gate.chordseat, "uneven", lambda score, pdf, noted: seen.setdefault("noted", noted) and [])
+    gate.even_bars(tmp_path / "s", tmp_path / "s.mscz", tmp_path / "s.pdf", tmp_path, None, False)
+    assert (7 in seen["noted"]) == printing
