@@ -335,6 +335,8 @@ def merged_rows(score: Score, probe: pathlib.Path) -> set[int]:
     return {row[0] for row, line in zip(rows, lines, strict=True) if sum(len(score.bars[number - 1].chords) for number in row) > len(line["chords"])}
 
 
+SIGN_REACH = 1.0  # staff spaces a sign's drawn box reaches past its glyph, the extension's own starting reach
+SIGN_REACH_MARGIN = 0.25  # staff spaces added past each measured overlap, so the next render clears it rather than touches it
 INK_LIMIT = 5.0  # staff spaces a measured offset may correct: a line's opening read 2 ways differs by up to about 3, a mispaired chord sits a chord's distance away
 
 
@@ -354,8 +356,9 @@ def seat_inked(score_path: pathlib.Path, rendered: Callable[[], pathlib.Path], h
     inks: list[float] = []  # each chord's ink width in staff spaces, known after the first round
     probe = score_path
     evened = False
+    reach = SIGN_REACH  # staff spaces a sign's box keeps cues from, grown by what each render measures
     for _ in range(INK_ROUNDS):
-        tags = {"museChordGap": f"{CLEAR_SPACES:.4f}", "museInkBias": ",".join(f"{b:.4f}" for b in bias), "museInkWidth": ",".join(f"{w:.4f}" for w in inks)}
+        tags = {"museSignReach": f"{reach:.4f}", "museChordGap": f"{CLEAR_SPACES:.4f}", "museInkBias": ",".join(f"{b:.4f}" for b in bias), "museInkWidth": ",".join(f"{w:.4f}" for w in inks)}
         if noted is not None:  # the caller evens empty bars itself, from each fresh render, so the extension leaves them
             tags["museNoted"] = ",".join(str(i) for i in noted) or "-1"
             tags["museEven"] = "0"
@@ -375,10 +378,13 @@ def seat_inked(score_path: pathlib.Path, rendered: Callable[[], pathlib.Path], h
         bias = next_bias(bias, gaps, spaces)
         inks = [width / space for width, space in zip(chordseat.ink_widths(rows, lines), spaces, strict=True)]
         evened = noted is not None and chordseat.equalize(score_path, probe, {index + 1 for index in noted})  # measured on the print, both ways
-        if not evened and all(gap is None or abs(gap - chordseat.GAP) <= chordseat.TOLERANCE for gap in gaps) and not pdfcheck.chord_collisions(probe):
+        overlaps = pdfcheck.sign_word_overlaps(probe)
+        if overlaps:
+            reach += max(overlaps) / spaces[0] + SIGN_REACH_MARGIN  # the box still covers a word by this much: keep cues that much farther off
+        if not evened and not overlaps and all(gap is None or abs(gap - chordseat.GAP) <= chordseat.TOLERANCE for gap in gaps) and not pdfcheck.chord_collisions(probe):
             break
     if evened:  # the last round evened bars after its render, so the chords must be seated against the new widths once more, with its latest measurements
-        set_tags(score_path, {"museInkBias": ",".join(f"{b:.4f}" for b in bias), "museInkWidth": ",".join(f"{w:.4f}" for w in inks)})
+        set_tags(score_path, {"museSignReach": f"{reach:.4f}", "museInkBias": ",".join(f"{b:.4f}" for b in bias), "museInkWidth": ",".join(f"{w:.4f}" for w in inks)})
         run_extension(score_path, score_path)
         probe = rendered()
     return probe

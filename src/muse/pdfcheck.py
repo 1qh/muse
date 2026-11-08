@@ -367,6 +367,19 @@ def words_over(number: int, words: list[tuple[str, pymupdf.Rect]], boxes: list[p
     return found
 
 
+def sign_word_overlaps(path: pathlib.Path) -> list[float]:
+    """The width in points of every overlap between a sign's coloured box and a printed word's ink."""
+    found = []
+    for page in pdftext.open(path):
+        frames = [d["rect"] for d in page.get_drawings() if d.get("color") and tuple(d["color"]) != (0.0, 0.0, 0.0) and chordseat.SIGN_FRAME[0] < d["rect"].width < chordseat.SIGN_FRAME[1]]
+        for _, box in ink_words(page) if frames else []:
+            for frame in frames:
+                common = frame & box
+                if not common.is_empty and common.width > SIGN_TEXT_OVERLAP and common.height > SIGN_TEXT_OVERLAP:
+                    found.append(common.width)
+    return found
+
+
 def sign_text_overlaps(path: pathlib.Path) -> list[str]:
     """A sign's coloured box over any printed word, a bar number, chord or mark: the box hides what the reader navigates by."""
     found = []

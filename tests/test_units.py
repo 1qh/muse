@@ -730,6 +730,9 @@ def test_a_sign_box_over_a_word_is_found_and_the_signs_own_glyph_is_not(tmp_path
 
     assert pdfcheck.sign_text_overlaps(sheet(True)) == ["text on text: p1: sign box over 'S'"]
     assert pdfcheck.sign_text_overlaps(sheet(False)) == []
+    widths = pdfcheck.sign_word_overlaps(sheet(True))
+    assert len(widths) == 1 and 3.0 < widths[0] < 30.0  # the 'S' ink lies inside the 30 pt box: the overlap is its width
+    assert pdfcheck.sign_word_overlaps(sheet(False)) == []
 
 
 def test_an_imported_expression_becomes_staff_text_with_its_placement() -> None:
