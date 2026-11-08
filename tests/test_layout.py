@@ -289,6 +289,7 @@ def test_the_seating_rounds_count_gaps_in_the_scores_own_staff_space(monkeypatch
     monkeypatch.setattr(chordseat, "gaps", lambda rows, lines: [0.9])
     monkeypatch.setattr(chordseat, "space_points", lambda path: 4.5)  # the score's own staff space
     monkeypatch.setattr(layout.pdfcheck, "chord_collisions", lambda pdf: [])
+    monkeypatch.setattr(layout.pdfcheck, "sign_word_overlaps", lambda pdf: [])  # no sign box covers a word
     layout.seat_inked(tmp_path / "s.mscz", lambda: tmp_path / "s.pdf", lambda probe: True)
     second = next(values for values in tags[1:] if "museInkBias" in values)
     assert second["museInkBias"] == f"{0.9 / 4.5:.4f}"
