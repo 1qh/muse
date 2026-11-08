@@ -19,7 +19,7 @@ function start(measure) {
     var owned = measure.elements
     for (var m = 0; owned && m < owned.length; m++) {
         if (owned[m].type === Element.MARKER && owned[m].bbox && owned[m].pagePos.x - owned[m].offsetX <= measure.pagePos.x + 4) {  // at its bar's start before any shift clear of the bar number
-            edge = Math.max(edge, owned[m].pagePos.x + owned[m].bbox.x + owned[m].bbox.width + 0.5)
+            edge = Math.max(edge, owned[m].pagePos.x + owned[m].bbox.x + owned[m].bbox.width + REACH)  // past the sign's drawn box, never only its glyph
         }
     }
     return edge
@@ -172,6 +172,8 @@ function seatStarts(all) {
 
 var BOX_PAD = 1.0  // spaces a sign's drawn box reaches past its glyph
 
+var REACH = BOX_PAD  // spaces chords and cues keep from a sign's glyph: its box, grown by the caller from each fresh render's measured overlap
+
 function signsOf() {
     // per line, the left edge of every segno or coda box that is not the target opening the line
     var found = {}
@@ -181,7 +183,7 @@ function signsOf() {
         for (var i = 0; owned && i < owned.length; i++) {
             var e = owned[i]
             if ((e.type !== Element.MARKER && e.type !== Element.JUMP) || !e.bbox) continue
-            var x = e.pagePos.x + e.bbox.x - BOX_PAD
+            var x = e.pagePos.x + e.bbox.x - REACH
             if (e.type === Element.MARKER && e.pagePos.x - e.offsetX <= m.pagePos.x + 4) continue
             var key = lineKey(m)
             if (!found[key]) found[key] = []
@@ -362,6 +364,8 @@ function measureMode(all) {
 function main() {
     var given = curScore.metaTag("museInkBias")  // per chord, the spaces its ink starts past its text box, measured by the caller
     BIAS = given ? given.split(",").map(Number) : []
+    var reach = Number(curScore.metaTag("museSignReach"))
+    REACH = reach > 0 ? reach : BOX_PAD
     CLEAR = Number(curScore.metaTag("museChordGap"))
     if (!(CLEAR > 0)) { api.log.error("museseat: no museChordGap tag"); curScore.setMetaTag("museSeatError", "no museChordGap tag"); return }
     var all = chords()
@@ -405,7 +409,7 @@ function raiseText(all) {
             if ((sign.type !== Element.MARKER && sign.type !== Element.JUMP) || !sign.bbox) continue
             var signKey = lineKey(signBar)
             if (!placed[signKey]) placed[signKey] = []
-            placed[signKey].push({ x0: sign.pagePos.x + sign.bbox.x - BOX_PAD, x1: sign.pagePos.x + sign.bbox.x + sign.bbox.width + BOX_PAD, top: sign.pagePos.y + sign.bbox.y - BOX_PAD })
+            placed[signKey].push({ x0: sign.pagePos.x + sign.bbox.x - REACH, x1: sign.pagePos.x + sign.bbox.x + sign.bbox.width + REACH, top: sign.pagePos.y + sign.bbox.y - REACH })
         }
         signBar = signBar.nextMeasure
     }
