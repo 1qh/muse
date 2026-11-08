@@ -1,5 +1,5 @@
 #!/bin/sh
-# Lint, types and unit tests refuse a push; source checks join when MUSE_SOURCES and MUSE_PINS name the private inputs.
+# Lint, types and the whole suite refuse a push; the source checks join when MUSE_SOURCES and MUSE_PINS name the private inputs.
 set -e
 ROOT=$(git rev-parse --show-toplevel)
 cd "$ROOT"
@@ -8,5 +8,5 @@ cd "$ROOT"
 if [ -n "${MUSE_SOURCES:-}" ] && [ -n "${MUSE_PINS:-}" ]; then
   .venv/bin/python -m pytest -q -p no:cacheprovider </dev/null
 else
-  .venv/bin/python -m pytest -q -p no:cacheprovider tests/test_units.py tests/test_gate.py </dev/null
+  .venv/bin/python -m pytest -q -p no:cacheprovider --ignore=tests/test_sources.py </dev/null  # only the source checks need the private inputs
 fi
