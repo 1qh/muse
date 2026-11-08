@@ -10,6 +10,8 @@ import threading
 import time
 from collections.abc import Callable
 
+import psutil
+
 SLOTS_VARIABLE = "MUSE_LAUNCH_SLOTS"
 LAUNCHES = {"count": 0}
 
@@ -23,18 +25,22 @@ def slots() -> int:
 GATE = threading.BoundedSemaphore(slots())
 
 
-FREE_CORE_WAIT = 3600.0  # seconds a launch waits for the machine's load to leave a core free
-LOAD_POLL = 5.0  # seconds between 2 readings of the load
+FREE_CORE_WAIT = 3600.0  # seconds a launch waits for a whole core to sit idle
+IDLE_WINDOW = 1.0  # seconds over which 1 reading measures idle CPU
 
 
-def free_core(deadline: float = FREE_CORE_WAIT, load: Callable[[], float] = lambda: os.getloadavg()[0], cores: int | None = None, pause: Callable[[float], None] = time.sleep) -> None:
-    """Wait until the 1-minute load leaves a core free: the cores are shared with other work, and a run started on a saturated machine starves past its deadline."""
+def idle_percent() -> float:
+    """The share of all CPU time idle over the last second, measured, never the load average, which counts waiting threads."""
+    return 100.0 - float(psutil.cpu_percent(interval=IDLE_WINDOW))
+
+
+def free_core(deadline: float = FREE_CORE_WAIT, idle: Callable[[], float] = idle_percent, cores: int | None = None) -> None:
+    """Wait until a whole core sits idle: the cores are shared with other work, and a run started on a saturated machine starves past its deadline; each reading itself takes the measuring second."""
     total = cores or os.cpu_count() or 1
     give_up = time.monotonic() + deadline
-    while (current := load()) >= total:
+    while (free := idle() * total / 100.0) < 1.0:
         if time.monotonic() > give_up:
-            raise TimeoutError(f"no free core for {deadline:.0f} s: load {current:.1f} on {total} cores")
-        pause(LOAD_POLL)
+            raise TimeoutError(f"no free core for {deadline:.0f} s: {free:.2f} of {total} cores idle")
 
 
 HANGS = pathlib.Path(tempfile.gettempdir()) / "muse-hangs"  # native stacks of runs that passed their deadline
