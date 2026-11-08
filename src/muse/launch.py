@@ -110,7 +110,11 @@ def drop_own_logs(roots: list[pathlib.Path], start: float, end: float, logs: pat
         named = LOG_NAME.fullmatch(log.name)
         if not named or not start <= time.mktime(time.strptime(named[1], "%y%m%d_%H%M%S")) <= end:
             continue
-        reads = CONVERSION.findall(log.read_text(encoding="utf-8", errors="replace"))
+        try:
+            text = log.read_text(encoding="utf-8", errors="replace")
+        except FileNotFoundError:
+            continue  # another launch removed it between the listing and the read: it is gone, as wanted
+        reads = CONVERSION.findall(text)
         if reads and all(any(pathlib.Path(read).resolve().is_relative_to(root) for root in roots) for read in reads):
             log.unlink(missing_ok=True)
             dropped += 1
