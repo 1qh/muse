@@ -31,6 +31,7 @@ INK_REACH = 0.8  # points a letter's ink can start left of its text box; further
 SIGN_INK_WIDTH = 0.75  # the printed part of a segno or coda, in sign font sizes
 SIGN_CLEAR = 0.5  # points between a sign's box and the chord after it, past the seating tolerance
 SIGN_FRAME = (10.0, 60.0)  # points wide the coloured box around a sign can be
+SIGN_AT_BARLINE = 4.0  # staff spaces past a barline a sign's middle may lie and still open its bar: a jump ending the bar before lies left of the barline
 EQUAL_TOLERANCE = mode.pick(1.5, 4.0)  # points an empty bar may differ from its line's mean
 CHORD_GAP = mode.pick(0.75, 0.5)  # clear space between 2 chords, in chord sizes
 MIN_STAFF_WIDTH = 60.0  # a short last line is left unfilled, and is still a staff
@@ -156,13 +157,18 @@ def sign_end(char: dict[str, Any], size: float, frames: list[pymupdf.Rect]) -> f
     return edge + TOLERANCE + SIGN_CLEAR  # clear of the box by more than a chord may stray from its target
 
 
+def sign_middle(char: dict[str, Any]) -> float:
+    """The middle of a segno or coda glyph: a sign belongs to the bar its middle falls in, as its box is drawn around it."""
+    return (float(char["bbox"][0]) + float(char["bbox"][2])) / 2
+
+
 def page_lines(pdf: pathlib.Path) -> list[dict[str, Any]]:
     """Every staff carrying chords, in print order: its chord left edges, its barlines, where its signatures end, and its staff space."""
     lines = []
     measures = measure_boxes(pdf.with_suffix(".mpos"))
     for page in pdftext.open(pdf):
         words, glyphs = [], []
-        signs_here: list[tuple[float, float]] = []
+        signs_here: list[tuple[float, float, float]] = []  # each sign's room end, height and middle
         frames = [d["rect"] for d in page.get_drawings() if d.get("color") and tuple(d["color"]) != (0.0, 0.0, 0.0) and SIGN_FRAME[0] < d["rect"].width < SIGN_FRAME[1]]
         for block in page.get_text("rawdict")["blocks"]:
             for line in block.get("lines", []):
@@ -172,7 +178,7 @@ def page_lines(pdf: pathlib.Path) -> list[dict[str, Any]]:
                         continue
                     if all(0xE000 <= ord(c) <= 0xF8FF for c in text):
                         glyphs += [(c["origin"][0], c["origin"][1], c["bbox"][2], ord(c["c"])) for c in span["chars"]]
-                        signs_here += [(sign_end(c, span["size"], frames), c["origin"][1]) for c in span["chars"] if c["c"] in SIGN_CHARS]
+                        signs_here += [(sign_end(c, span["size"], frames), c["origin"][1], sign_middle(c)) for c in span["chars"] if c["c"] in SIGN_CHARS]
                     else:
                         words.append((span["size"], span["bbox"][0], span["bbox"][2], span["origin"][1], text))
         if not words:
@@ -214,9 +220,11 @@ def page_lines(pdf: pathlib.Path) -> list[dict[str, Any]]:
             start = max([start, *(r.x1 for r in shapes if r.width < 3 and abs(r.y0 - staff_top) < 1 and r.y1 >= bottom - 1 and start <= r.x0 < start + OPENING_REPEAT_REACH and not is_stem(r.x0, heads))])
             opening = start  # the first bar's music starts here; a sign takes chord room, never bar width
             # a sign printed on the chord row takes the place right after the clef, so the chord follows it
-            start = max([start, *(end for end, y in signs_here if above + space * 4 < y <= staff_top + 1 and end < start + top * 4)])  # any sign in this line's own band, as the extension judges it, shifted clear of the bar number
+            start = max([start, *(end for end, y, _ in signs_here if above + space * 4 < y <= staff_top + 1 and end < start + top * 4)])  # any sign in this line's own band, as the extension judges it, shifted clear of the bar number
             band = sorted((g for g in glyphs if staff_top - reach <= g[1] <= bottom + reach), key=lambda g: g[0])
             openings = [max(signature_ends([g for g in band if g[0] > edge], [g for g in band if HEAD_CODES[0] <= g[3] <= HEAD_CODES[1]], space, edge), default=edge) for edge in bars[:-1]]  # a bar's signature starts right at its barline
+            in_band = [(end, middle) for end, y, middle in signs_here if above + space * 4 < y <= staff_top + 1]  # signs in this line's own chord row
+            openings = [max([opened, *(end for end, middle in in_band if edge < middle <= edge + space * SIGN_AT_BARLINE)]) for edge, opened in zip(bars[:-1], openings, strict=True)]  # a sign standing at the barline takes the chord's place, as at a line's start
             lines.append({"chords": joined, "bars": bars, "openings": openings, "start": start, "opening": opening, "space": space, "rights": rights, "lefts": lefts, "size": top})
     return lines
 

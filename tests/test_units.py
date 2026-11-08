@@ -479,10 +479,11 @@ def test_a_saved_layout_with_a_label_inside_a_line_fails_its_proof():
     labelled = Bar(3, 0, 0.0, 100.0, F(4), voices=[], texts=[Text(0.0, 0.0, [("Chorus-a: words", True, True)], False)])
     from muse.model import Chord, Score
 
-    plain.chords = second.chords = labelled.chords = [Chord(0.0, "A", 0, "")]
-    assert port.line_rule_breaks(Score([plain, second, labelled], [], [])) == [3]
+    after = Bar(4, 0, 0.0, 100.0, F(4), voices=[])  # the labelled line holds 2 bars, so no line is a lone bar
+    plain.chords = second.chords = labelled.chords = after.chords = [Chord(0.0, "A", 0, "")]
+    assert port.line_rule_breaks(Score([plain, second, labelled, after], [], [])) == [3]
     labelled.new_system = True
-    assert port.line_rule_breaks(Score([plain, second, labelled], [], [])) == []
+    assert port.line_rule_breaks(Score([plain, second, labelled, after], [], [])) == []
 
 
 def _plain_bar(number, left=0.0, right=100.0, **extra):
