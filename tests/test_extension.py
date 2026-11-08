@@ -372,3 +372,19 @@ def test_a_bar_opens_past_its_sign_only_where_the_score_holds_a_target(tmp_path:
     monkeypatch.setattr(chordseat, "page_lines", lambda pdf: [dict(line)])
     lines = chordseat.matched(text, tmp_path / "unused.pdf")
     assert lines[0]["openings"] == [100.0, 222.0, 300.0, 400.0, 500.0]  # only bar 3, the target's, opens past its sign
+
+
+def test_a_grown_sign_reach_never_moves_the_chord_after_a_target(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    layout.install_extension()
+    monkeypatch.setattr(layout, "SIGN_REACH", 6.0)  # a reach grown for some cue elsewhere on the sheet
+    bars = [held(n, [chord("F", "maj7")]) for n in range(1, 9)]
+    bars[2].segno = True  # a target opening bar 3 mid-line
+    score_path = imported(tmp_path, bars, {1, 5})
+    pdf = score_path.with_suffix(".pdf")
+
+    def rendered() -> pathlib.Path:
+        BATCHER.render(score_path, [pdf, pdf.with_suffix(".mpos")], None)
+        return pdf
+
+    layout.seat_inked(score_path, rendered, lambda probe: True)
+    assert [p for p in chordseat.problems(score_path, pdf) if "wanted" in p] == []  # the chord follows the drawn box, never the reach cues keep
