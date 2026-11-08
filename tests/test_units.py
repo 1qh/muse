@@ -294,7 +294,7 @@ def test_the_page_check_includes_the_sign_guard(tmp_path, monkeypatch):
 
 def test_beat_1_chords_measure_from_their_own_bar_and_later_chords_do_not_count():
     rows = [[(0, True), (1, True), (1, False)]]
-    lines = [{"chords": [50.0, 100.0, 130.0], "bars": [100.0, 150.0], "openings": [100.0], "start": 50.0, "space": 4.0}]
+    lines = [{"chords": [50.0, 100.0, 130.0], "bars": [100.0, 150.0], "openings": [100.0], "start": 50.0, "space": 4.0, "crossed": []}]
     assert chordseat.gaps(rows, lines) == [0.0, 0.0, None]
 
 
@@ -302,7 +302,7 @@ def test_a_chord_off_its_barline_is_a_problem(monkeypatch, tmp_path):
     monkeypatch.setattr(chordseat, "score_text", lambda _: ("x", ""))
     monkeypatch.setattr(chordseat, "rows_of", lambda _: [[(0, True), (1, True)]])
     monkeypatch.setattr(chordseat, "bar_rows", lambda _: [[1, 2]])
-    monkeypatch.setattr(chordseat, "matched", lambda text, pdf: [{"chords": [50.0, 103.0], "bars": [100.0, 150.0], "openings": [100.0], "start": 50.0, "space": 4.0}])
+    monkeypatch.setattr(chordseat, "matched", lambda text, pdf: [{"chords": [50.0, 103.0], "bars": [100.0, 150.0], "openings": [100.0], "start": 50.0, "space": 4.0, "crossed": []}])
     assert len(chordseat.problems(tmp_path, tmp_path)) == 1
 
 
@@ -355,7 +355,7 @@ def test_a_reach_allows_the_hold_and_nothing_past_it(monkeypatch, tmp_path):
     monkeypatch.setattr(chordseat, "score_text", lambda _: ("x", ""))
     monkeypatch.setattr(chordseat, "rows_of", lambda _: [[(0, True), (1, True)]])
     monkeypatch.setattr(chordseat, "bar_rows", lambda _: [[1, 2]])
-    monkeypatch.setattr(chordseat, "matched", lambda text, pdf: [{"chords": [50.0, 105.0], "bars": [100.0, 150.0], "openings": [100.0], "start": 50.0, "space": 4.0}])
+    monkeypatch.setattr(chordseat, "matched", lambda text, pdf: [{"chords": [50.0, 105.0], "bars": [100.0, 150.0], "openings": [100.0], "start": 50.0, "space": 4.0, "crossed": []}])
     assert chordseat.problems(tmp_path, tmp_path, 1.7) == []
     assert len(chordseat.problems(tmp_path, tmp_path, 1.0)) == 1
     assert len(chordseat.problems(tmp_path, tmp_path)) == 1

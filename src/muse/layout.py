@@ -378,7 +378,7 @@ def seat_inked(score_path: pathlib.Path, rendered: Callable[[], pathlib.Path], h
         bias = next_bias(bias, gaps, spaces)
         inks = [width / space for width, space in zip(chordseat.ink_widths(rows, lines), spaces, strict=True)]
         evened = noted is not None and chordseat.equalize(score_path, probe, {index + 1 for index in noted})  # measured on the print, both ways
-        overlaps = pdfcheck.sign_word_overlaps(probe)
+        overlaps = pdfcheck.sign_word_overlaps(probe) + [width for _, width in chordseat.jump_crossings(score_path, probe)]  # a box over a word or over the next bar keeps cues and jumps farther off
         if overlaps:
             reach += max(overlaps) / spaces[0] + SIGN_REACH_MARGIN  # the box still covers a word by this much: keep cues that much farther off
         if not evened and not overlaps and all(gap is None or abs(gap - chordseat.GAP) <= chordseat.TOLERANCE for gap in gaps) and not pdfcheck.chord_collisions(probe):
