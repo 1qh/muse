@@ -98,14 +98,14 @@ function lift(all) {
         var parts = spanners[s].spannerSegments
         for (var t = 0; t < parts.length; t++) {
             var part = parts[t]
-            if (spanners[s].type !== Element.SLUR && spanners[s].type !== Element.TIE) continue  // MuseScore stacks every other spanner, a volta, hairpin or line, over the chord row: its height is the chords' own, and lifting over it climbs without end
+            var noteBound = spanners[s].type === Element.SLUR || spanners[s].type === Element.TIE  // a slur or tie sits with its notes, however high
             if (!part.bbox || !part.parent || !part.parent.parent) continue
             var top = part.pagePos.y + part.bbox.y
             var system = part.parent
             if (!system.firstMeasure) continue
             var own = lineKey(system.firstMeasure)  // a spanner belongs to the line it is drawn in, never the next line down
             var staffTop = Number(own.split(":")[1])
-            if (top < staffTop) clear[own] = Math.min(clear[own] === undefined ? 1e9 : clear[own], top)  // a slur or tie over the staff; one below it never lifts the chords
+            if (top < staffTop && (noteBound || top > staffTop - SPANNER_REACH)) clear[own] = Math.min(clear[own] === undefined ? 1e9 : clear[own], top)  // MuseScore never moves a volta clear of hand-placed chords, so the chords clear it
         }
     }
     var m = curScore.firstMeasure
@@ -130,6 +130,8 @@ function lift(all) {
 }
 
 var GAP = 0.5  // spaces between a line's chords and the highest thing below them
+
+var SPANNER_REACH = 10  // spaces above its line a volta or other spanner may lift the chords from
 
 var BEAT_REACH = 10  // spaces a beat-1 correction may move a chord: measured gaps stay under 3; a larger one is left to the final checks
 
