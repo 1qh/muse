@@ -1,6 +1,7 @@
 """Per-song build and gate state: what each output was built from, and the layout decisions behind it."""
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
 import os
@@ -10,8 +11,7 @@ from typing import Any
 
 ROOT = pathlib.Path(__file__).parent
 STYLE = ROOT / "style.mss"
-PIANO_ONLY_CODE = {"piano.py"}
-CHECK_ONLY_CODE = {"gate.py", "verify.py", "inverse.py", "publish.py", "report.py", "preflight.py"}
+SHEET_WRITERS = ("layout", "port", "piano", "chordnames", "scorefile")  # the modules a song's build writes its sheets through; every module they import can shape a sheet, and the orchestrating build module, which imports the checks too, is not one
 STATE_DIR = "build-state"
 
 
@@ -25,6 +25,32 @@ CODE_SUFFIXES = (".py", ".js", ".json")
 def code_files(root: pathlib.Path = ROOT, skip: frozenset[str] | set[str] = frozenset()) -> list[pathlib.Path]:
     """Every file of the package that can shape an output: its Python and the MuseScore extension it installs."""
     return sorted(path for path in root.rglob("*") if path.is_file() and path.suffix in CODE_SUFFIXES and "__pycache__" not in path.parts and path.name not in skip)
+
+
+def imports_of(module: str, root: pathlib.Path = ROOT) -> set[str]:
+    """The package's own modules 1 module imports, read from its syntax tree."""
+    tree = ast.parse((root / f"{module}.py").read_text(encoding="utf-8"))
+    found: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module == "muse":
+            found |= {alias.name for alias in node.names}
+        elif isinstance(node, ast.ImportFrom) and node.module and node.module.startswith("muse."):
+            found.add(node.module.split(".")[1])
+        elif isinstance(node, ast.Import):
+            found |= {alias.name.split(".")[1] for alias in node.names if alias.name.startswith("muse.")}
+    return {name for name in found if (root / f"{name}.py").exists()}
+
+
+def sheet_code(root: pathlib.Path = ROOT) -> list[pathlib.Path]:
+    """Every file that can shape a sheet: the import closure of the modules that write one, and the MuseScore extension they install."""
+    seen: set[str] = set()
+    todo = list(SHEET_WRITERS)
+    while todo:
+        module = todo.pop()
+        if module not in seen:
+            seen.add(module)
+            todo += imports_of(module, root)
+    return sorted([root / f"{module}.py" for module in seen] + [path for path in root.rglob("*") if path.is_file() and path.suffix in set(CODE_SUFFIXES) - {".py"} and "__pycache__" not in path.parts])
 
 
 def tool_identity() -> str:

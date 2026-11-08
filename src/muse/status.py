@@ -6,7 +6,7 @@ import pathlib
 import subprocess
 import sys
 
-from muse import build, buildcache
+from muse import build, buildcache, gate
 from muse.song import song_of, sources
 
 
@@ -25,8 +25,10 @@ def main() -> None:
         for variant, entry in sorted(state.items()):
             decision = entry.get("decision") or {}
             recorded = entry.get("outputs", {})
-            pushed = all((data := blob(out, "/".join(pathlib.Path(path).parts[-2:]))) is not None and hashlib.sha256(data).hexdigest() == digest for path, digest in recorded.items())
-            ok = entry.get("key") == build.variant_key(src, variant) and pushed
+            delivered = {path: digest for path, digest in recorded.items() if pathlib.Path(path).parent.name == info.name}  # a work file the record also keys on is never published
+            pushed = bool(delivered) and all((data := blob(out, "/".join(pathlib.Path(path).parts[-2:]))) is not None and hashlib.sha256(data).hexdigest() == digest for path, digest in delivered.items())
+            wanted = gate.gate_key(src) if variant == "gate" else build.variant_key(src, variant)  # each record against the key its own writer derives
+            ok = entry.get("key") == wanted and pushed
             verdicts.append(f"{variant}:{'current' if ok else 'stale'}:{decision.get('spatium')}x{decision.get('pages')}p")
             current += ok
             stale += not ok

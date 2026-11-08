@@ -331,13 +331,18 @@ def chord_bound_bars(score_path: pathlib.Path, pdf: pathlib.Path) -> set[int]:
     return found
 
 
+def gate_key(src: pathlib.Path) -> str:
+    """The key a gate pass is recorded under: the source, the code and the private lists it judges against."""
+    private = pathlib.Path(os.environ["MUSE_PRIVATE"])
+    lists = "".join(buildcache.file_digest(path) for path in sorted(private.glob("*.txt")) + sorted(private.glob("*.json")) if path.is_file())
+    return buildcache.key_of(src, repr(song_of(src)), buildcache.code_files(), lists)
+
+
 def cached_check(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> tuple[list[str], list[str], bool]:
     """A pass stays valid while the source, code, style, private lists and every checked file are unchanged; a failure is always re-run."""
     info = song_of(src)
     outputs = sorted(path for path in (out / info.name).iterdir() if path.is_file()) + [work / f"{info.name}-piano-final.mscz"]
-    private = pathlib.Path(os.environ["MUSE_PRIVATE"])
-    lists = "".join(buildcache.file_digest(path) for path in sorted(private.glob("*.txt")) + sorted(private.glob("*.json")) if path.is_file())
-    key = buildcache.key_of(src, repr(info), buildcache.code_files(), lists)
+    key = gate_key(src)
     state = buildcache.load(info.name)
     if buildcache.fresh(state.get("gate"), key, outputs):
         return [], list(state["gate"]["notes"]), True

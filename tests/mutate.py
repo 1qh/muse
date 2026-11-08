@@ -13,7 +13,7 @@ CONTROL_SECONDS = 240  # the fast suite; a control planted in code MuseScore run
 HEAVY_SECONDS = 1500
 HEAVY = ("extension/", "layout.py", "launch.py", "render.py")  # code only the MuseScore-driven tests exercise
 MUTATIONS = [
-    ("pdfcheck.py", "found.append(f\"text on text: p{number}: sign box over {word!r}\")", "pass", "sign box over text passes"),
+    ("pdfcheck.py", "found += words_over(number, ink_words(page), frames, \"sign box\")", "found += []", "sign box over text passes"),
     ("chordseat.py", "            if any(other != box and other.y0 < box.y0", "            if False and any(other != box and other.y0 < box.y0", "cues of 2 lines crowd"),
     ("chordseat.py", "    noted = noted | signed_bars(text)\n", "\n", "sign bar evened"),
     ("chordseat.py", "    lost = missing(rows, lines)\n    if lost:\n        return lost\n", "", "missing chord crashes"),
@@ -32,7 +32,7 @@ MUTATIONS = [
     ("chordseat.py", "            step = (bottom - top) / 4 if bottom is not None else guess", "            step = guess", "staff spacing from 1 pair"),
     ("chordseat.py", '    edges = [line["opening"], *line["bars"]]', '    edges = [line["start"], *line["bars"]]', "sign counted as bar width"),
     ("layout.py", '            if "text on text" not in str(error):\n                raise', '            if True:\n                raise', "line gap never widened"),
-    ("build.py", "buildcache.code_files(skip=skip), mode.label())", "buildcache.code_files(skip=skip))", "print build reused as strict"),
+    ("build.py", "buildcache.sheet_code(), mode.label())", "buildcache.sheet_code())", "print build reused as strict"),
     ("pdfcheck.py", 'if span["text"].strip() and (x0 < box.x0 or y0 < box.y0 or x1 > box.x1 or y1 > box.y1):', 'if span["text"].strip() and (x0 < box.x0 or x1 > box.x1):', "ink above the page passes"),
     ("extension/main.js", "            item.text.offsetY = item.text.offsetY - rise  // placement", "            item.text.autoplace = false\n            item.text.offsetY = item.text.offsetY - rise  // placement", "raised text leaves no room"),
     ("layout.py", "return port.imported(self.score, self.work, self.name, self.import_style, False)", "return port.imported(self.score, self.work, self.name, self.style, False)", "1 import per size"),

@@ -22,8 +22,7 @@ from muse.song import sources as song_sources
 
 def variant_key(src: pathlib.Path, variant: str) -> str:
     """The build key of 1 sheet: its source, settings and every file of code that can shape it."""
-    skip = buildcache.CHECK_ONLY_CODE if variant == port.PIANO else buildcache.PIANO_ONLY_CODE | buildcache.CHECK_ONLY_CODE
-    return buildcache.key_of(src, repr(song_of(src)), buildcache.code_files(skip=skip), mode.label())
+    return buildcache.key_of(src, repr(song_of(src)), buildcache.sheet_code(), mode.label())  # records are kept per variant, so 1 key serves every sheet
 
 
 def decision(found: tuple[Score, pathlib.Path, float, float, int]) -> dict[str, Any]:
