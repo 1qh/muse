@@ -359,3 +359,16 @@ def test_a_slur_far_above_the_staff_lifts_its_line_chords_over_it(tmp_path: path
         return chord_heights(pdf)[0][0]
 
     assert seated(True) > seated(False) + 1.0  # the chords clear the slur, never print through it
+
+
+def test_a_bar_opens_past_its_sign_only_where_the_score_holds_a_target(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    bars = [held(n, [chord("F", "m")]) for n in range(1, 7)]
+    bars[2].segno = True  # a target opening bar 3
+    bars[4].dal_segno = True  # a jump ending bar 5: its box can lie anywhere in a narrow bar, and it opens nothing
+    score_path = imported(tmp_path, bars, {1})
+    text = chordseat.score_text(score_path)[1]
+    assert chordseat.target_bars(text) == {3}
+    line = {"chords": [0.0] * 6, "bars": [100.0, 200.0, 300.0, 400.0, 500.0, 600.0], "openings": [100.0, 200.0, 300.0, 400.0, 500.0], "signed": [111.0, 222.0, 333.0, 444.0, 555.0]}
+    monkeypatch.setattr(chordseat, "page_lines", lambda pdf: [dict(line)])
+    lines = chordseat.matched(text, tmp_path / "unused.pdf")
+    assert lines[0]["openings"] == [100.0, 222.0, 300.0, 400.0, 500.0]  # only bar 3, the target's, opens past its sign

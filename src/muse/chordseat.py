@@ -31,6 +31,7 @@ INK_REACH = 0.8  # points a letter's ink can start left of its text box; further
 SIGN_INK_WIDTH = 0.75  # the printed part of a segno or coda, in sign font sizes
 SIGN_CLEAR = 0.5  # points between a sign's box and the chord after it, past the seating tolerance
 SIGN_FRAME = (10.0, 60.0)  # points wide the coloured box around a sign can be
+TARGET_LABELS = ("segno", "codab")  # marker labels of the signs a jump returns to
 SIGN_AT_BARLINE = 4.0  # staff spaces past a barline a sign's middle may lie and still open its bar: a jump ending the bar before lies left of the barline
 EQUAL_TOLERANCE = mode.pick(1.5, 4.0)  # points an empty bar may differ from its line's mean
 CHORD_GAP = mode.pick(0.75, 0.5)  # clear space between 2 chords, in chord sizes
@@ -224,8 +225,8 @@ def page_lines(pdf: pathlib.Path) -> list[dict[str, Any]]:
             band = sorted((g for g in glyphs if staff_top - reach <= g[1] <= bottom + reach), key=lambda g: g[0])
             openings = [max(signature_ends([g for g in band if g[0] > edge], [g for g in band if HEAD_CODES[0] <= g[3] <= HEAD_CODES[1]], space, edge), default=edge) for edge in bars[:-1]]  # a bar's signature starts right at its barline
             in_band = [(end, middle) for end, y, middle in signs_here if above + space * 4 < y <= staff_top + 1]  # signs in this line's own chord row
-            openings = [max([opened, *(end for end, middle in in_band if edge < middle <= edge + space * SIGN_AT_BARLINE)]) for edge, opened in zip(bars[:-1], openings, strict=True)]  # a sign standing at the barline takes the chord's place, as at a line's start
-            lines.append({"chords": joined, "bars": bars, "openings": openings, "start": start, "opening": opening, "space": space, "rights": rights, "lefts": lefts, "size": top})
+            signed = [max([opened, *(end for end, middle in in_band if edge < middle <= edge + space * SIGN_AT_BARLINE)]) for edge, opened in zip(bars[:-1], openings, strict=True)]  # where each bar opens if the sign there is its target; only the score says whether it is
+            lines.append({"chords": joined, "bars": bars, "openings": openings, "signed": signed, "start": start, "opening": opening, "space": space, "rights": rights, "lefts": lefts, "size": top})
     return lines
 
 
@@ -248,9 +249,22 @@ def signature_ends(glyphs: list[tuple[float, float, float, int]], heads: list[tu
     return ends
 
 
+def target_bars(text: str) -> set[int]:
+    """1-based bars of the first staff holding a segno or coda target, which opens its bar; a jump or a to-coda point ends its bar instead."""
+    first = text.index('<Staff id="1">', text.index("</Part>"))
+    end = text.find('<Staff id="2">', first)
+    body = text[first:end if end != -1 else text.index("</Score>", first)]
+    return {number for number, match in enumerate(MEASURE.finditer(body), 1) if any(f"<label>{target}</label>" in marker for marker in re.findall(r"<Marker>.*?</Marker>", match.group(0), re.S) for target in TARGET_LABELS)}
+
+
 def matched(text: str, pdf: pathlib.Path) -> list[dict[str, Any]]:
-    """The PDF's chord lines."""
-    return page_lines(pdf)
+    """The PDF's chord lines, each bar opening past a sign only where the score holds a target there."""
+    lines = page_lines(pdf)
+    targets = target_bars(text)
+    chorded = [numbers for numbers, row in zip(bar_rows(text), rows_of(text), strict=False) if row]
+    for numbers, line in zip(chorded, lines, strict=False):
+        line["openings"] = [signed if index + 1 < len(numbers) and numbers[index + 1] in targets else plain for index, (plain, signed) in enumerate(zip(line["openings"], line["signed"], strict=True))]
+    return lines
 
 
 def is_signature(code: int) -> bool:
