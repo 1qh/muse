@@ -27,7 +27,7 @@ IMPORT_SIZE = 1.5  # the staff space the shared import is made at; each size set
 OVERFLOW_BREAKS = 1000  # a line too wide cannot print at all, so it outweighs every soft line rule
 SHORT_COST = 0.15  # a 2-bar line is allowed, but a fuller arrangement of as many lines wins
 GROW = 1.06  # share a bar's width estimate grows each time its line will not hold
-GAP_STEPS = 4  # line gaps tried before a size is refused for text meeting text
+GAP_REACH = 20.0  # staff spaces past the base the line gap may widen before a size is refused for text meeting text
 GAP_STEP = 2.0  # staff spaces the line gap widens each try
 GROW_STEPS = 40  # up to about 10 times, so a bar whose own chords need a whole line gets one before it is called unmovable
 INK_ROUNDS = 6
@@ -400,7 +400,7 @@ def finish(src: pathlib.Path, work: pathlib.Path, variant: str, size: float) -> 
     """1 size finished at the base line gap, then at wider gaps while text below 1 line meets the next line's chords."""
     refusal: port.DoesNotFit | None = None
     learned: list[list[float]] = []  # widths a gap's replans settled on: a wider gap moves lines apart, never bars across them
-    for step in range(GAP_STEPS):
+    for step in range(int(GAP_REACH / GAP_STEP) + 1):
         try:
             return finish_at(src, work, variant, size, port.BASE_DISTANCE + step * GAP_STEP, learned)
         except port.DoesNotFit as error:

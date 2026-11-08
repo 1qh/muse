@@ -330,6 +330,21 @@ function clearOpeningSigns() {
         m = m.nextMeasure
     }
     curScore.endCmd()
+    curScore.startCmd()
+    var bar = curScore.firstMeasure
+    while (bar) {  // a sign ending its bar keeps its whole box inside that bar, never over the next bar's chord
+        var held = bar.elements
+        var barEnd = bar.pagePos.x + bar.bbox.width
+        for (var k = 0; held && k < held.length; k++) {
+            var sign = held[k]
+            if ((sign.type !== Element.MARKER && sign.type !== Element.JUMP) || !sign.bbox) continue
+            if (sign.pagePos.x - sign.offsetX <= bar.pagePos.x + 4) continue  // a sign opening its bar
+            var over = sign.pagePos.x + sign.bbox.x + sign.bbox.width + REACH - barEnd
+            if (over > 0) sign.offsetX = sign.offsetX - over
+        }
+        bar = bar.nextMeasure
+    }
+    curScore.endCmd()
 }
 
 function measureMode(all) {

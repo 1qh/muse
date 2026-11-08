@@ -265,6 +265,23 @@ def test_a_chord_after_a_sign_mid_line_starts_past_its_box(tmp_path: pathlib.Pat
 
     layout.seat_inked(score_path, rendered, lambda probe: True)
     assert pdfcheck.sign_text_overlaps(pdf) == []
+    assert [p for p in chordseat.problems(score_path, pdf) if "wanted" in p] == []  # the gate opens the bar past the box too, where the chord sits
+
+
+def test_a_jump_ending_its_bar_keeps_its_box_off_the_next_bars_chord(tmp_path: pathlib.Path) -> None:
+    layout.install_extension()
+    bars = [held(n, [chord("A", "maj7")]) for n in range(1, 9)]
+    bars[2].to_coda, bars[2].repeat_end = True, True  # a jump at the bar's end, before a repeat barline, with a beat-1 chord right after
+    bars[0].repeat_start = True
+    score_path = imported(tmp_path, bars, {1, 5})
+    pdf = score_path.with_suffix(".pdf")
+
+    def rendered() -> pathlib.Path:
+        BATCHER.render(score_path, [pdf, pdf.with_suffix(".mpos")], None)
+        return pdf
+
+    layout.seat_inked(score_path, rendered, lambda probe: True)
+    assert pdfcheck.sign_text_overlaps(pdf) == []
 
 
 

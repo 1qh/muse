@@ -188,10 +188,10 @@ def test_finish_widens_the_line_gap_while_text_meets_text(monkeypatch: pytest.Mo
 
 
 def test_a_label_may_sit_second_after_a_mark_bar_opening_its_line_on_any_sheet() -> None:
-    bars = [noted(1), empty(2, rehearsal=["A"]), empty(3, texts=[lyric("Chorus")]), empty(4)]
+    bars = [noted(1), noted(2), empty(3, rehearsal=["A"]), empty(4, texts=[lyric("Chorus")]), empty(5)]  # 2 bars before the mark, so no line holds 1 bar
     score = Score(bars, [], [])
     for bar in score.bars:
-        bar.new_system = bar.number == 2
+        bar.new_system = bar.number == 3
     assert port.line_rule_breaks(score, port.PIANO) == []
     assert port.line_rule_breaks(score, port.ORIGINAL) == []
 
@@ -293,3 +293,26 @@ def test_the_seating_rounds_count_gaps_in_the_scores_own_staff_space(monkeypatch
     layout.seat_inked(tmp_path / "s.mscz", lambda: tmp_path / "s.pdf", lambda probe: True)
     second = next(values for values in tags[1:] if "museInkBias" in values)
     assert second["museInkBias"] == f"{0.9 / 4.5:.4f}"
+
+
+def test_a_line_of_1_bar_breaks_the_line_rules_on_any_sheet() -> None:
+    bars = [noted(n) for n in range(1, 6)]
+    score = Score(bars, [], [])
+    for bar in score.bars:
+        bar.new_system = bar.number in (3, 4)  # bar 3 alone on its line
+    assert port.line_rule_breaks(score, port.ORIGINAL) == [3]
+    assert port.line_rule_breaks(score, port.PIANO) == [3]
+
+
+def test_the_line_gap_widens_past_any_fixed_count_until_the_checks_pass(monkeypatch) -> None:
+    tried: list[float] = []
+
+    def finish_at(src, work, variant, size, distance, learned=None):
+        tried.append(distance)
+        if distance < port.BASE_DISTANCE + 12:
+            raise port.DoesNotFit("text on text: a cue below sits too close")
+        return ("score", "path", size, distance, 1)
+
+    monkeypatch.setattr(layout, "finish_at", finish_at)
+    assert layout.finish(pathlib.Path("s.pdf"), pathlib.Path("w"), "original", 2.0)[3] == port.BASE_DISTANCE + 12
+    assert len(tried) == 7  # 6 gaps refused, the 7th passes: far beyond 4 steps
