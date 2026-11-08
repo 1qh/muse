@@ -67,6 +67,12 @@ def superseded(current_tree: str, history: str) -> list[str]:
     return sorted(stale)
 
 
+def resync(out: pathlib.Path, run: Runner = sh) -> None:
+    """The local sheets repo reset to its remote: a build stopped mid-publish can leave it behind a history another publish rewrote."""
+    run("git", "fetch", "--quiet", "origin", cwd=out)
+    run("git", "reset", "--quiet", "--hard", "@{u}", cwd=out)
+
+
 def commit_message(songs: list[str]) -> str:
     """Name what a publish brings, since the history purge leaves no earlier file to diff against."""
     return f"feat: publish {', '.join(songs)}" if songs else "chore: refresh sheets"

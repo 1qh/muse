@@ -882,3 +882,31 @@ def test_a_log_another_launch_removes_mid_sweep_is_skipped(tmp_path: pathlib.Pat
 
     monkeypatch.setattr(pathlib.Path, "read_text", vanishing)
     assert launch.drop_own_logs([work], at - 1, at + 1, logs) == 0
+
+
+def test_a_sheets_copy_left_behind_a_rewritten_history_resyncs_to_the_remote(tmp_path: pathlib.Path) -> None:
+    import subprocess
+
+    from muse import publish
+
+    def git(*args: str, cwd: pathlib.Path) -> str:
+        return subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True, stdin=subprocess.DEVNULL).stdout.strip()
+
+    remote, ours, theirs = tmp_path / "remote.git", tmp_path / "ours", tmp_path / "theirs"
+    git("init", "--quiet", "--bare", "--initial-branch=main", str(remote), cwd=tmp_path)
+    for clone in (ours, theirs):
+        git("clone", "--quiet", str(remote), str(clone), cwd=tmp_path)
+        git("config", "user.email", "t@t", cwd=clone)
+        git("config", "user.name", "t", cwd=clone)
+    (ours / "a.pdf").write_text("1")
+    git("add", "a.pdf", cwd=ours)
+    git("commit", "--quiet", "-m", "one", cwd=ours)
+    git("push", "--quiet", "-u", "origin", "main", cwd=ours)
+    git("pull", "--quiet", "origin", "main", cwd=theirs)
+    git("commit", "--quiet", "--amend", "-m", "rewritten", cwd=theirs)  # another publish rewrites the history ours still holds
+    git("push", "--quiet", "--force", "origin", "main", cwd=theirs)
+    (ours / "b.pdf").write_text("2")
+    git("add", "b.pdf", cwd=ours)
+    git("commit", "--quiet", "-m", "left behind", cwd=ours)  # a stopped build's commit that never reached the remote
+    publish.resync(ours)
+    assert git("rev-parse", "HEAD", cwd=ours) == git("rev-parse", "main", cwd=remote)
