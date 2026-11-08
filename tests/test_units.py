@@ -1,10 +1,11 @@
 """Pure logic: chords, note values, playing order, margin check, writer."""
+import time
 from fractions import Fraction as F
 
 import pymupdf
 import pytest
 
-from muse import chordnames, chordseat, musicxml, pdfcheck, piano, port
+from muse import chordnames, chordseat, launch, musicxml, pdfcheck, piano, port
 from muse.model import Bar, Chord, Event, Head, Score, Text
 from muse.navigate import expected_order
 from muse.pdfcheck import chord_collisions, foreign_fonts, idle_staves, margin_words, oversized_text, past_margin, title_problems
@@ -803,11 +804,10 @@ def test_a_run_past_its_deadline_is_sampled_before_it_is_killed(monkeypatch, tmp
 
     import pytest
 
-    from muse import launch
-
     if shutil.which("sample") is None:
         pytest.skip("the native sampler ships only on macOS; elsewhere a timeout carries no sample by design")
     monkeypatch.setattr(launch, "HANGS", tmp_path)
+    monkeypatch.setattr(launch, "free_core", lambda: None)  # the machine's own load must not decide a unit test
     with pytest.raises(subprocess.TimeoutExpired) as caught:
         launch.heavy(["sleep", "30"], 1.0)
     where = str(caught.value.output).removeprefix("stack sampled to ")
@@ -821,3 +821,15 @@ def test_a_key_is_written_in_the_mode_its_file_name_declares() -> None:
     assert "<mode>minor</mode>" in musicxml.write(minor)
     with pytest.raises(ValueError, match="mode"):
         musicxml.write(Score([Bar(1, 0, 0.0, 1.0, F(4), key=1)], [], []))
+
+
+def test_a_launch_waits_while_the_load_fills_every_core_and_starts_once_one_frees() -> None:
+    readings = iter([9.0, 8.5, 7.0])
+    paused: list[float] = []
+    launch.free_core(load=lambda: next(readings), cores=8, pause=paused.append)
+    assert len(paused) == 2  # 2 readings at or over 8 cores, then 7 leaves a core free
+
+
+def test_a_launch_that_never_sees_a_free_core_names_the_load() -> None:
+    with pytest.raises(TimeoutError, match="load 9.0 on 8 cores"):
+        launch.free_core(deadline=0.0, load=lambda: 9.0, cores=8, pause=lambda _: time.sleep(0.01))
