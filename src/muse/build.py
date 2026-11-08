@@ -118,6 +118,7 @@ def ordered(sources: list[pathlib.Path]) -> list[pathlib.Path]:
 
 def publish_song(src_dir: pathlib.Path, out_dir: pathlib.Path, work: pathlib.Path, stage: pathlib.Path, name: str) -> str:
     """1 finished song copied from its staging folder into the sheets repo and published alone; the reason it was blocked, or empty."""
+    publish.resync(out_dir)  # start from what is published, never a copy a stopped build left behind
     shutil.rmtree(out_dir / name, ignore_errors=True)
     shutil.copytree(stage / name, out_dir / name)
     blocked = publish.publish(src_dir, out_dir, work, names=(name,))
