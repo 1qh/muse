@@ -71,6 +71,7 @@ def install_extension() -> str:
 def run_extension(source: pathlib.Path, target: pathlib.Path) -> None:
     """1 MuseScore launch: open the score, seat its chords by measuring its own layout, save it."""
     uri = install_extension()
+    set_tags(source, {"museSignRise": f"{port.SIGN_RISE:.4f}"})  # every launch carries the port's own chord-row height for a sign it moves
     done = launch.mscore(["--extension", uri, "-o", str(target), str(source)], EXTENSION_SECONDS)
     if done.returncode or not target.exists():
         raise port.DoesNotFit(f"{source.name}: the seating extension failed: {done.stderr[-300:]}")
