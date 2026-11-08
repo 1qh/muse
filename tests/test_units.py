@@ -859,3 +859,22 @@ def test_a_launch_drops_only_the_logs_whose_every_conversion_is_its_own(tmp_path
     late = log("261108_110000", work / "a.mscz")
     assert launch.drop_own_logs([work], at - 1, at + 5, logs) == 1
     assert not ours.exists() and session.exists() and shared.exists() and late.exists()
+
+
+def test_a_log_another_launch_removes_mid_sweep_is_skipped(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    work, logs = tmp_path / "work", tmp_path / "logs"
+    work.mkdir()
+    logs.mkdir()
+    second = "261108_100000"
+    at = time.mktime(time.strptime(second, "%y%m%d_%H%M%S"))
+    gone = logs / f"MuseScore_{second}.log"
+    gone.write_text(f"x | ConverterController::convertFile | in: {work / 'a.mscz'}, out: x\n", encoding="utf-8")
+    real = pathlib.Path.read_text
+
+    def vanishing(path: pathlib.Path, *args: object, **kwargs: object) -> str:
+        if path == gone:
+            path.unlink()  # a concurrent launch's sweep wins the race
+        return real(path, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(pathlib.Path, "read_text", vanishing)
+    assert launch.drop_own_logs([work], at - 1, at + 1, logs) == 0
