@@ -302,7 +302,7 @@ def test_a_chord_off_its_barline_is_a_problem(monkeypatch, tmp_path):
     monkeypatch.setattr(chordseat, "score_text", lambda _: ("x", ""))
     monkeypatch.setattr(chordseat, "rows_of", lambda _: [[(0, True), (1, True)]])
     monkeypatch.setattr(chordseat, "bar_rows", lambda _: [[1, 2]])
-    monkeypatch.setattr(chordseat, "page_lines", lambda _: [{"chords": [50.0, 103.0], "bars": [100.0, 150.0], "openings": [100.0], "start": 50.0, "space": 4.0}])
+    monkeypatch.setattr(chordseat, "matched", lambda text, pdf: [{"chords": [50.0, 103.0], "bars": [100.0, 150.0], "openings": [100.0], "start": 50.0, "space": 4.0}])
     assert len(chordseat.problems(tmp_path, tmp_path)) == 1
 
 
@@ -323,7 +323,7 @@ def test_uneven_empty_bars_are_found_and_notes_are_ignored(monkeypatch, tmp_path
     monkeypatch.setattr(chordseat, "bar_rows", lambda _: [[1, 2, 3, 4]])
     monkeypatch.setattr(chordseat, "rows_of", lambda _: [[(0, True)]])
     line = {"chords": [50.0], "bars": [100.0, 150.0, 210.0, 300.0], "start": 50.0, "opening": 50.0, "space": 4.0}
-    monkeypatch.setattr(chordseat, "page_lines", lambda _: [line])
+    monkeypatch.setattr(chordseat, "matched", lambda text, pdf: [line])
     assert [m.split(":")[0] for m in chordseat.uneven(tmp_path, tmp_path, {4})] == ["bar 1", "bar 3"] or chordseat.uneven(tmp_path, tmp_path, {4})
     line["bars"] = [100.0, 150.0, 200.0, 300.0]
     assert chordseat.uneven(tmp_path, tmp_path, {4}) == []
@@ -355,7 +355,7 @@ def test_a_reach_allows_the_hold_and_nothing_past_it(monkeypatch, tmp_path):
     monkeypatch.setattr(chordseat, "score_text", lambda _: ("x", ""))
     monkeypatch.setattr(chordseat, "rows_of", lambda _: [[(0, True), (1, True)]])
     monkeypatch.setattr(chordseat, "bar_rows", lambda _: [[1, 2]])
-    monkeypatch.setattr(chordseat, "page_lines", lambda _: [{"chords": [50.0, 105.0], "bars": [100.0, 150.0], "openings": [100.0], "start": 50.0, "space": 4.0}])
+    monkeypatch.setattr(chordseat, "matched", lambda text, pdf: [{"chords": [50.0, 105.0], "bars": [100.0, 150.0], "openings": [100.0], "start": 50.0, "space": 4.0}])
     assert chordseat.problems(tmp_path, tmp_path, 1.7) == []
     assert len(chordseat.problems(tmp_path, tmp_path, 1.0)) == 1
     assert len(chordseat.problems(tmp_path, tmp_path)) == 1
