@@ -1,4 +1,6 @@
 """Pure logic: chords, note values, playing order, margin check, writer."""
+import pathlib
+import time
 from fractions import Fraction as F
 
 import pymupdf
@@ -837,3 +839,23 @@ def test_a_launch_waits_while_the_load_fills_every_core_and_starts_once_one_free
 def test_a_launch_that_never_sees_a_free_core_names_the_load() -> None:
     with pytest.raises(TimeoutError, match="0.40 of 8 cores idle"):
         launch.free_core(deadline=0.0, idle=lambda: 5.0, cores=8)
+
+
+def test_a_launch_drops_only_the_logs_whose_every_conversion_is_its_own(tmp_path: pathlib.Path) -> None:
+    work, other, logs = tmp_path / "work", tmp_path / "elsewhere", tmp_path / "logs"
+    for folder in (work, other, logs):
+        folder.mkdir()
+    second = "261108_100000"
+    at = time.mktime(time.strptime(second, "%y%m%d_%H%M%S"))
+
+    def log(name: str, *reads: pathlib.Path) -> pathlib.Path:
+        path = logs / f"MuseScore_{name}.log"
+        path.write_text("".join(f"x | ConverterController::convertFile | in: {read}, out: {read}.pdf\n" for read in reads) or "x | INFO | session\n", encoding="utf-8")
+        return path
+
+    ours = log(second, work / "a.mscz", work / "b.mscz")
+    session = log("261108_100001")  # the owner's own MuseScore session converts nothing
+    shared = log("261108_100002", work / "a.mscz", other / "c.mscz")
+    late = log("261108_110000", work / "a.mscz")
+    assert launch.drop_own_logs([work], at - 1, at + 5, logs) == 1
+    assert not ours.exists() and session.exists() and shared.exists() and late.exists()

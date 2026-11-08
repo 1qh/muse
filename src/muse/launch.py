@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import pathlib
+import re
 import shutil
 import subprocess
 import tempfile
@@ -77,6 +78,40 @@ def sample(pid: int) -> pathlib.Path | None:
     return target
 
 
+LOGS = pathlib.Path.home() / "Library" / "Application Support" / "MuseScore" / "MuseScore4" / "logs"  # MuseScore writes 1 log per launch second and never prunes
+LOG_NAME = re.compile(r"MuseScore_(\d{6}_\d{6})\.log")
+CONVERSION = re.compile(r"ConverterController::convertFile \| in: (.+?), out: ")
+
+
 def mscore(args: list[str], timeout: float, command: str = "mscore", check: bool = False) -> subprocess.CompletedProcess[str]:
-    """1 MuseScore launch through the shared slots."""
-    return heavy([command, *args], timeout, check)
+    """1 MuseScore launch through the shared slots, its own logs removed after it."""
+    began = time.time()
+    try:
+        return heavy([command, *args], timeout, check)
+    finally:
+        drop_own_logs(roots_of(args), began - 1, time.time() + 1)
+
+
+def roots_of(args: list[str]) -> list[pathlib.Path]:
+    """The folders a launch reads from: each path argument's own, and for a job file, each path it lists."""
+    paths = [pathlib.Path(arg) for arg in args if pathlib.Path(arg).exists()]
+    for job in [path for path in paths if path.suffix == ".json"]:
+        paths += [pathlib.Path(value) for value in re.findall(r'"([^"]+)"', job.read_text(encoding="utf-8")) if value.startswith("/") and pathlib.Path(value).exists()]
+    return sorted({path.resolve().parent for path in paths})
+
+
+def drop_own_logs(roots: list[pathlib.Path], start: float, end: float, logs: pathlib.Path | None = None) -> int:
+    """Delete each log named for a second between start and end whose every conversion reads a file under 1 of the roots; a log with no conversion, the owner's own session, stays."""
+    folder = logs or LOGS
+    if not roots or not folder.is_dir():
+        return 0
+    dropped = 0
+    for log in folder.iterdir():
+        named = LOG_NAME.fullmatch(log.name)
+        if not named or not start <= time.mktime(time.strptime(named[1], "%y%m%d_%H%M%S")) <= end:
+            continue
+        reads = CONVERSION.findall(log.read_text(encoding="utf-8", errors="replace"))
+        if reads and all(any(pathlib.Path(read).resolve().is_relative_to(root) for root in roots) for read in reads):
+            log.unlink(missing_ok=True)
+            dropped += 1
+    return dropped
