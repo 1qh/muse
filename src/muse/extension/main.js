@@ -172,8 +172,6 @@ function seatStarts(all) {
 
 var BOX_PAD = 1.0  // spaces a sign's drawn box reaches past its glyph
 
-var SIGN_RISE = 0  // spaces above the staff a sign sits in its own chord row: the port's own value, passed as a score tag
-
 var REACH = BOX_PAD  // spaces chords and cues keep from a sign's glyph: its box, grown by the caller from each fresh render's measured overlap
 
 function signsOf() {
@@ -342,9 +340,7 @@ function clearOpeningSigns() {
             if ((sign.type !== Element.MARKER && sign.type !== Element.JUMP) || !sign.bbox) continue
             if (sign.pagePos.x - sign.offsetX <= bar.pagePos.x + 4) continue  // a sign opening its bar
             var over = sign.pagePos.x + sign.bbox.x + sign.bbox.width + REACH - barEnd
-            if (over <= 0) continue
-            if (sign.autoplace) { sign.autoplace = false; sign.offsetY = SIGN_RISE }  // moved with automatic placement on, it would stack above any cue it now meets
-            sign.offsetX = sign.offsetX - over
+            if (over > 0) sign.offsetX = sign.offsetX - over
         }
         bar = bar.nextMeasure
     }
@@ -383,8 +379,6 @@ function measureMode(all) {
 function main() {
     var given = curScore.metaTag("museInkBias")  // per chord, the spaces its ink starts past its text box, measured by the caller
     BIAS = given ? given.split(",").map(Number) : []
-    SIGN_RISE = Number(curScore.metaTag("museSignRise"))
-    if (!(SIGN_RISE < 0)) { api.log.error("museseat: no museSignRise tag"); curScore.setMetaTag("museSeatError", "no museSignRise tag"); return }
     var reach = Number(curScore.metaTag("museSignReach"))
     REACH = reach > 0 ? reach : BOX_PAD
     CLEAR = Number(curScore.metaTag("museChordGap"))
