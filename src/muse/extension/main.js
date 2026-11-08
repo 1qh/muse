@@ -19,7 +19,7 @@ function start(measure) {
     var owned = measure.elements
     for (var m = 0; owned && m < owned.length; m++) {
         if (owned[m].type === Element.MARKER && owned[m].bbox && owned[m].pagePos.x - owned[m].offsetX <= measure.pagePos.x + 4) {  // at its bar's start before any shift clear of the bar number
-            edge = Math.max(edge, owned[m].pagePos.x + owned[m].bbox.x + owned[m].bbox.width + REACH)  // past the sign's drawn box, never only its glyph
+            edge = Math.max(edge, owned[m].pagePos.x + owned[m].bbox.x + owned[m].bbox.width + BOX_PAD)  // past the sign's drawn box, never only its glyph; the measured chord corrections place it exactly
         }
     }
     return edge
@@ -172,7 +172,7 @@ function seatStarts(all) {
 
 var BOX_PAD = 1.0  // spaces a sign's drawn box reaches past its glyph
 
-var REACH = BOX_PAD  // spaces chords and cues keep from a sign's glyph: its box, grown by the caller from each fresh render's measured overlap
+var REACH = BOX_PAD  // spaces cues and a jump's own bar end keep from a sign's glyph: its box, grown by the caller from each fresh render's measured overlap; chords use the box alone
 
 function signsOf() {
     // per line, the left edge of every segno or coda box that is not the target opening the line
@@ -183,7 +183,7 @@ function signsOf() {
         for (var i = 0; owned && i < owned.length; i++) {
             var e = owned[i]
             if ((e.type !== Element.MARKER && e.type !== Element.JUMP) || !e.bbox) continue
-            var x = e.pagePos.x + e.bbox.x - REACH
+            var x = e.pagePos.x + e.bbox.x - BOX_PAD
             if (e.type === Element.MARKER && e.pagePos.x - e.offsetX <= m.pagePos.x + 4) continue
             var key = lineKey(m)
             if (!found[key]) found[key] = []
@@ -330,7 +330,7 @@ function clearOpeningSigns() {
         m = m.nextMeasure
     }
     curScore.endCmd()
-    curScore.startCmd()
+    var moving = []  // each sign ending its bar whose box runs past it: the sign, how far, and the height it prints at
     var bar = curScore.firstMeasure
     while (bar) {  // a sign ending its bar keeps its whole box inside that bar, never over the next bar's chord
         var held = bar.elements
@@ -340,9 +340,19 @@ function clearOpeningSigns() {
             if ((sign.type !== Element.MARKER && sign.type !== Element.JUMP) || !sign.bbox) continue
             if (sign.pagePos.x - sign.offsetX <= bar.pagePos.x + 4) continue  // a sign opening its bar
             var over = sign.pagePos.x + sign.bbox.x + sign.bbox.width + REACH - barEnd
-            if (over > 0) sign.offsetX = sign.offsetX - over
+            if (over > 0) moving.push({ sign: sign, over: over, y: sign.pagePos.y })
         }
         bar = bar.nextMeasure
+    }
+    if (!moving.length) return
+    curScore.startCmd()
+    for (var a = 0; a < moving.length; a++) moving[a].sign.autoplace = false  // moved with automatic placement on, it stacks above any cue it now meets
+    curScore.endCmd()
+    curScore.startCmd()
+    for (var b = 0; b < moving.length; b++) {
+        var item = moving[b]
+        item.sign.offsetY = item.sign.offsetY + item.y - item.sign.pagePos.y  // back to the height automatic placement gave it
+        item.sign.offsetX = item.sign.offsetX - item.over
     }
     curScore.endCmd()
 }
