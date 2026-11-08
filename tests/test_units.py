@@ -1,5 +1,4 @@
 """Pure logic: chords, note values, playing order, margin check, writer."""
-import time
 from fractions import Fraction as F
 
 import pymupdf
@@ -824,12 +823,17 @@ def test_a_key_is_written_in_the_mode_its_file_name_declares() -> None:
 
 
 def test_a_launch_waits_while_the_load_fills_every_core_and_starts_once_one_frees() -> None:
-    readings = iter([9.0, 8.5, 7.0])
-    paused: list[float] = []
-    launch.free_core(load=lambda: next(readings), cores=8, pause=paused.append)
-    assert len(paused) == 2  # 2 readings at or over 8 cores, then 7 leaves a core free
+    readings = iter([5.0, 12.0, 30.0])
+    taken: list[float] = []
+
+    def idle() -> float:
+        taken.append(next(readings))
+        return taken[-1]
+
+    launch.free_core(idle=idle, cores=8)
+    assert taken == [5.0, 12.0, 30.0]  # 5% and 12% of 8 cores leave under 1 idle core; 30% leaves 2.4
 
 
 def test_a_launch_that_never_sees_a_free_core_names_the_load() -> None:
-    with pytest.raises(TimeoutError, match="load 9.0 on 8 cores"):
-        launch.free_core(deadline=0.0, load=lambda: 9.0, cores=8, pause=lambda _: time.sleep(0.01))
+    with pytest.raises(TimeoutError, match="0.40 of 8 cores idle"):
+        launch.free_core(deadline=0.0, idle=lambda: 5.0, cores=8)

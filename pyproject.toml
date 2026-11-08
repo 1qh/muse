@@ -2,7 +2,7 @@
 name = "muse"
 version = "0"
 requires-python = ">=3.12"
-dependencies = ["pymupdf>=1.26"]
+dependencies = ["pymupdf>=1.26", "psutil>=7.2"]
 
 [project.optional-dependencies]
 dev = ["pytest", "ruff", "mypy"]
