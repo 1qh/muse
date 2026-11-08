@@ -368,7 +368,7 @@ def test_a_bar_opens_past_its_sign_only_where_the_score_holds_a_target(tmp_path:
     score_path = imported(tmp_path, bars, {1})
     text = chordseat.score_text(score_path)[1]
     assert chordseat.target_bars(text) == {3}
-    line = {"chords": [0.0] * 6, "bars": [100.0, 200.0, 300.0, 400.0, 500.0, 600.0], "openings": [100.0, 200.0, 300.0, 400.0, 500.0], "signed": [111.0, 222.0, 333.0, 444.0, 555.0]}
+    line = {"chords": [0.0] * 6, "bars": [100.0, 200.0, 300.0, 400.0, 500.0, 600.0], "openings": [100.0, 200.0, 300.0, 400.0, 500.0], "signed": [111.0, 222.0, 333.0, 444.0, 555.0], "crossings": [0.0] * 5}
     monkeypatch.setattr(chordseat, "page_lines", lambda pdf: [dict(line)])
     lines = chordseat.matched(text, tmp_path / "unused.pdf")
     assert lines[0]["openings"] == [100.0, 222.0, 300.0, 400.0, 500.0]  # only bar 3, the target's, opens past its sign
@@ -388,3 +388,13 @@ def test_a_grown_sign_reach_never_moves_the_chord_after_a_target(tmp_path: pathl
 
     layout.seat_inked(score_path, rendered, lambda probe: True)
     assert [p for p in chordseat.problems(score_path, pdf) if "wanted" in p] == []  # the chord follows the drawn box, never the reach cues keep
+
+
+def test_a_box_crossing_into_a_bar_without_a_target_is_a_jump_past_its_barline(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    bars = [held(n, [chord("F", "m")]) for n in range(1, 7)]
+    bars[2].segno = True  # bar 3 holds a target, whose own box sits on its barline by right
+    score_path = imported(tmp_path, bars, {1})
+    text = chordseat.score_text(score_path)[1]
+    line = {"chords": [0.0] * 6, "bars": [100.0, 200.0, 300.0, 400.0, 500.0, 600.0], "openings": [100.0] * 5, "signed": [100.0] * 5, "crossings": [0.0, 6.0, 0.0, 9.0, 0.3]}
+    monkeypatch.setattr(chordseat, "page_lines", lambda pdf: [dict(line)])
+    assert chordseat.matched(text, tmp_path / "unused.pdf")[0]["crossed"] == [(5, 9.0)]  # into bar 5, no target; bar 3's own target box is not a jump, and 0.3 pt is a touch

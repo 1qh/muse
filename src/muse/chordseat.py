@@ -32,6 +32,7 @@ SIGN_INK_WIDTH = 0.75  # the printed part of a segno or coda, in sign font sizes
 SIGN_CLEAR = 0.5  # points between a sign's box and the chord after it, past the seating tolerance
 SIGN_FRAME = (10.0, 60.0)  # points wide the coloured box around a sign can be
 TARGET_LABELS = ("segno", "codab")  # marker labels of the signs a jump returns to
+SIGN_TEXT_OVERLAP = 0.5  # points a box may touch past its barline before it counts as crossing
 SIGN_AT_BARLINE = 4.0  # staff spaces past a barline a sign's middle may lie and still open its bar: a jump ending the bar before lies left of the barline
 EQUAL_TOLERANCE = mode.pick(1.5, 4.0)  # points an empty bar may differ from its line's mean
 CHORD_GAP = mode.pick(0.75, 0.5)  # clear space between 2 chords, in chord sizes
@@ -226,7 +227,8 @@ def page_lines(pdf: pathlib.Path) -> list[dict[str, Any]]:
             openings = [max(signature_ends([g for g in band if g[0] > edge], [g for g in band if HEAD_CODES[0] <= g[3] <= HEAD_CODES[1]], space, edge), default=edge) for edge in bars[:-1]]  # a bar's signature starts right at its barline
             in_band = [(end, middle) for end, y, middle in signs_here if above + space * 4 < y <= staff_top + 1]  # signs in this line's own chord row
             signed = [max([opened, *(end for end, middle in in_band if edge < middle <= edge + space * SIGN_AT_BARLINE)]) for edge, opened in zip(bars[:-1], openings, strict=True)]  # where each bar opens if the sign there is its target; only the score says whether it is
-            lines.append({"chords": joined, "bars": bars, "openings": openings, "signed": signed, "start": start, "opening": opening, "space": space, "rights": rights, "lefts": lefts, "size": top})
+            crossings = [max([0.0, *(end - TOLERANCE - SIGN_CLEAR - edge for end, middle in in_band if middle < edge < end - TOLERANCE - SIGN_CLEAR)]) for edge in bars[:-1]]  # how far a box of the bar before reaches past each barline
+            lines.append({"chords": joined, "bars": bars, "openings": openings, "signed": signed, "crossings": crossings, "start": start, "opening": opening, "space": space, "rights": rights, "lefts": lefts, "size": top})
     return lines
 
 
@@ -264,6 +266,7 @@ def matched(text: str, pdf: pathlib.Path) -> list[dict[str, Any]]:
     chorded = [numbers for numbers, row in zip(bar_rows(text), rows_of(text), strict=False) if row]
     for numbers, line in zip(chorded, lines, strict=False):
         line["openings"] = [signed if index + 1 < len(numbers) and numbers[index + 1] in targets else plain for index, (plain, signed) in enumerate(zip(line["openings"], line["signed"], strict=True))]
+        line["crossed"] = [(numbers[index + 1], width) for index, width in enumerate(line["crossings"]) if index + 1 < len(numbers) and numbers[index + 1] not in targets and width > SIGN_TEXT_OVERLAP]  # a box over a bar that holds no target is a jump past its barline
     return lines
 
 
@@ -458,6 +461,11 @@ def chordless_starts(text: str) -> list[int]:
     return found
 
 
+def jump_crossings(mscz: pathlib.Path, pdf: pathlib.Path) -> list[tuple[int, float]]:
+    """(bar, points) for each sign box reaching past a barline into a bar the score holds no target in."""
+    return [crossed for line in matched(score_text(mscz)[1], pdf) for crossed in line["crossed"]]
+
+
 def problems(mscz: pathlib.Path, pdf: pathlib.Path, reach: float | None = None) -> list[str]:
     """Beat-1 chords off the barline on a final PDF; a reach allows a program's own fixed hold after it."""
     text = score_text(mscz)[1]
@@ -468,7 +476,8 @@ def problems(mscz: pathlib.Path, pdf: pathlib.Path, reach: float | None = None) 
         return lost
     found = gaps(rows, lines)
     room = spaces_of(rows, lines)
-    return [f"chord {index + 1}: gap {gap:.1f} pt, wanted {GAP}" for index, (gap, space) in enumerate(zip(found, room, strict=True)) if gap is not None and (abs(gap - GAP) > TOLERANCE if reach is None else not -TOLERANCE <= gap <= reach * space)]
+    crossed = [f"a sign box crosses into bar {bar} by {width:.1f} pt" for line in lines for bar, width in line["crossed"]]
+    return crossed + [f"chord {index + 1}: gap {gap:.1f} pt, wanted {GAP}" for index, (gap, space) in enumerate(zip(found, room, strict=True)) if gap is not None and (abs(gap - GAP) > TOLERANCE if reach is None else not -TOLERANCE <= gap <= reach * space)]
 
 
 LINE_TEXT_CLEAR = 2.0  # staff spaces a cue below 1 line keeps from a cue above the next, where both share a stretch of the page
