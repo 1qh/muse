@@ -36,9 +36,10 @@ def test_a_changed_or_missing_output_forces_a_rebuild(tmp_path):
     assert not buildcache.fresh(entry, key, [out])
 
 
-def test_piano_code_is_outside_the_other_sheets_key():
-    assert "piano.py" not in {p.name for p in buildcache.code_files(skip=buildcache.PIANO_ONLY_CODE)}
-    assert "piano.py" in {p.name for p in buildcache.code_files()}
+def test_a_sheets_key_holds_the_code_that_shapes_it_and_no_check():
+    names = {p.name for p in buildcache.sheet_code()}
+    assert {"layout.py", "port.py", "piano.py", "musicxml.py", "main.js", "manifest.json"} <= names  # piano.py too: every sheet's line rules use it
+    assert not names & {"gate.py", "verify.py", "inverse.py", "publish.py", "status.py", "report.py", "preflight.py", "build.py"}  # checks and reports never shape a sheet
 
 
 def test_workers_follow_the_cores_never_a_load_sample():
@@ -47,8 +48,15 @@ def test_workers_follow_the_cores_never_a_load_sample():
     assert build.free_workers(0, cores=10) == 1
 
 
-def test_gate_code_is_outside_every_build_key():
-    assert not buildcache.CHECK_ONLY_CODE & {p.name for p in buildcache.code_files(skip=buildcache.CHECK_ONLY_CODE)}
+def test_a_module_a_sheet_writer_imports_joins_the_key(tmp_path):
+    (tmp_path / "layout.py").write_text("from muse import helper\n")
+    (tmp_path / "helper.py").write_text("from muse.deep import x\n")
+    (tmp_path / "deep.py").write_text("")
+    (tmp_path / "unused.py").write_text("")
+    for name in ("port", "piano", "chordnames", "scorefile"):
+        (tmp_path / f"{name}.py").write_text("")
+    names = {p.name for p in buildcache.sheet_code(tmp_path)}
+    assert {"layout.py", "helper.py", "deep.py"} <= names and "unused.py" not in names  # derived through every import, never a hand list
 
 
 def test_a_failing_code_check_stops_the_rest():

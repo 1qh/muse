@@ -374,7 +374,7 @@ def imported(score: Score, work: pathlib.Path, sheet: str, style: pathlib.Path, 
     for bar, (line, page) in zip(score.bars, flags, strict=True):
         bar.new_system, bar.new_page = line, page
     whole = hashlib.sha256()
-    for part in (text, style.read_text(encoding="utf-8"), str(clear), *(file.read_text(encoding="utf-8") for file in buildcache.code_files())):
+    for part in (text, style.read_text(encoding="utf-8"), str(clear), *(file.read_text(encoding="utf-8") for file in buildcache.sheet_code())):
         whole.update(part.encode("utf-8"))
     path = work / f"{sheet}-import-{whole.hexdigest()[:12]}.mscz"  # keyed on what it was built from, so a stale import is never reused
     with IMPORTS_LOCK:
