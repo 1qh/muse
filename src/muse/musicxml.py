@@ -5,7 +5,7 @@ from fractions import Fraction as F
 from xml.sax.saxutils import escape
 
 from muse import chordnames
-from muse.model import Bar, Chord, Event, Score, Text
+from muse.model import Bar, Chord, Clef, Event, Orchestra, Part, Score, Text
 
 DIV = 48
 EXACT_OVER_NOTE = 3.5  # points; chords on beat 1 commonly print further than this from their note
@@ -44,19 +44,27 @@ def words(text: Text, staff_offset: int = 0) -> str:
     return f'<direction placement="{place}"><direction-type>{"".join(runs)}</direction-type></direction>'
 
 
-def note_xml(ev: Event, voice: int) -> str:
+def time_modification(ev: Event) -> str:
+    """A tuplet's ratio as MusicXML states it: actual notes in the time of normal notes."""
+    return f"<time-modification><actual-notes>{ev.ratio.denominator}</actual-notes><normal-notes>{ev.ratio.numerator}</normal-notes></time-modification>" if ev.tuplet else ""
+
+
+def note_xml(ev: Event, voice: int, div: int = DIV) -> str:
     out = []
     base = ev.nominal
     dots = ev.dots
     base = base / {0: F(1), 1: F(3, 2), 2: F(7, 4)}[dots]
-    dur = int(ev.length * DIV)
+    exact = ev.length * div
+    if exact.denominator != 1:
+        raise ValueError(f"{ev.length} quarters is no whole number of {div} divisions")
+    dur = int(exact)
+    staff = f"<staff>{ev.staff}</staff>" if ev.staff else ""
     if not ev.heads:
         hidden = ' print-object="no"' if ev.hidden else ""
         rest = '<rest measure="yes"/>' if ev.bar_rest else "<rest/>"
         typ = "" if ev.bar_rest else f"<type>{TYPES[base]}</type>" + "<dot/>" * dots
-        mod = "<time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes></time-modification>" if ev.tuplet else ""
         fer = "<notations><fermata/></notations>" if ev.fermata else ""
-        return f"<note{hidden}>{rest}<duration>{dur}</duration><voice>{voice}</voice>{typ}{mod}{fer}</note>"
+        return f"<note{hidden}>{rest}<duration>{dur}</duration><voice>{voice}</voice>{typ}{time_modification(ev)}{staff}{fer}</note>"
     for i, h in enumerate(ev.heads):
         parts = ["<note>"]
         if i:
@@ -72,12 +80,12 @@ def note_xml(ev: Event, voice: int) -> str:
         if h.tie_start:
             parts.append('<tie type="start"/>')
         parts.append(f"<voice>{voice}</voice><type>{TYPES[base]}</type>" + "<dot/>" * dots)
-        if ev.tuplet:
-            parts.append("<time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes></time-modification>")
+        parts.append(time_modification(ev))
         if ev.stem:
             parts.append(f"<stem>{ev.stem}</stem>")
         if h.shape in SHAPES:
             parts.append(('<notehead filled="no">' if h.shape == "diamond" else "<notehead>") + SHAPES[h.shape] + "</notehead>")
+        parts.append(staff)
         if ev.beam_state and not i:
             parts.append(f'<beam number="1">{ev.beam_state}</beam>')
         nota = []
@@ -300,3 +308,83 @@ def write(score: Score) -> str:
     if score.has_second_staff:
         body += '<part id="P2">' + "".join(measure(b, 2, score, t) for b, t in zip(score.bars, in_force, strict=True)) + "</part>"
     return f'<?xml version="1.0" encoding="UTF-8"?>\n<score-partwise version="4.0"><part-list>{parts}</part-list>{body}</score-partwise>\n'
+
+
+ORCHESTRAL_DIV = 480  # divisions of a quarter that hold a 32nd in a triplet and a 16th in a quintuplet whole
+DYNAMICS = {"p", "pp", "ppp", "pppp", "ppppp", "pppppp", "f", "ff", "fff", "ffff", "fffff", "ffffff", "mp", "mf", "sf", "sfp", "sfz", "fz", "fp", "rf", "rfz", "sffz", "sfpp", "pf", "n", "sfzp"}  # MusicXML's own dynamics elements; any other is written as other-dynamics
+
+
+def clef_xml(clef: Clef, number: int | None) -> str:
+    sign, line, octave = clef
+    change = f"<clef-octave-change>{octave}</clef-octave-change>" if octave else ""
+    attribute = f' number="{number}"' if number else ""
+    return f"<clef{attribute}><sign>{sign}</sign><line>{line}</line>{change}</clef>"
+
+
+def direction_xml(text: Text, staff: int | None) -> str:
+    """A dynamic as MusicXML's dynamics, any other text as words, on the staff it prints by."""
+    on_staff = f"<staff>{staff}</staff>" if staff else ""
+    if text.kind == "dynamic":
+        mark = text.runs[0][0]
+        inner = f"<{mark}/>" if mark in DYNAMICS else f"<other-dynamics>{escape(mark)}</other-dynamics>"
+        return f'<direction placement="{"above" if text.above else "below"}"><direction-type><dynamics>{inner}</dynamics></direction-type>{on_staff}</direction>'
+    return words(text).replace("</direction>", f"{on_staff}</direction>")
+
+
+def orchestral_measure(bar: Bar, part: Part, minor: bool | None) -> str:
+    """1 bar of 1 part: every staff's voices, clefs where they change, and the part's texts and dynamics where they print."""
+    out = [f'<measure number="{bar.number}">']
+    if bar.new_page or bar.new_system:
+        out.append(f'<print {"new-page" if bar.new_page else "new-system"}="yes"/>')
+    two = part.staves == 2
+    attrs = []
+    if bar.number == 1:
+        attrs.append(f"<divisions>{ORCHESTRAL_DIV}</divisions>")
+    if bar.key is not None:
+        if minor is None:
+            raise ValueError("a key signature needs its mode, which the source's file name states")
+        attrs.append(f"<key><fifths>{bar.key}</fifths><mode>{'minor' if minor else 'major'}</mode></key>")
+    if bar.time:
+        attrs.append(f"<time><beats>{bar.time[0]}</beats><beat-type>{bar.time[1]}</beat-type></time>")
+    if bar.number == 1 and two:
+        attrs.append("<staves>2</staves>")
+    attrs += [clef_xml(clef, number if two else None) for number, onset, clef in bar.clefs if onset == 0]
+    if bar.number == 1 and part.transposition:
+        shift = part.transposition
+        octave = f"<octave-change>{shift.octave}</octave-change>" if shift.octave else ""
+        attrs.append(f"<transpose><diatonic>{shift.diatonic}</diatonic><chromatic>{shift.chromatic}</chromatic>{octave}</transpose>")
+    if attrs:
+        out.append("<attributes>" + "".join(attrs) + "</attributes>")
+    streams = [(1, voice) for voice in bar.voices] + [(2, voice) for voice in bar.voices2]
+    texts = {1: sorted(bar.texts, key=lambda t: t.x), 2: sorted(bar.texts2, key=lambda t: t.x)}
+    first_of = {staff: next((at for at, (s, _) in enumerate(streams) if s == staff), None) for staff in (1, 2)}
+    for at, (staff, voice) in enumerate(streams):
+        if at:
+            out.append(f"<backup><duration>{int(bar.length * ORCHESTRAL_DIV)}</duration></backup>")
+        set_beam_states(voice)
+        orphaned = staff == 1 and at == 0 and first_of[2] is None  # a 2nd staff with no voice of its own, as under a line crossing to it, keeps its clefs and marks
+        changes = sorted((onset, number, clef) for number, onset, clef in bar.clefs if onset > 0 and ((number == staff and first_of[staff] == at) or (number == 2 and orphaned)))
+        pending = [(text, staff) for text in texts[staff]] if first_of[staff] == at else []
+        if orphaned:
+            pending = sorted([*pending, *((text, 2) for text in texts[2])], key=lambda item: item[0].x)
+        number = 4 * (staff - 1) + 1 + sum(1 for s, _ in streams[:at] if s == staff)
+        for index, event in enumerate(voice):
+            while changes and changes[0][0] <= event.onset:
+                _, number_of, clef = changes.pop(0)
+                out.append("<attributes>" + clef_xml(clef, number_of if two else None) + "</attributes>")
+            following = voice[index + 1].x if index + 1 < len(voice) else 1e9
+            for item in [item for item in pending if index + 1 == len(voice) or item[0].x < (event.x + following) / 2]:
+                out.append(direction_xml(item[0], item[1] if two else None))
+                pending.remove(item)
+            out.append(note_xml(event, number, ORCHESTRAL_DIV))
+        for _, number_of, clef in changes:
+            out.append("<attributes>" + clef_xml(clef, number_of if two else None) + "</attributes>")
+    out.append("</measure>")
+    return "".join(out)
+
+
+def write_orchestra(orchestra: Orchestra) -> str:
+    """A full score: 1 part per instrument in the source's staff order, each transposing part as printed with its transposition."""
+    listed = "".join(f"<score-part id=\"P{at}\"><part-name>{escape(part.name)}</part-name><part-abbreviation>{escape(part.abbreviation)}</part-abbreviation></score-part>" for at, part in enumerate(orchestra.parts, 1))
+    body = "".join(f'<part id="P{at}">' + "".join(orchestral_measure(bar, part, orchestra.minor) for bar in part.bars) + "</part>" for at, part in enumerate(orchestra.parts, 1))
+    return f'<?xml version="1.0" encoding="UTF-8"?>\n<score-partwise version="4.0"><part-list>{listed}</part-list>{body}</score-partwise>\n'

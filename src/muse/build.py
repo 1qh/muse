@@ -14,7 +14,7 @@ import sys
 import time
 from typing import Any
 
-from muse import buildcache, chordnames, gate, launch, layout, mode, piano, port, publish, scorefile
+from muse import buildcache, chordnames, fullscore, gate, launch, layout, mode, piano, port, publish, scorefile
 from muse.model import Score
 from muse.song import LEGACY_FILES, decode, song_of
 from muse.song import sources as song_sources
@@ -40,6 +40,19 @@ def song(src: pathlib.Path, out_dir: pathlib.Path, work: pathlib.Path) -> dict[s
     report: dict[str, object] = {"song": info.name}
     state = buildcache.load(info.name)
     built = []
+    if info.orchestral:  # a full score keeps the source's breaks and takes no tone or piano sheet
+        outputs = [out_dir / info.score_file, out_dir / info.original_pdf, out_dir / info.legacy_file]
+        key = variant_key(src, port.ORIGINAL)
+        if not buildcache.fresh(state.get(port.ORIGINAL), key, outputs):
+            report.update(fullscore.build(src, out_dir, work, info))
+            state[port.ORIGINAL] = buildcache.record(key, [path for path in outputs if path.exists()], decision={"spatium": fullscore.SPATIUM, "distance": fullscore.DISTANCE})
+            buildcache.save(info.name, state)
+            built.append(port.ORIGINAL)
+        report["built"] = built
+        report["launches"] = launch.LAUNCHES["count"]
+        report["seconds"] = round(time.monotonic() - began, 1)
+        (work / f"{info.name}-report.json").write_text(json.dumps(report, ensure_ascii=False), encoding="utf-8")
+        return report
 
     def current(variant: str, outputs: list[pathlib.Path]) -> tuple[str, bool]:
         key = variant_key(src, variant)

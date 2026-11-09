@@ -15,7 +15,7 @@ from functools import partial
 
 import pymupdf
 
-from muse import buildcache, chordnames, chordseat, inverse, launch, mode, navigate, pdfcheck, piano, port, scorefile, verify
+from muse import buildcache, chordnames, chordseat, fullcheck, inverse, launch, mode, navigate, pdfcheck, piano, port, scorefile, verify
 from muse.model import Score
 from muse.song import Song, decode, song_of, sources
 
@@ -173,6 +173,9 @@ def check_song(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> tupl
         except Exception as error:  # every check must speak even when another crashed
             failures.append(f"{label}: could not run: {str(error)[:160]}")
 
+    info = song_of(src)
+    if info.orchestral:  # a full score takes its own checks; the lead-sheet ones stay as they are
+        return fullcheck.problems(src, out, work, info)
     score = decode(src)
     song = song_of(src, score)
     guarded("verify", lambda: verify.check(src, out, work))
@@ -325,7 +328,7 @@ def gate_key(src: pathlib.Path) -> str:
 def cached_check(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> tuple[list[str], list[str], bool]:
     """A pass stays valid while the source, code, style, private lists and every checked file are unchanged; a failure is always re-run."""
     info = song_of(src)
-    outputs = sorted(path for path in (out / info.name).iterdir() if path.is_file()) + [work / f"{info.name}-piano-final.mscz"]
+    outputs = sorted(path for path in (out / info.name).iterdir() if path.is_file()) + ([] if info.orchestral else [work / f"{info.name}-piano-final.mscz"])
     key = gate_key(src)
     state = buildcache.load(info.name)
     if buildcache.fresh(state.get("gate"), key, outputs):

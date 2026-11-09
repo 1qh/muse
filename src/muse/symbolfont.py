@@ -21,9 +21,25 @@ CLEF = 0xF026
 BAR_REST, SIMILE, STAFF, DOT = 0xF0B7, 0xF022, 0xF03D, 0xF02E
 BARS = {0xF06C, 0xF07B, 0xF0D2, 0xF0D3}
 FLAGS = {0xF06A: 1, 0xF06B: 2, 0xF04A: 1, 0xF04B: 2}
+# the glyphs only an orchestral full score of this encoding prints, by the font that prints them: its text font, its music font and its 3rd font
+DYNAMIC_LETTERS = {0x66: "f", 0x6D: "m", 0x70: "p", 0x73: "s", 0x7A: "z"}  # m is also DOUBLE_TOP in a lead sheet's music font
+TEXT_NATURAL = 0xA7  # a natural inside text, such as a harp pedal box
+TENUTO, MARCATO, MARCATO_BELOW, ACCENT_BELOW = 0xF02D, 0xF05E, 0xF076, 0xF027
+UP_BOW, DOWN_BOW, HARMONIC = 0xF0B2, 0xF0B3, 0xF06F
+BASS_CLEF, ALTO_CLEF, TIME_FOUR = 0xF03F, 0xF042, 0xF034
+AUGMENTATION_DOT, BRACKET_TOP, BRACKET_BOTTOM, ARPEGGIO = 0xF0AA, 0xF0A1, 0xF0A2, 0xF0B8
+OCTAVE_BELOW, DIAMOND_WHOLE = 0xF0DC, 0xF07E  # the 8 under a treble clef, which drops it an octave; a whole-note diamond head
+ORCHESTRAL_GLYPHS = {
+    0x66: "dynamic letter f", 0x70: "dynamic letter p", 0x73: "dynamic letter s", 0x7A: "dynamic letter z", TEXT_NATURAL: "natural inside text",
+    TENUTO: "tenuto", MARCATO: "marcato", MARCATO_BELOW: "marcato below", ACCENT_BELOW: "accent below", UP_BOW: "up-bow", DOWN_BOW: "down-bow", HARMONIC: "harmonic circle",
+    BASS_CLEF: "bass clef", ALTO_CLEF: "alto clef", TIME_FOUR: "time digit 4",
+    AUGMENTATION_DOT: "augmentation dot", BRACKET_TOP: "system bracket top end", BRACKET_BOTTOM: "system bracket bottom end", ARPEGGIO: "wavy arpeggio line",
+    OCTAVE_BELOW: "treble-8vb clef's 8", DIAMOND_WHOLE: "diamond notehead",
+}
 KNOWN_GLYPHS = frozenset((0x20, 0x23, TEMPO_EIGHTH, DOUBLE_TOP, 0xF0E2, 0xF0F7, 0x2E, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x61, 0x62, 0x69, 0x71, 0x74, 0x75, 0x76, 0xA3, 0xF022, 0xF023, 0xF025, 0xF026, 0xF02E, 0xF03D,
-                          0xF03E, 0xF043, 0xF04A, 0xF04B, 0xF055, 0xF05F, 0xF062, 0xF06A, 0xF06B, 0xF06C, 0xF06E, 0xF077, 0xF07B, 0xF0B7, 
-                          0xF0C0, 0xF0C5, 0xF0C7, 0xF0C8, 0xF0CE, 0xF0CF, 0xF0D2, 0xF0D3, 0xF0D9, 0xF0DE, 0xF0E1, 0xF0E4, 0xF0EB, 0xF0EE, 0xF0F3, 0xF0F5, 0xF0F6, 0xF0FA))
+                          0xF03E, 0xF043, 0xF04A, 0xF04B, 0xF055, 0xF05F, 0xF062, 0xF06A, 0xF06B, 0xF06C, 0xF06E, 0xF077, 0xF07B, 0xF0B7,
+                          0xF0C0, 0xF0C5, 0xF0C7, 0xF0C8, 0xF0CE, 0xF0CF, 0xF0D2, 0xF0D3, 0xF0D9, 0xF0DE, 0xF0E1, 0xF0E4, 0xF0EB, 0xF0EE, 0xF0F3, 0xF0F5, 0xF0F6, 0xF0FA)) | ORCHESTRAL_GLYPHS.keys()
+LEAD_SHEET_GLYPHS = KNOWN_GLYPHS - ORCHESTRAL_GLYPHS.keys()  # a lead sheet printing a glyph only full scores print is refused, as before they were known
 FLATS, SHARPS, NATURALS = {0x62, 0xF062}, {0x23, 0xF023}, {0x6E, 0xF06E}
 STEP_PER_SIZE = 2.16 / 17.9
 CREDIT_ROW = 2.0  # points: text on a credit label's baseline, right of the label, is that credit
@@ -78,7 +94,7 @@ def load(page: pymupdf.Page, music: dict[str, str]) -> tuple[list[G], list[Span]
             for s in line["spans"]:
                 if s["font"] in music:
                     for ch in s["chars"]:
-                        if ord(ch["c"]) not in KNOWN_GLYPHS:
+                        if ord(ch["c"]) not in LEAD_SHEET_GLYPHS:
                             raise UnknownGlyph(f"music glyph {ord(ch['c']):#x} is not decoded")
                         glyphs.append(G(ord(ch["c"]), ch["origin"][0], ch["origin"][1], s["size"]))
                 else:

@@ -48,12 +48,14 @@ class Event:
     beam_state: str | None = None
     tuplet_state: str | None = None
     onset: F = F(0)
+    ratio: F = F(2, 3)  # what a tuplet scales its notes by: 2/3 for 3 in the time of 2, 4/5 for 5 in the time of 4
+    staff: int | None = None  # the staff of a part's 2 that the event prints on, where the part has 2
 
     @property
     def length(self) -> F:
         if self.grace:
             return F(0)
-        return self.nominal * F(2, 3) if self.tuplet else self.nominal
+        return self.nominal * self.ratio if self.tuplet else self.nominal
 
 
 @dataclasses.dataclass
@@ -74,6 +76,9 @@ class Text:
     above: bool
     kind: str = "cue"
     size: float = 10.0
+
+
+Clef = tuple[str, int, int]  # sign, staff line, octave change
 
 
 @dataclasses.dataclass
@@ -111,6 +116,7 @@ class Bar:
     simile: bool = False
     clef_octave: int = 0
     base: float = 0.0
+    clefs: list[tuple[int, F, Clef]] = dataclasses.field(default_factory=list)  # staff, onset, clef: every clef the bar sets, its first bar's included
 
 
 @dataclasses.dataclass
@@ -145,3 +151,32 @@ class Score:
     has_second_staff: bool = False
     clef_octave: int = 0
     minor: bool | None = None  # the key's mode, which only the source's file name states
+
+
+@dataclasses.dataclass(frozen=True)
+class Transposition:
+    """How a part's written pitch moves to sound: MusicXML's diatonic steps, chromatic semitones and octaves."""
+
+    diatonic: int
+    chromatic: int
+    octave: int = 0
+
+
+@dataclasses.dataclass
+class Part:
+    """1 instrument of a full score across every bar, printed on 1 staff or 2."""
+
+    name: str
+    abbreviation: str
+    staves: int
+    transposition: Transposition | None
+    key: int  # the fifths its own staff prints
+    bars: list[Bar]
+
+
+@dataclasses.dataclass
+class Orchestra:
+    """A full score: every part in the source's staff order, all holding every bar."""
+
+    parts: list[Part]
+    minor: bool | None = None

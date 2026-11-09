@@ -53,7 +53,7 @@ def test_a_module_a_sheet_writer_imports_joins_the_key(tmp_path):
     (tmp_path / "helper.py").write_text("from muse.deep import x\n")
     (tmp_path / "deep.py").write_text("")
     (tmp_path / "unused.py").write_text("")
-    for name in ("port", "piano", "chordnames", "scorefile"):
+    for name in set(buildcache.SHEET_WRITERS) - {"layout"}:  # every other writer, from its 1 home
         (tmp_path / f"{name}.py").write_text("")
     names = {p.name for p in buildcache.sheet_code(tmp_path)}
     assert {"layout.py", "helper.py", "deep.py"} <= names and "unused.py" not in names  # derived through every import, never a hand list

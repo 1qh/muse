@@ -11,7 +11,7 @@ from typing import Any
 
 ROOT = pathlib.Path(__file__).parent
 STYLE = ROOT / "style.mss"
-SHEET_WRITERS = ("layout", "port", "piano", "chordnames", "scorefile")  # the modules a song's build writes its sheets through; every module they import can shape a sheet, and the orchestrating build module, which imports the checks too, is not one
+SHEET_WRITERS = ("layout", "port", "piano", "chordnames", "scorefile", "fullscore")  # the modules a song's build writes its sheets through; every module they import can shape a sheet, and the orchestrating build module, which imports the checks too, is not one
 STATE_DIR = "build-state"
 
 

@@ -7,7 +7,7 @@ import sys
 from collections.abc import Callable
 
 from muse import buildcache, oracle, piano
-from muse.song import decode, song_of, sources
+from muse.song import decode, is_orchestral, orchestra_of, song_of, sources
 
 CODE_CHECKS = (
     ("tests", (sys.executable, "-m", "pytest", "-q", "-x")),
@@ -20,6 +20,10 @@ CODE_CHECKS = (
 def song_problem(src: pathlib.Path) -> str:
     """Why a source cannot be built, or an empty string: decode, song key, tone, piano parts."""
     try:
+        if is_orchestral(src):  # a full score: its own reader and its concert key; it has no piano part
+            orchestra_of(src)
+            buildcache.key_of(src, repr(song_of(src)), buildcache.code_files())
+            return ""
         score = decode(src)
         info = song_of(src, score)
         buildcache.key_of(src, repr(info), buildcache.code_files())

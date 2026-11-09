@@ -9,8 +9,8 @@ import re
 
 import pymupdf
 
-from muse import bravura, leland, symbolfont
-from muse.model import Score, UnknownEncoding
+from muse import bravura, leland, orchestral, symbolfont
+from muse.model import Orchestra, Score, UnknownEncoding
 
 MAJOR = {"Cb": -7, "Gb": -6, "Db": -5, "Ab": -4, "Eb": -3, "Bb": -2, "F": -1, "C": 0, "G": 1, "D": 2, "A": 3, "E": 4, "B": 5, "F#": 6, "C#": 7}
 MINOR = {"Ab": -7, "Eb": -6, "Bb": -5, "F": -4, "C": -3, "G": -2, "D": -1, "A": 0, "E": 1, "B": 2, "F#": 3, "C#": 4, "G#": 5, "D#": 6, "A#": 7}
@@ -35,6 +35,7 @@ class Song:
     direction: str
     semis: int
     title: str
+    orchestral: bool = False  # a full score: its 2 MuseScore files and 1 PDF in the original key, no favourite tone and no piano sheet
 
     @property
     def score_file(self) -> str:
@@ -59,6 +60,8 @@ class Song:
 
     def files(self) -> set[str]:
         """Exactly what the song's folder holds."""
+        if self.orchestral:
+            return {self.score_file, self.legacy_file, self.original_pdf}
         return {self.score_file, self.original_pdf, self.tone_pdf, self.piano_pdf} | ({self.legacy_file} if LEGACY_FILES else set())
 
 
@@ -109,7 +112,24 @@ def settle_chord_bars(score: Score) -> Score:
     return score
 
 
+def is_orchestral(path: pathlib.Path) -> bool:
+    """Whether a source is a full score: the folder it sits in says so."""
+    return path.parent.name == orchestral.FOLDER
+
+
+def orchestra_of(path: pathlib.Path) -> Orchestra:
+    """A full score's every part, its mode from the source's file name."""
+    if not is_orchestral(path):
+        raise SongRefused(f"{path.name}: not in the {orchestral.FOLDER} folder, so not a full score")
+    found = orchestral.decode(path)
+    key = KEY.fullmatch(path.stem.rsplit("-", 1)[-1])
+    found.minor = None if key is None else key[2] == "m"
+    return found
+
+
 def decode(path: pathlib.Path) -> Score:
+    if is_orchestral(path):
+        raise SongRefused(f"{path.name}: a full score is read by orchestra_of, never as a lead sheet")
     decoders = {"bravura": bravura.decode, "leland": leland.decode, "symbolfont": symbolfont.decode}
     score = settle_chord_bars(decoders[encoding(path)](str(path)))
     found = KEY.fullmatch(path.stem.rsplit("-", 1)[-1])
@@ -155,12 +175,23 @@ def song_of(path: pathlib.Path, score: Score | None = None) -> Song:
     table = MINOR if minor else MAJOR
     if root not in table:
         raise SongRefused(f"{path.name}: {parts[-1]} is not a usable key")
-    decoded = score or decode(path)
-    printed = decoded.bars[0].key if decoded.bars else None
-    if printed != table[root]:
-        raise SongRefused(f"{path.name}: name says {parts[-1]} ({table[root]} fifths), the sheet prints {printed} fifths")
+    full = is_orchestral(path)
+    if full:
+        concert_key_problem(path, orchestra_of(path), table[root], parts[-1])
+    else:
+        decoded = score or decode(path)
+        printed = decoded.bars[0].key if decoded.bars else None
+        if printed != table[root]:
+            raise SongRefused(f"{path.name}: name says {parts[-1]} ({table[root]} fifths), the sheet prints {printed} fifths")
     tone, fifths, direction, semis = target_of(root, minor)
     overrides_path = path.parent / OVERRIDES
     overrides = json.loads(overrides_path.read_text(encoding="utf-8")) if overrides_path.exists() else {}
     title = str(overrides.get(parts[0]) or title_of(path))
-    return Song(parts[0], parts[-1], table[root], tone, fifths, direction, semis, title)
+    return Song(parts[0], parts[-1], table[root], tone, fifths, direction, semis, title, full)
+
+
+def concert_key_problem(path: pathlib.Path, score: Orchestra, fifths: int, named: str) -> None:
+    """A full score's name states its concert key: each part sounding as written prints it, or no key at all as timpani do, and each transposing part prints it moved by its transposition."""
+    wrong = [f"{part.name} {part.key}" for part in score.parts if part.key != orchestral.written_key(fifths, part.transposition) and not (part.transposition is None and part.key == 0)]
+    if wrong or not any(part.transposition is None and part.key == fifths for part in score.parts):
+        raise SongRefused(f"{path.name}: name says {named} ({fifths} fifths), parts print {wrong or 'no such key'}")
