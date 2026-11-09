@@ -5,6 +5,7 @@ import os
 import pathlib
 import re
 import shutil
+import signal
 import subprocess
 import tempfile
 import threading
@@ -44,6 +45,14 @@ def free_core(deadline: float = FREE_CORE_WAIT, idle: Callable[[], float] = idle
             raise TimeoutError(f"no free core for {deadline:.0f} s: {free:.2f} of {total} cores idle")
 
 
+UNAVAILABLE = "the Mac cannot run MuseScore: unlock it"  # the marker a run stops on
+PASTEBOARD_REFUSED = "Error creating pasteboard"  # what MuseScore prints when the window server refuses it, as at the login or lock window
+
+
+class MachineUnavailable(RuntimeError):
+    """MuseScore aborted because the machine refused it a window session: no song is at fault."""
+
+
 HANGS = pathlib.Path(tempfile.gettempdir()) / "muse-hangs"  # native stacks of runs that passed their deadline
 SAMPLE_SECONDS = 3
 
@@ -62,6 +71,8 @@ def heavy(argv: list[str], timeout: float, check: bool = False, cwd: pathlib.Pat
                 process.communicate()
                 raise subprocess.TimeoutExpired(argv, timeout, output=f"stack sampled to {where}") from expired
         done = subprocess.CompletedProcess(argv, process.returncode, out, err)
+        if process.returncode == -signal.SIGABRT and PASTEBOARD_REFUSED in err:
+            raise MachineUnavailable(f"{UNAVAILABLE} (MuseScore aborted: {err.strip()[-200:]})")
         if check:
             done.check_returncode()
         return done

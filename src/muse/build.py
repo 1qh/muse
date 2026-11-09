@@ -174,6 +174,9 @@ def main() -> None:
         for job in concurrent.futures.as_completed(jobs):
             src = jobs[job]
             report, reason = job.result()
+            if launch.UNAVAILABLE in reason:  # the machine, not the song: stop rather than refuse every song for it
+                pool.shutdown(wait=False, cancel_futures=True)
+                raise SystemExit(reason)
             if report is None:  # 1 song's failure never stops the others
                 refused.append(src.stem)
                 print(f"refused {src.stem}: {reason}", flush=True)
