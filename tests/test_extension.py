@@ -398,3 +398,26 @@ def test_a_box_crossing_into_a_bar_without_a_target_is_a_jump_past_its_barline(t
     line = {"chords": [0.0] * 6, "bars": [100.0, 200.0, 300.0, 400.0, 500.0, 600.0], "openings": [100.0] * 5, "signed": [100.0] * 5, "crossings": [0.0, 6.0, 0.0, 9.0, 0.3]}
     monkeypatch.setattr(chordseat, "page_lines", lambda pdf: [dict(line)])
     assert chordseat.matched(text, tmp_path / "unused.pdf")[0]["crossed"] == [(5, 9.0)]  # into bar 5, no target; bar 3's own target box is not a jump, and 0.3 pt is a touch
+
+
+def test_a_jump_moved_into_a_cues_span_stays_below_the_cue(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from muse.model import Text
+
+    layout.install_extension()
+    monkeypatch.setattr(layout, "SIGN_REACH", 6.0)  # a reach that makes the jump pass move the sign far left
+    bars = [held(n, [chord("A", "maj7")]) for n in range(1, 9)]
+    bars[2].to_coda = True  # a jump ending bar 3
+    bars[2].texts = [Text(80.0, 0.0, [("Band in with strings and all", False, True)], True)]  # a long cue over the stretch the jump moves into
+    score_path = imported(tmp_path, bars, {1, 5})
+    pdf = score_path.with_suffix(".pdf")
+
+    def rendered() -> pathlib.Path:
+        BATCHER.render(score_path, [pdf, pdf.with_suffix(".mpos")], None)
+        return pdf
+
+    layout.seat_inked(score_path, rendered, lambda probe: True)
+    page = pymupdf.open(pdf)[0]
+    frames = [d["rect"] for d in page.get_drawings() if d.get("color") and tuple(d["color"]) != (0.0, 0.0, 0.0) and chordseat.SIGN_FRAME[0] < d["rect"].width < chordseat.SIGN_FRAME[1]]
+    cue = [pymupdf.Rect(w[:4]) for w in page.get_text("words") if w[4] == "Band"]
+    assert len(frames) == 1 and len(cue) == 1
+    assert frames[0].y0 >= cue[0].y1  # moved with automatic placement on, the sign stacks above the cue it meets
