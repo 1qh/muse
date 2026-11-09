@@ -910,3 +910,12 @@ def test_a_sheets_copy_left_behind_a_rewritten_history_resyncs_to_the_remote(tmp
     git("commit", "--quiet", "-m", "left behind", cwd=ours)  # a stopped build's commit that never reached the remote
     publish.resync(ours)
     assert git("rev-parse", "HEAD", cwd=ours) == git("rev-parse", "main", cwd=remote)
+
+
+def test_a_launch_the_window_server_refuses_stops_as_the_machines_fault(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(launch, "free_core", lambda: None)  # the machine's own load must not decide a unit test
+    refused = ["sh", "-c", "echo 'PasteBoard: Error creating pasteboard: com.apple.pasteboard.clipboard [-4960]' >&2; kill -ABRT $$"]
+    with pytest.raises(launch.MachineUnavailable, match=launch.UNAVAILABLE):
+        launch.heavy(refused, 10.0)
+    plain = launch.heavy(["sh", "-c", "kill -ABRT $$"], 10.0)  # an abort without the refusal stays the song's own failure
+    assert plain.returncode == -6
