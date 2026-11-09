@@ -187,6 +187,8 @@ def check_song(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> tupl
     def guarded(label: str, step: Callable[[], list[str]]) -> None:
         try:
             failures.extend(f"{label}: {problem}" for problem in step())
+        except launch.MachineUnavailable:
+            raise  # the machine's fault, never the song's: the run stops
         except Exception as error:  # every check must speak even when another crashed
             failures.append(f"{label}: could not run: {str(error)[:160]}")
 
