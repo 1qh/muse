@@ -184,7 +184,11 @@ def main() -> None:
             reports.append(report)
             print(json.dumps(report, ensure_ascii=False), flush=True)
             if publishing:  # this process alone publishes, so songs publish 1 at a time as they finish
-                reason = publish_song(src_dir, out_dir, work, stage, song_of(src).name)
+                try:
+                    reason = publish_song(src_dir, out_dir, work, stage, song_of(src).name)
+                except launch.MachineUnavailable as error:  # the gate's tools refused by the locked Mac
+                    pool.shutdown(wait=False, cancel_futures=True)
+                    raise SystemExit(str(error)) from error
                 print(f"{'blocked' if reason else 'published'} {song_of(src).name} {reason}".rstrip(), flush=True)
                 if reason:
                     blocked.append(song_of(src).name)

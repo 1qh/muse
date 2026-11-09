@@ -5,7 +5,6 @@ import os
 import pathlib
 import re
 import shutil
-import signal
 import subprocess
 import tempfile
 import threading
@@ -45,8 +44,8 @@ def free_core(deadline: float = FREE_CORE_WAIT, idle: Callable[[], float] = idle
             raise TimeoutError(f"no free core for {deadline:.0f} s: {free:.2f} of {total} cores idle")
 
 
-UNAVAILABLE = "the Mac cannot run MuseScore: unlock it"  # the marker a run stops on
-PASTEBOARD_REFUSED = "Error creating pasteboard"  # what MuseScore prints when the window server refuses it, as at the login or lock window
+UNAVAILABLE = "the locked Mac refuses the tools a build needs: unlock it"  # the marker a run stops on
+REFUSED_BY_LOCK = ("Error creating pasteboard", "Unable to compute the prediction using a neural network model")  # MuseScore refused the pasteboard, homr refused its CoreML model: what each prints while the Mac sits at the login or lock window
 
 
 class MachineUnavailable(RuntimeError):
@@ -71,8 +70,8 @@ def heavy(argv: list[str], timeout: float, check: bool = False, cwd: pathlib.Pat
                 process.communicate()
                 raise subprocess.TimeoutExpired(argv, timeout, output=f"stack sampled to {where}") from expired
         done = subprocess.CompletedProcess(argv, process.returncode, out, err)
-        if process.returncode == -signal.SIGABRT and PASTEBOARD_REFUSED in err:
-            raise MachineUnavailable(f"{UNAVAILABLE} (MuseScore aborted: {err.strip()[-200:]})")
+        if process.returncode and any(sign in err for sign in REFUSED_BY_LOCK):
+            raise MachineUnavailable(f"{UNAVAILABLE} ({argv[0]} failed: {err.strip()[-200:]})")
         if check:
             done.check_returncode()
         return done

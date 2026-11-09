@@ -917,5 +917,8 @@ def test_a_launch_the_window_server_refuses_stops_as_the_machines_fault(monkeypa
     refused = ["sh", "-c", "echo 'PasteBoard: Error creating pasteboard: com.apple.pasteboard.clipboard [-4960]' >&2; kill -ABRT $$"]
     with pytest.raises(launch.MachineUnavailable, match=launch.UNAVAILABLE):
         launch.heavy(refused, 10.0)
+    coreml = ["sh", "-c", "echo 'Status Message: Error executing model: Unable to compute the prediction using a neural network model.' >&2; exit 1"]
+    with pytest.raises(launch.MachineUnavailable, match=launch.UNAVAILABLE):
+        launch.heavy(coreml, 10.0)  # homr's model refused on the locked Mac
     plain = launch.heavy(["sh", "-c", "kill -ABRT $$"], 10.0)  # an abort without the refusal stays the song's own failure
     assert plain.returncode == -6
