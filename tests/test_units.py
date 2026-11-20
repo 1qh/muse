@@ -991,3 +991,17 @@ def test_a_line_rule_refusal_names_its_bar_and_its_rule():
         bar.chords.append(Chord("C", 0, "", None, 0, 0.0))
     bars[2].new_system = True
     assert port.line_rule_reasons(Score(bars, [], [])) == ["bar 3: a line holds this bar alone"]
+
+
+def test_a_crowded_chord_takes_its_letters_bearing_from_the_clean_chords():
+    from muse.chordseat import clean_bearings, crowded
+
+    doc = pymupdf.open()
+    page = doc.new_page(width=200, height=100)
+    page.insert_text((60, 60), "C", fontsize=13)
+    assert not crowded(page, 60, 60, 13)
+    page.insert_text((57.6, 66), "|", fontsize=13)  # a stroke on another baseline inside the chord's ink window
+    assert crowded(page, 60, 60, 13)
+    lines = [{"chords": [100.8, 300.1]}]  # the crowded chord's raster reads the stroke, 0.7 short of its true ink
+    readings = [(0, 0, "C", 13.0, 100.0, False), (0, 1, "C", 13.0, 300.0, True)]
+    assert clean_bearings(lines, readings) == {("C", 13.0): pytest.approx(0.8 / 13)}
