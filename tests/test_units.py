@@ -968,3 +968,17 @@ def test_a_chords_next_correction_is_scaled_by_how_far_its_ink_moved():
     # asked 0.5 space of a 1-point space, the gap went from 1 to -1: the ink moved 4 times as far as asked, so the next step is a quarter of the gap
     assert next_bias([0.5], [-1.0], [1.0], [0.0], [1.0]) == [0.25]
     assert next_bias([0.0], [1.0], [1.0]) == [1.0]
+
+
+def test_a_chords_ink_is_never_a_coloured_sign_box_beside_it():
+    from muse.chordseat import ink_left
+
+    def page_with(box: bool) -> pymupdf.Page:
+        doc = pymupdf.open()
+        page = doc.new_page(width=200, height=100)
+        page.insert_text((60, 60), "C", fontsize=13)
+        if box:  # a red sign box whose right edge stands in the chord's ink window, as a line-opening segno's does
+            page.draw_rect(pymupdf.Rect(40, 45, 59.5, 62), color=(1, 0, 0), width=1.2)
+        return page
+
+    assert abs(ink_left(page_with(True), 60, 60, 13) - ink_left(page_with(False), 60, 60, 13)) < 0.2

@@ -113,6 +113,7 @@ def staves_of(shapes: list[pymupdf.Rect]) -> list[list[float]]:
     return staves
 
 
+INK_DARK = 128  # a pixel is ink when every channel is this dark
 BASE_MATCH = 0.5  # points a character's baseline may differ from the chord's and still be the chord's own
 
 
@@ -133,17 +134,22 @@ def char_boxes(page: pymupdf.Page, clip: pymupdf.Rect, base: float) -> tuple[lis
 def ink_left(page: pymupdf.Page, left: float, base: float, size: float) -> float:
     """Where a letter's ink starts, side bearing excluded: rendered, since the text layer reports only its advance box; ink inside another character's box is not the chord's unless it also lies in the chord's own letters."""
     clip = pymupdf.Rect(left - INK_REACH, base - size * 0.75, left + size * 0.7, base - 0.2)
-    shot = page.get_pixmap(dpi=INK_DPI, clip=clip, colorspace=pymupdf.csGRAY)
-    samples = shot.samples
+    shot = page.get_pixmap(dpi=INK_DPI, clip=clip, colorspace=pymupdf.csRGB, alpha=False)
+    samples, n = shot.samples, shot.n
     tall = max(2, int(shot.height * INK_STROKE_SHARE))  # a slur or volta crossing the band is too thin to be a letter
     own, foreign = char_boxes(page, clip, base)
+
+    def black(row: int, column: int) -> bool:
+        """A chord prints black: a red or blue sign box is never its ink."""
+        at = row * shot.stride + column * n
+        return bool(max(samples[at:at + 3]) < INK_DARK)
 
     def mine(x: float, y: float) -> bool:
         return any(box.x0 <= x <= box.x1 and box.y0 <= y <= box.y1 for box in own) or not any(box.x0 <= x <= box.x1 and box.y0 <= y <= box.y1 for box in foreign)
 
     for column in range(shot.width):
         x = clip.x0 + (column + 0.5) * clip.width / shot.width
-        if sum(samples[row * shot.stride + column] < 128 and mine(x, clip.y0 + (row + 0.5) * clip.height / shot.height) for row in range(shot.height)) >= tall:
+        if sum(black(row, column) and mine(x, clip.y0 + (row + 0.5) * clip.height / shot.height) for row in range(shot.height)) >= tall:
             return float(clip.x0 + column * clip.width / shot.width)
     return left
 
