@@ -982,3 +982,12 @@ def test_a_chords_ink_is_never_a_coloured_sign_box_beside_it():
         return page
 
     assert abs(ink_left(page_with(True), 60, 60, 13) - ink_left(page_with(False), 60, 60, 13)) < 0.2
+
+
+def test_a_line_rule_refusal_names_its_bar_and_its_rule():
+    from muse.model import Score
+    bars = [Bar(n, 0, 0, 100, F(4)) for n in (1, 2, 3)]
+    for bar in bars:
+        bar.chords.append(Chord("C", 0, "", None, 0, 0.0))
+    bars[2].new_system = True
+    assert port.line_rule_reasons(Score(bars, [], [])) == ["bar 3: a line holds this bar alone"]
