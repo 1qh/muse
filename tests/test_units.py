@@ -958,7 +958,7 @@ def test_a_chords_ink_is_read_from_its_own_letters_never_a_sharp_beside_it():
     alone = ink_left(page_with(False), 60, 60, 13)
     marked = page_with(True)
     stroke = next(pymupdf.Rect(span["bbox"]) for block in marked.get_text("dict")["blocks"] for line in block["lines"] for span in line["spans"] if span["text"] == "|")
-    assert 60 - INK_REACH < stroke.x1 and stroke.x0 < 60, "the stroke must stand inside the ink window, or the guard judges nothing"
+    assert stroke.x1 > 60 - INK_REACH and stroke.x0 < 60, "the stroke must stand inside the ink window, or the guard judges nothing"
     assert abs(ink_left(marked, 60, 60, 13) - alone) < 0.2
 
 
