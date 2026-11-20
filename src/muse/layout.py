@@ -340,12 +340,22 @@ SIGN_REACH_MARGIN = 0.25  # staff spaces added past each measured overlap, so th
 INK_LIMIT = 5.0  # staff spaces a measured offset may correct: a line's opening read 2 ways differs by up to about 3, a mispaired chord sits a chord's distance away
 
 
-def next_bias(bias: list[float], gaps: list[float | None], spaces: list[float]) -> list[float]:
-    """Each chord's correction plus its measured gap in staff spaces, a gap past the ink limit left out: only a mispaired chord is that far off."""
+RESPONSE_FLOOR = 0.2  # a chord whose ink moved under a fifth of the asked distance is not answering its correction: take the plain step
+RESPONSE_CEILING = 5.0
+
+
+def next_bias(bias: list[float], gaps: list[float | None], spaces: list[float], before: list[float] | None = None, gaps_before: list[float | None] | None = None) -> list[float]:
+    """Each chord's correction plus its measured gap in staff spaces, scaled by how far its last correction actually moved its ink; a gap past the ink limit left out: only a mispaired chord is that far off."""
     found = []
     for at, (gap, space) in enumerate(zip(gaps, spaces, strict=True)):
         was = bias[at] if at < len(bias) else 0.0
         step = (gap or 0.0) / space
+        asked = was - before[at] if before is not None and at < len(before) else 0.0
+        old = gaps_before[at] if gaps_before is not None and at < len(gaps_before) else None
+        if gap is not None and old is not None and abs(asked) > 0.01:
+            response = (old - gap) / space / asked  # ink moved per space of correction asked
+            if RESPONSE_FLOOR <= response <= RESPONSE_CEILING:
+                step /= response
         found.append(was + step if abs(step) <= INK_LIMIT else was)
     return found
 
@@ -354,6 +364,8 @@ def seat_inked(score_path: pathlib.Path, rendered: Callable[[], pathlib.Path], h
     """The extension fits each bar's chords, evens empty bars and seats chords; each round passes it every chord's measured ink offset and ink width, until the ink sits on target."""
     bias: list[float] = []
     inks: list[float] = []  # each chord's ink width in staff spaces, known after the first round
+    before: list[float] | None = None  # the corrections and gaps of the round before, which measure each chord's response
+    gaps_before: list[float | None] | None = None
     probe = score_path
     evened = False
     reach = SIGN_REACH  # staff spaces a sign's box keeps cues from, grown by what each render measures
@@ -375,7 +387,7 @@ def seat_inked(score_path: pathlib.Path, rendered: Callable[[], pathlib.Path], h
             return probe  # chords ran together into 1 printed name: the line is crowded, and the caller plans it again with fewer bars
         gaps = chordseat.gaps(rows, lines)
         spaces = [chordseat.space_points(score_path)] * len(gaps)
-        bias = next_bias(bias, gaps, spaces)
+        bias, before, gaps_before = next_bias(bias, gaps, spaces, before, gaps_before), bias, gaps
         inks = [width / space for width, space in zip(chordseat.ink_widths(rows, lines), spaces, strict=True)]
         evened = noted is not None and chordseat.equalize(score_path, probe, {index + 1 for index in noted})  # measured on the print, both ways
         overlaps = pdfcheck.sign_word_overlaps(probe) + [width for _, width in chordseat.jump_crossings(score_path, probe)]  # a box over a word or over the next bar keeps cues and jumps farther off

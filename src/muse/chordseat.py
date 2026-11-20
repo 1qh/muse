@@ -113,14 +113,37 @@ def staves_of(shapes: list[pymupdf.Rect]) -> list[list[float]]:
     return staves
 
 
+BASE_MATCH = 0.5  # points a character's baseline may differ from the chord's and still be the chord's own
+
+
+def char_boxes(page: pymupdf.Page, clip: pymupdf.Rect, base: float) -> tuple[list[pymupdf.Rect], list[pymupdf.Rect]]:
+    """Inside a window, the boxes of the chord's own letters, on its baseline, and of every other character: a key signature, a mark or another word."""
+    own: list[pymupdf.Rect] = []
+    foreign: list[pymupdf.Rect] = []
+    for block in page.get_text("rawdict")["blocks"]:  # the whole page's parse, shared by every check; the window filters it
+        for line in block.get("lines", []):
+            for span in line["spans"]:
+                for c in span["chars"]:
+                    box = pymupdf.Rect(c["bbox"])
+                    if box.intersects(clip):
+                        (foreign if abs(c["origin"][1] - base) > BASE_MATCH or 0xE000 <= ord(c["c"]) <= 0xF8FF else own).append(box)
+    return own, foreign
+
+
 def ink_left(page: pymupdf.Page, left: float, base: float, size: float) -> float:
-    """Where a letter's ink starts, side bearing excluded: rendered, since the text layer reports only its advance box."""
+    """Where a letter's ink starts, side bearing excluded: rendered, since the text layer reports only its advance box; ink inside another character's box is not the chord's unless it also lies in the chord's own letters."""
     clip = pymupdf.Rect(left - INK_REACH, base - size * 0.75, left + size * 0.7, base - 0.2)
     shot = page.get_pixmap(dpi=INK_DPI, clip=clip, colorspace=pymupdf.csGRAY)
     samples = shot.samples
     tall = max(2, int(shot.height * INK_STROKE_SHARE))  # a slur or volta crossing the band is too thin to be a letter
+    own, foreign = char_boxes(page, clip, base)
+
+    def mine(x: float, y: float) -> bool:
+        return any(box.x0 <= x <= box.x1 and box.y0 <= y <= box.y1 for box in own) or not any(box.x0 <= x <= box.x1 and box.y0 <= y <= box.y1 for box in foreign)
+
     for column in range(shot.width):
-        if sum(samples[row * shot.stride + column] < 128 for row in range(shot.height)) >= tall:
+        x = clip.x0 + (column + 0.5) * clip.width / shot.width
+        if sum(samples[row * shot.stride + column] < 128 and mine(x, clip.y0 + (row + 0.5) * clip.height / shot.height) for row in range(shot.height)) >= tall:
             return float(clip.x0 + column * clip.width / shot.width)
     return left
 

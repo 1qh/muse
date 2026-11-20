@@ -942,3 +942,29 @@ def test_a_lyric_between_2_lines_belongs_to_the_line_it_sits_under_and_a_cue_to_
     cue = ("Piano", 50.0, 145.0, 90.0, "TimesNewRomanPS-BoldItalicMT", 10.3, [])
     chord = ("Am7", 50.0, 160.0, 70.0, "Edwin-Roman", 10.9, [])
     assert text_owners([lyric, cue, chord], groups) == [0, 1, 1]
+
+
+def test_a_chords_ink_is_read_from_its_own_letters_never_a_sharp_beside_it():
+    from muse.chordseat import INK_REACH, ink_left
+
+    def page_with(mark: bool) -> pymupdf.Page:
+        doc = pymupdf.open()
+        page = doc.new_page(width=200, height=100)
+        page.insert_text((60, 60), "C", fontsize=13)
+        if mark:  # a tall stroke on another baseline, standing in the chord's band just left of its ink, as a key signature's sharp does beside a chord set low
+            page.insert_text((57.6, 66), "|", fontsize=13)  # its stroke inks 58.9 to 59.6: inside the window that opens at 59.2, left of the C
+        return page
+
+    alone = ink_left(page_with(False), 60, 60, 13)
+    marked = page_with(True)
+    stroke = next(pymupdf.Rect(span["bbox"]) for block in marked.get_text("dict")["blocks"] for line in block["lines"] for span in line["spans"] if span["text"] == "|")
+    assert 60 - INK_REACH < stroke.x1 and stroke.x0 < 60, "the stroke must stand inside the ink window, or the guard judges nothing"
+    assert abs(ink_left(marked, 60, 60, 13) - alone) < 0.2
+
+
+def test_a_chords_next_correction_is_scaled_by_how_far_its_ink_moved():
+    from muse.layout import next_bias
+
+    # asked 0.5 space of a 1-point space, the gap went from 1 to -1: the ink moved 4 times as far as asked, so the next step is a quarter of the gap
+    assert next_bias([0.5], [-1.0], [1.0], [0.0], [1.0]) == [0.25]
+    assert next_bias([0.0], [1.0], [1.0]) == [1.0]
