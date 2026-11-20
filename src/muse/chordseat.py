@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import pathlib
 import re
+import statistics
 import xml.etree.ElementTree as ET
 import zipfile
 from collections import Counter
@@ -131,9 +132,19 @@ def char_boxes(page: pymupdf.Page, clip: pymupdf.Rect, base: float) -> tuple[lis
     return own, foreign
 
 
+def crowded(page: pymupdf.Page, left: float, base: float, size: float) -> bool:
+    """Whether another character's box enters a chord's ink window, so its raster ink cannot be trusted."""
+    return bool(char_boxes(page, ink_window(left, base, size), base)[1])
+
+
+def ink_window(left: float, base: float, size: float) -> pymupdf.Rect:
+    """Where a chord's first ink can lie: its first letter's band, a little left of its text box."""
+    return pymupdf.Rect(left - INK_REACH, base - size * 0.75, left + size * 0.7, base - 0.2)
+
+
 def ink_left(page: pymupdf.Page, left: float, base: float, size: float) -> float:
     """Where a letter's ink starts, side bearing excluded: rendered, since the text layer reports only its advance box; ink inside another character's box is not the chord's unless it also lies in the chord's own letters."""
-    clip = pymupdf.Rect(left - INK_REACH, base - size * 0.75, left + size * 0.7, base - 0.2)
+    clip = ink_window(left, base, size)
     shot = page.get_pixmap(dpi=INK_DPI, clip=clip, colorspace=pymupdf.csRGB, alpha=False)
     samples, n = shot.samples, shot.n
     tall = max(2, int(shot.height * INK_STROKE_SHARE))  # a slur or volta crossing the band is too thin to be a letter
@@ -195,7 +206,8 @@ def sign_middle(char: dict[str, Any]) -> float:
 
 def page_lines(pdf: pathlib.Path) -> list[dict[str, Any]]:
     """Every staff carrying chords, in print order: its chord left edges, its barlines, where its signatures end, and its staff space."""
-    lines = []
+    lines: list[dict[str, Any]] = []
+    readings: list[tuple[int, int, str, float, float, bool]] = []  # per chord: its line, its place, its first letter, size, text box left, and whether another glyph crowds its window
     measures = measure_boxes(pdf.with_suffix(".mpos"))
     for page in pdftext.open(pdf):
         words, glyphs = [], []
@@ -235,6 +247,7 @@ def page_lines(pdf: pathlib.Path) -> list[dict[str, Any]]:
             for word in sorted(mine, key=lambda w: w[1]):
                 if CHORD_SHAPE.match(word[4]) and not (texts and texts[-1].endswith(("/", "("))):  # later pieces, such as what follows a flat or a slash, open no chord
                     joined.append(ink_left(page, word[1], word[3], word[0]))
+                    readings.append((len(lines), len(joined) - 1, word[4][0], word[0], word[1], crowded(page, word[1], word[3], word[0])))
                     lefts.append(word[1])
                     rights.append(word[2])
                 elif rights and word[4][0] not in "ABCDEFGHIJKLMNOPQRSTUVWXYZ":  # a cue at chord size is no piece of a chord
@@ -258,7 +271,20 @@ def page_lines(pdf: pathlib.Path) -> list[dict[str, Any]]:
             signed = [max([opened, *(end for end, middle in in_band if edge < middle <= edge + space * SIGN_AT_BARLINE)]) for edge, opened in zip(bars[:-1], openings, strict=True)]  # where each bar opens if the sign there is its target; only the score says whether it is
             crossings = [max([0.0, *(end - TOLERANCE - SIGN_CLEAR - edge for end, middle in in_band if middle < edge < end - TOLERANCE - SIGN_CLEAR)]) for edge in bars[:-1]]  # how far a box of the bar before reaches past each barline
             lines.append({"chords": joined, "bars": bars, "openings": openings, "signed": signed, "crossings": crossings, "start": start, "opening": opening, "space": space, "rights": rights, "lefts": lefts, "size": top})
+    bearings = clean_bearings(lines, readings)
+    for line, place, letter, size, left, busy in readings:
+        if busy and (letter, round(size, 1)) in bearings:
+            lines[line]["chords"][place] = left + bearings[(letter, round(size, 1))] * size
     return lines
+
+
+def clean_bearings(lines: list[dict[str, Any]], readings: list[tuple[int, int, str, float, float, bool]]) -> dict[tuple[str, float], float]:
+    """Per first letter and size, the median ink offset past the text box, in sizes, over the chords no other glyph crowds."""
+    found: dict[tuple[str, float], list[float]] = {}
+    for line, place, letter, size, left, busy in readings:
+        if not busy:
+            found.setdefault((letter, round(size, 1)), []).append((lines[line]["chords"][place] - left) / size)
+    return {key: statistics.median(values) for key, values in found.items()}
 
 
 def is_stem(x: float, heads: list[tuple[float, float]]) -> bool:
