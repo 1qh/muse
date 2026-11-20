@@ -447,7 +447,7 @@ def line_starts(score: Score) -> list[int]:
 
 
 
-def line_rule_breaks(score: Score, variant: str = TONE) -> list[int]:
+def line_rule_reasons(score: Score, variant: str = TONE) -> list[str]:
     """Bars the line rules say start a line and that sit inside one, or lines opening on a bar without a chord that a mark does not excuse; on any sheet a label may sit second after a mark bar that opens its line."""
     firsts = {row[0] for row in rows(score)}
     marks = {block[0] + 1 for block in sections(score)}
@@ -455,7 +455,13 @@ def line_rule_breaks(score: Score, variant: str = TONE) -> list[int]:
     inside = [bar.number for bar in score.bars if bar.number not in firsts and bar.number not in second and piano.label_of(bar) and not (bar.number > 1 and tied_out(score.bars[bar.number - 2]))]
     bare = [n for n in firsts if n not in marks and not score.bars[n - 1].chords]
     lone = piano.lone_lines(sorted(firsts), len(score.bars))  # the gate's own reading: no stranded single bar on any sheet
-    return sorted({*inside, *bare, *lone})
+    found = [(n, "its label sits inside a line") for n in inside] + [(n, "opens a line with no chord") for n in bare] + [(n, "a line holds this bar alone") for n in lone]
+    return [f"bar {n}: {why}" for n, why in sorted(set(found))]
+
+
+def line_rule_breaks(score: Score, variant: str = TONE) -> list[int]:
+    """The bars that break a line rule, each once."""
+    return sorted({int(reason.split()[1].rstrip(":")) for reason in line_rule_reasons(score, variant)})
 
 
 
