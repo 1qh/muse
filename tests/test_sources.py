@@ -42,6 +42,7 @@ def reading(score):
                 rows.append(" ".join(("+".join(f"{h.step}{h.alter}{h.octave}" for h in e.heads) or "r") + f":{e.length}" for e in v))
         rows.append("|".join(f"{c.root}{c.root_alter}{c.kind}/{c.bass}{c.bass_alter}" for c in b.chords))
         rows.append(f"{b.repeat_start}{b.repeat_end}{b.volta}{b.segno}{b.coda}{b.to_coda}{b.dal_segno}")
+        rows.append("|".join(f"{'^' if text.above else 'v'}" + "".join(run[0] for run in text.runs) for text in [*b.texts, *b.texts2]))
     return "\n".join(rows)
 
 
@@ -195,3 +196,35 @@ def test_every_leland_repeat_end_after_another_has_its_own_start() -> None:
                     wrong.setdefault(path.stem, []).append(bar.number)
                 open_start, closed = False, True
     assert not wrong
+
+
+SYMBOL_LYRIC_FONTS = ("Times New Roman Italic+FPEF", "CIDFont+F8")  # the italic hint line of the symbol-font sources, at 10.8pt
+SYMBOL_LYRIC_SIZE = 10.8
+
+
+def lyric_spans(path: pathlib.Path) -> list[str]:
+    """Every lyric hint a source prints, known by the font and size it is set in: FreeSerif in Leland sources, italic Times at 10.8pt in symbol-font ones."""
+    import pymupdf
+
+    from muse.leland import is_lyric
+
+    def lyric(span: dict) -> bool:
+        return is_lyric(span["font"]) or (span["font"] in SYMBOL_LYRIC_FONTS and abs(span["size"] - SYMBOL_LYRIC_SIZE) < 0.3 and " " in span["text"].strip())
+
+    return [span["text"].strip() for page in pymupdf.open(path) for block in page.get_text("dict")["blocks"] for line in block.get("lines", []) for span in line["spans"] if lyric(span) and len(span["text"].strip()) > 3]
+
+
+def test_every_lyric_hint_reads_under_the_staff_it_is_printed_under() -> None:
+    """A lyric filed under the next line, or over the next staff, puts a performer in early."""
+    judged, lost, above = 0, [], []
+    for folder in os.environ["MUSE_SOURCES"].split(os.pathsep):
+        for path in sorted(pathlib.Path(folder).glob("*.pdf")):
+            texts = [(bar.number, text) for bar in decode(path).bars for text in [*bar.texts, *bar.texts2]]
+            for lyric in lyric_spans(path):
+                judged += 1
+                found = [(number, text) for number, text in texts if lyric[:12] in "".join(run[0] for run in text.runs)]
+                lost += [] if found else [(path.stem, lyric)]
+                above += [(path.stem, number, lyric) for number, text in found if text.above]
+    assert judged, "no lyric hint found in any source: the guard would judge nothing"
+    assert not lost
+    assert not above

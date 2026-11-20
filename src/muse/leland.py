@@ -7,7 +7,7 @@ from typing import Any
 
 import pymupdf
 
-from muse.model import LETTERS, Bar, Chord, Event, Head, Issue, Score, Text, UnknownGlyph
+from muse.model import LETTERS, Bar, Chord, Event, Head, Issue, Score, Text, UnknownGlyph, bar_at
 from muse.symbolfont import parse_chord
 
 WHOLE, HALF, BLACK, CROSS = 0xE0A2, 0xE0A3, 0xE0A4, 0xE0A9
@@ -382,9 +382,9 @@ def decode(path: str) -> Score:
                     else:
                         near.repeat_end = True
                 elif g[0] == SEGNO and g[2] < staff.base:
-                    next((n for n in row_bars if n.left - 8 <= g[1] < n.right), row_bars[-1]).segno = True
+                    bar_at(row_bars, g[1], 8).segno = True
                 elif g[0] == CODA and g[2] < staff.base:
-                    next((n for n in row_bars if n.left - 8 <= g[1] < n.right), row_bars[-1]).coda = True
+                    bar_at(row_bars, g[1], 8).coda = True
             row_text([span for span, owner in zip(spans, owners, strict=True) if owner == at_group], staff.base, staff.top, row_bars, previous, flags, group, boxes)
             for bar in row_bars:
                 for chord in bar.chords:
@@ -401,14 +401,29 @@ TEXT_ABOVE = 40.0  # points above a line's top staff its text window reaches
 TEXT_BELOW = 34.0  # points below its bottom staff
 
 
+LYRIC_FONT = "FreeSerif"  # the font every lyric hint of these sources is set in; cues and marks are Times, chords Edwin
+
+
+def is_lyric(font: str) -> bool:
+    """A lyric hint, known by the lyric font it is set in."""
+    return font.split("+")[-1].startswith(LYRIC_FONT)
+
+
 def text_owners(spans: list[Any], groups: list[list[Staff]]) -> list[int | None]:
-    """The 1 line each text belongs to: in the window of 1 line, that line; where 2 windows overlap, the line whose staff it sits above, since chords, endings and marks print above their staff."""
+    """The 1 line each text belongs to: in the window of 1 line, that line; where 2 windows overlap, a lyric hint to the line it sits under and anything else to the line it sits above."""
     owners: list[int | None] = []
     for span in spans:
         y = span[2]
         near = [at for at, group in enumerate(groups) if group[0].top - TEXT_ABOVE < y < group[-1].base + TEXT_BELOW]
-        above = [at for at in near if y < groups[at][0].top]
-        owners.append(min(above, key=lambda at: groups[at][0].top) if above else (near[0] if near else None))
+        if not near:
+            owners.append(None)
+            continue
+        if is_lyric(span[4]):  # printed plain under its staff: the line it sits under
+            under = [at for at in near if y > groups[at][-1].base]
+            owners.append(max(under, key=lambda at: groups[at][-1].base) if under else near[0])
+        else:  # chords, cues, marks and endings print above their staff: the line they sit above
+            above = [at for at in near if y < groups[at][0].top]
+            owners.append(min(above, key=lambda at: groups[at][0].top) if above else near[0])
     return owners
 
 
@@ -419,7 +434,7 @@ def row_text(spans: list[Any], base: float, top: float, row: list[Bar], previous
         if not (top - TEXT_ABOVE < span[2] < bottom + TEXT_BELOW) or span[2] < CREDIT_TOP or span[2] > CREDIT_BOTTOM:
             continue
         font = span[4]
-        target = next((n for n in row if n.left - 4 <= span[1] < n.right - 1), row[-1])
+        target = bar_at(row, span[1], 4)
         if font == "Edwin-Italic" and re.fullmatch(r"\d+", text):
             continue
         if font == "Edwin-Roman" and span[2] < top:
@@ -429,7 +444,7 @@ def row_text(spans: list[Any], base: float, top: float, row: list[Bar], previous
                     flags.append(Issue(row[0].number, f"unread chord {word!r}"))
                     continue
                 chord.kind = CHORD_KIND.get(chord.kind, chord.kind)
-                holder = next((n for n in row if n.left - 4 <= at < n.right - 1), row[-1])
+                holder = bar_at(row, at, 4)
                 holder.chords.append(chord)
                 previous = chord
             continue
@@ -453,7 +468,7 @@ def row_text(spans: list[Any], base: float, top: float, row: list[Bar], previous
         if low.startswith(("d.s", "dal segno")):
             target.dal_segno = True
             continue
-        low_staff = len(group) > 1 and span[2] > group[1].top - 14
+        low_staff = len(group) > 1 and (span[2] > group[1].base if is_lyric(font) else span[2] > group[1].top - 14)  # a lyric belongs to the staff it sits under, a cue to the staff it sits over
         (target.texts2 if low_staff else target.texts).append(Text(span[1], span[2], [(words, "Bold" in font, "Italic" in font)], span[2] < (group[1].base if low_staff else base), size=span[5] * 0.9))
 
 

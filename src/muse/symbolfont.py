@@ -9,7 +9,7 @@ from typing import Any
 
 import pymupdf
 
-from muse.model import LETTERS, Bar, Chord, Event, Head, Issue, Score, Text, UnknownGlyph
+from muse.model import LETTERS, Bar, Chord, Event, Head, Issue, Score, Text, UnknownGlyph, bar_at
 
 HEADS = {0xF0CF: ("black", "down"), 0xF0F6: ("black", "up"), 0xF0F3: ("black", "up"), 0xF0F5: ("half", "down"), 0xF0FA: ("half", "up"),
          0xF077: ("whole", None), 0xF0C0: ("x", "up"), 0xF0E1: ("diamond", "up"), 0xF0EB: ("circlex", "up"), 0xF0E2: ("filleddiamond", "down")}
@@ -761,7 +761,7 @@ class Decoder:
             if not text or is_dust(text):
                 continue
             if first.bold and first.y < sys[0] - 10 and "(" not in text and (first.size < 9.5 and len(text) <= 10 or REHEARSAL.fullmatch(text)):
-                bar = next((b for b in bars if b.left - 15 <= first.x < b.right), bars[0])
+                bar = bar_at(bars, first.x, 15)
                 bar.rehearsal.append(text)
                 continue
             if re.fullmatch(r"[12]\.", text):
@@ -848,7 +848,7 @@ class Decoder:
         for s in spans:
             text = s.text.strip()
             if re.fullmatch(r"[12]\.", text) and s.bold:
-                bar = next((b for b in bars if b.left - 4 <= s.x < b.right), None)
+                bar = bar_at(bars, s.x, 4) if bars else None
                 if bar:
                     bar.volta = text[0]
 

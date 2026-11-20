@@ -7,7 +7,7 @@ import pymupdf
 import pytest
 
 from muse import chordnames, chordseat, launch, musicxml, pdfcheck, piano, port
-from muse.model import Bar, Chord, Event, Head, Score, Text
+from muse.model import Bar, Chord, Event, Head, Score, Text, bar_at
 from muse.navigate import expected_order
 from muse.pdfcheck import chord_collisions, foreign_fonts, idle_staves, margin_words, oversized_text, past_margin, title_problems
 from muse.symbolfont import Decoder, assemble_chords, is_dust, nominal_dots, parse_chord
@@ -922,3 +922,23 @@ def test_a_launch_the_window_server_refuses_stops_as_the_machines_fault(monkeypa
         launch.heavy(coreml, 10.0)  # homr's model refused on the locked Mac
     plain = launch.heavy(["sh", "-c", "kill -ABRT $$"], 10.0)  # an abort without the refusal stays the song's own failure
     assert plain.returncode == -6
+
+
+def test_a_mark_starting_just_left_of_a_barline_belongs_to_the_bar_it_runs_into():
+    row = [Bar(n, 0, left, left + 100, F(4)) for n, left in ((1, 40.0), (2, 140.0), (3, 240.0))]
+    assert [bar_at(row, x, 4).number for x in (20.0, 60.0, 137.0, 139.0, 141.0, 236.5, 300.0)] == [1, 1, 2, 2, 2, 3, 3]
+    assert bar_at(row, 135.0, 4).number == 1
+
+
+def test_a_lyric_between_2_lines_belongs_to_the_line_it_sits_under_and_a_cue_to_the_line_it_sits_above():
+    from muse.leland import text_owners
+
+    class Staff:
+        def __init__(self, top: float, base: float) -> None:
+            self.top, self.base = top, base
+
+    groups = [[Staff(100.0, 120.0)], [Staff(170.0, 190.0)]]
+    lyric = ("lời", 50.0, 145.0, 90.0, "FreeSerif", 8.2, [])
+    cue = ("Piano", 50.0, 145.0, 90.0, "TimesNewRomanPS-BoldItalicMT", 10.3, [])
+    chord = ("Am7", 50.0, 160.0, 70.0, "Edwin-Roman", 10.9, [])
+    assert text_owners([lyric, cue, chord], groups) == [0, 1, 1]

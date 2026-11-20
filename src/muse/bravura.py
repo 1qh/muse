@@ -8,7 +8,7 @@ from typing import Any
 import pymupdf
 
 from muse import leland
-from muse.model import LETTERS, Bar, Event, Head, Issue, Score, Text, UnknownGlyph
+from muse.model import LETTERS, Bar, Event, Head, Issue, Score, Text, UnknownGlyph, bar_at
 from muse.symbolfont import parse_chord
 
 CREDIT_ROW = 14.0  # points around the title line where credits sit
@@ -110,7 +110,7 @@ def decode(path: str) -> Score:
                     target = next((n for n in row_new if n.left <= ch[1] < n.right + 2), row_new[-1])
                     target.dal_segno = True
             if mark_lo < ch[2] < base + 10 and ch[0] == 0xE048:
-                target = next((n for n in row_new if n.left - 6 <= ch[1] < n.right), row_new[-1])
+                target = bar_at(row_new, ch[1], 6)
                 if any(sp[0].strip().startswith("Coda") and abs(sp[2] - ch[2]) < 6 for sp in spans):
                     target.coda = True
                 else:
@@ -124,16 +124,16 @@ def decode(path: str) -> Score:
             text = t[0].strip()
             if t in credits or "=" in text or re.fullmatch(r"\d+", text) or text in ("A", "B"):
                 if text in ("A", "B"):
-                    target = next((n for n in row_new if n.left - 2 <= t[1] < n.right), row_new[0])
+                    target = bar_at(row_new, t[1], 2)
                     target.rehearsal.append(text)
                 continue
             if re.fullmatch(r"[12]\.", text):
-                target = next((n for n in row_new if n.left - 6 <= t[1] < n.right), row_new[-1])
+                target = bar_at(row_new, t[1], 6)
                 target.volta = text[0]
                 continue
             if text in ("Coda", "To Coda"):
                 continue
-            target = next((n for n in row_new if n.left - 2 <= t[1] < n.right), row_new[-1])
+            target = bar_at(row_new, t[1], 2)
             target.texts.append(Text(t[1], t[2], [(text, True, True)], True, size=9))
         taken: set[int] = set()
         for t in sorted(items, key=lambda t: t[1]):
@@ -153,7 +153,7 @@ def decode(path: str) -> Score:
             if chord is None:
                 flags.append(Issue(row_new[0].number, f"unread chord {text!r}"))
                 continue
-            target = next((n for n in row_new if n.left - 4 <= t[1] < n.right - 2), row_new[-1])
+            target = bar_at(row_new, t[1], 4)
             target.chords.append(chord)
             prev = chord
     wire_ties(bars, ties)
