@@ -118,6 +118,12 @@ class Issue:
     message: str
 
 
+def bar_at(bars: list[Bar], x: float, lead: float) -> Bar:
+    """The bar a mark printed at x belongs to: the last bar whose lead-in has begun, so a mark starting just before a barline goes to the bar it runs into; the first bar for a mark left of every lead-in."""
+    begun = [bar for bar in bars if bar.left - lead <= x]
+    return begun[-1] if begun else bars[0]
+
+
 @dataclasses.dataclass
 class Score:
     bars: list[Bar]
