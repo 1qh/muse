@@ -23,7 +23,6 @@ A4 = (595.0, 842.0)
 A4_TOLERANCE = 1.5
 EDGE = 8.0  # points of clear paper on every side
 HOMR_SECONDS = 1500  # 1 page through the optical cross-check, counted from when its slot frees
-MIN_TIED_CHAIN = 4  # a tied run of this many bars may not fit 1 line
 MIN_HOMR_AGREEMENT = 0.6  # below this the independent reading has stopped agreeing about the song
 LOW_DPI = 72
 WITHHELD = "withheld.json"
@@ -58,24 +57,6 @@ def ink_problems(path: pathlib.Path) -> list[str]:
         elif rows[0] < EDGE or rows[-1] > height - EDGE or cols[0] < EDGE or cols[-1] > width - EDGE:
             problems.append(f"p{number}: ink within {EDGE:g} points of the edge")
     return problems
-
-
-def tie_findings(starts: list[int], tied: list[bool]) -> tuple[list[str], list[str]]:
-    """A tie over a line end fails unless its tied run is too long for 1 line, which is only reported."""
-    failures: list[str] = []
-    reported: list[str] = []
-    for start in starts:
-        if start < 2 or start > len(tied) or not tied[start - 2]:
-            continue
-        low = start - 2
-        while low > 0 and tied[low - 1]:
-            low -= 1
-        high = start - 2
-        while high + 1 < len(tied) and tied[high + 1]:
-            high += 1
-        run = high - low + 2
-        (reported if run >= MIN_TIED_CHAIN else failures).append(f"tie over line end into bar {start} (tied run of {run} bars)")
-    return failures, reported
 
 
 def line_starts(pdf: pathlib.Path) -> list[int]:
@@ -231,7 +212,7 @@ def check_song(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> tupl
         wrong: list[str] = []
         for final in sorted({out / song.original_pdf, out / song.tone_pdf}):
             starts = line_starts(final)
-            bad, long_runs = tie_findings(starts, [port.tied_out(bar) for bar in score.bars])
+            bad, long_runs = port.tie_findings(starts, [port.tied_out(bar) for bar in score.bars])
             lengths = line_lengths(starts, len(score.bars))
             short = sum(1 for length in lengths if length <= 2)
             notes.append(f"{final.name}: {short} of {len(lengths)} lines hold 2 bars or fewer")

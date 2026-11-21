@@ -166,7 +166,7 @@ MUTATIONS = [
     ("pdfcheck.py", "and not CHORD.fullmatch(text)", "and False", "chord biggest"),
     ("gate.py", "abs(page.rect.width - A4[0]) > A4_TOLERANCE", "False", "a4 width"),
     ("gate.py", "rows[0] < EDGE or", "False or", "ink top"),
-    ("gate.py", "run >= MIN_TIED_CHAIN", "run >= 0", "tie allowed"),
+    ("port.py", "run >= MIN_TIED_CHAIN", "run >= 0", "tie allowed"),
     ("gate.py", "share < MIN_HOMR_AGREEMENT", "False", "homr floor"),
     ("gate.py", "letters[-1] = step", "letters.append(step)", "homr chord"),
     ("port.py", "if missing:", "if False:", "missing font"),

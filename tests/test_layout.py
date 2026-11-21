@@ -354,3 +354,19 @@ def test_a_strict_line_holds_a_noted_bar_whose_chords_need_room(monkeypatch) -> 
     shares = [1.0, 1.0, 2.0, 1.0]
     widths = [n * s for n, s in zip(natural, shares, strict=True)]
     assert sorted(layout.plan(score, widths, ROOM, shares=shares)) == [1]  # 20 + 20 + 30 + 20 = 90 fits; stretching the line by 2 would not
+
+
+def test_the_layout_refuses_a_line_break_inside_a_short_tie() -> None:
+    score = Score([noted(1), noted(2), noted(3, tie=True), noted(4), noted(5)], [], [])
+    for bar, first in zip(score.bars, (True, False, False, True, False), strict=True):
+        bar.new_system = first
+    assert port.line_rule_reasons(score) == ["tie over line end into bar 4 (tied run of 2 bars)"]
+
+
+def test_the_layout_judges_even_empty_bars_in_strict_mode(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(layout.mode, "PRINT", False)
+    seen = []
+    monkeypatch.setattr(layout.chordseat, "uneven", lambda mscz, pdf, noted: seen.append(noted) or ["bar 2: 30.0 pt wide, line mean 20.0"])
+    sheet = types.SimpleNamespace(score=Score([noted(1), empty(2)], [], []))
+    assert layout.uneven_empty_bars(sheet, tmp_path / "s.mscz", tmp_path / "s.pdf") == ["bar 2: 30.0 pt wide, line mean 20.0"]  # type: ignore[arg-type]
+    assert seen == [{1}]
