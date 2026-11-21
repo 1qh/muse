@@ -8,7 +8,7 @@ from typing import Any
 import pymupdf
 
 from muse import leland
-from muse.model import LETTERS, Bar, Event, Head, Issue, Score, Text, UnknownGlyph, bar_at
+from muse.model import LETTERS, Bar, Event, Head, Issue, Score, Text, UnknownGlyph, bar_at, mark_bar
 from muse.symbolfont import parse_chord
 
 CREDIT_ROW = 14.0  # points around the title line where credits sit
@@ -124,8 +124,7 @@ def decode(path: str) -> Score:
             text = t[0].strip()
             if t in credits or "=" in text or re.fullmatch(r"\d+", text) or text in ("A", "B"):
                 if text in ("A", "B"):
-                    target = bar_at(row_new, t[1], 2)
-                    target.rehearsal.append(text)
+                    mark_bar(row_new, t[1], t[3]).rehearsal.append(text)
                 continue
             if re.fullmatch(r"[12]\.", text):
                 target = bar_at(row_new, t[1], 6)

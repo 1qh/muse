@@ -761,8 +761,7 @@ class Decoder:
             if not text or is_dust(text):
                 continue
             if first.bold and first.y < sys[0] - 10 and "(" not in text and (first.size < 9.5 and len(text) <= 10 or REHEARSAL.fullmatch(text)):
-                bar = bar_at(bars, first.x, 15)
-                bar.rehearsal.append(text)
+                bar_at(bars, first.x, 15).rehearsal.append(text)  # these sources set every mark at a line's start, beside its printed bar number
                 continue
             if re.fullmatch(r"[12]\.", text):
                 continue

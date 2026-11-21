@@ -7,7 +7,7 @@ from typing import Any
 
 import pymupdf
 
-from muse.model import LETTERS, Bar, Chord, Event, Head, Issue, Score, Text, UnknownGlyph, bar_at
+from muse.model import LETTERS, Bar, Chord, Event, Head, Issue, Score, Text, UnknownGlyph, bar_at, mark_bar
 from muse.symbolfont import parse_chord
 
 WHOLE, HALF, BLACK, CROSS = 0xE0A2, 0xE0A3, 0xE0A4, 0xE0A9
@@ -453,8 +453,9 @@ def row_text(spans: list[Any], base: float, top: float, row: list[Bar], previous
         if re.fullmatch(r"[12]\.", text):
             target.volta = text[0]
             continue
-        if font == "Edwin-Bold" and any(b.x0 <= span[1] <= b.x1 and b.y0 <= span[2] <= b.y1 for b in boxes):
-            target.rehearsal.append(text)
+        box = next((b for b in boxes if b.x0 - 1 <= span[1] <= b.x1 and b.y0 <= span[2] <= b.y1 + 1), None)
+        if box is not None and "Bold" in font:  # a bold label in a box is a section mark, in the chord font or any other
+            mark_bar(row, box.x0, box.x1).rehearsal.append(text)
             continue
         if re.fullmatch(r"[12]\.", text):
             target.volta = text[0]
