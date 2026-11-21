@@ -122,8 +122,6 @@ class Sheet:
 
     def __post_init__(self) -> None:
         self.score = decode(self.src)
-        for bar in self.score.bars:
-            bar.source_line = bar.new_system  # the decoders mark the source's own line starts; the plan replaces them
         info = song_of(self.src, self.score)
         if self.variant == port.PIANO:
             piano.reduce(self.score)

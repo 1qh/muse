@@ -1005,3 +1005,24 @@ def test_a_crowded_chord_takes_its_letters_bearing_from_the_clean_chords():
     lines = [{"chords": [100.8, 300.1]}]  # the crowded chord's raster reads the stroke, 0.7 short of its true ink
     readings = [(0, 0, "C", 13.0, 100.0, False), (0, 1, "C", 13.0, 300.0, True)]
     assert clean_bearings(lines, readings) == {("C", 13.0): pytest.approx(0.8 / 13)}
+
+
+def test_the_gate_passes_a_chordless_line_start_only_where_the_source_opens_one(monkeypatch, tmp_path):
+    from muse import gate
+    bars = [Bar(n, 0, 0.0, 100.0, F(4), voices=[]) for n in (1, 2, 3, 4)]
+    score = Score(bars, [], [])
+    monkeypatch.setattr(chordseat, "score_text", lambda _: ("x", ""))
+    monkeypatch.setattr(chordseat, "chordless_starts", lambda _: [3])
+    monkeypatch.setattr(chordseat, "bar_rows", lambda _: [[1, 2], [3, 4]])
+    assert gate.chord_starts(tmp_path, score) == ["bar 3: line starts without its chord"]
+    bars[2].source_line = True
+    assert gate.chord_starts(tmp_path, score) == []
+
+
+def test_decoding_keeps_the_sources_line_starts(monkeypatch):
+    from muse import song
+    decoded = Score([Bar(n, 0, 0.0, 100.0, F(4), voices=[], new_system=n == 3) for n in (1, 2, 3)], [], [])
+    monkeypatch.setattr(song, "encoding", lambda _: "leland")
+    monkeypatch.setattr(song.leland, "decode", lambda _: decoded)
+    monkeypatch.setattr(song, "settle_chord_bars", lambda score: score)
+    assert [bar.source_line for bar in song.decode(pathlib.Path("X-C.pdf")).bars] == [False, False, True]
