@@ -1050,3 +1050,11 @@ def test_a_chord_seated_where_the_seating_aims_after_a_sign_never_touches_it():
         for stray in (-TOLERANCE, 0.0, TOLERANCE):
             left = target + stray - bearing
             assert not sign_touches(37.4, 245.7, 20.0, 11.2, [(left, left + 7.6, 246.5)]), (bearing, stray)
+
+
+def test_a_printed_tempo_becomes_words_and_a_metronome_mark():
+    out = musicxml.words(Text(0.0, 0.0, [("Andante religioso♩= 58", True, False)], True))
+    assert "♩" not in out
+    assert "<words" in out and "Andante religioso</words>" in out
+    assert "<metronome><beat-unit>quarter</beat-unit><per-minute>58</per-minute></metronome>" in out
+    assert '<sound tempo="58"/>' in out

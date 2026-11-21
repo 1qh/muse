@@ -1,6 +1,7 @@
 """Write the score model as MusicXML."""
 from __future__ import annotations
 
+import re
 from fractions import Fraction as F
 from xml.sax.saxutils import escape
 
@@ -29,6 +30,7 @@ def harmony(chord: Chord, onset: F) -> str:
 
 
 MAX_TEXT_SIZE = 11.0  # every text stays below the chords
+TEMPO_TEXT = re.compile(r"(.*?)\s*\u2669\s*=\s*(\d+)")  # a printed tempo: its words, a quarter-note sign and a beat count
 
 
 def words(text: Text, staff_offset: int = 0) -> str:
@@ -40,7 +42,14 @@ def words(text: Text, staff_offset: int = 0) -> str:
             attrs += ' font-weight="bold"'
         if italic:
             attrs += ' font-style="italic"'
-        runs.append(f"<words {attrs}>{escape(content)}</words>")
+        tempo = TEMPO_TEXT.fullmatch(content.strip())
+        if tempo is None:
+            runs.append(f"<words {attrs}>{escape(content)}</words>")
+            continue
+        if tempo[1]:
+            runs.append(f"<words {attrs}>{escape(tempo[1])}</words>")
+        metronome = f"<metronome><beat-unit>quarter</beat-unit><per-minute>{tempo[2]}</per-minute></metronome>"  # the music font draws the note; the text font has none
+        return f'<direction placement="{place}"><direction-type>{"".join(runs)}</direction-type><direction-type>{metronome}</direction-type><sound tempo="{tempo[2]}"/></direction>'
     return f'<direction placement="{place}"><direction-type>{"".join(runs)}</direction-type></direction>'
 
 
