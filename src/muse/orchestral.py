@@ -572,8 +572,13 @@ def rests_of(sheet: Sheet, found: list[Staff], spans: list[tuple[Staff, float, f
     return out
 
 
+CLEF_REACH = 4  # staff steps a clef may stand past its staff's outer lines
+
+
 def clefs_on(sheet: Sheet, staff: Staff, nearest: Callable[[float], Staff]) -> list[Glyph]:
-    return sorted((g for g in sheet.music if g.code in CLEF_LINES and nearest(g.y) == staff), key=lambda g: g.x)
+    """The clefs standing on 1 staff: within its own lines and a ledger's reach, and nearer it than any other staff of its system."""
+    reach = staff.step * CLEF_REACH
+    return sorted((g for g in sheet.music if g.code in CLEF_LINES and staff.top - reach <= g.y <= staff.bottom + reach and nearest(g.y) == staff), key=lambda g: g.x)
 
 
 def read_system(reading: Reading, system: System, sheet: Sheet, page_sounds: list[Sound], rests: list[Rest], opens_page: bool) -> None:

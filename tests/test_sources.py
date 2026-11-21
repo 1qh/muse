@@ -227,7 +227,7 @@ def test_every_lyric_hint_reads_under_the_staff_it_is_printed_under() -> None:
     """A lyric filed under the next line, or over the next staff, puts a performer in early."""
     judged, lost, above = 0, [], []
     for folder in os.environ["MUSE_SOURCES"].split(os.pathsep):
-        for path in sorted(pathlib.Path(folder).glob("*.pdf")):
+        for path in lead_sheets(pathlib.Path(folder)):
             texts = [(bar.number, text) for bar in decode(path).bars for text in [*bar.texts, *bar.texts2]]
             for lyric in lyric_spans(path):
                 judged += 1
@@ -265,7 +265,7 @@ def test_every_boxed_section_label_reads_as_a_section_mark() -> None:
     """A boxed label read as a plain cue neither starts its line nor prints as a section, and a performer misses the interlude."""
     judged, lost = 0, []
     for folder in os.environ["MUSE_SOURCES"].split(os.pathsep):
-        for path in sorted(pathlib.Path(folder).glob("*.pdf")):
+        for path in lead_sheets(pathlib.Path(folder)):
             marks = [mark for bar in decode(path).bars for mark in bar.rehearsal]
             for label in boxed_labels(path):
                 judged += 1
@@ -423,4 +423,13 @@ def test_full_score_builds_3_files_that_hold_the_decode_and_the_source_s_systems
     assert fullcheck.content_problems(score, exported) == []
     probe = work / "final.mpos"
     launch.mscore(["-o", str(probe), str(out / info.score_file)], port.LAUNCH_SECONDS, check=True)
-    assert fullcheck.system_problems(score, probe) == []
+    assert fullscore.system_problems(score, probe) == []
+
+
+@pytest.mark.parametrize("path", orchestral_sources())
+def test_every_orchestral_note_lies_in_a_playable_octave(path):
+    """A clef of another system read on this staff throws every note dozens of octaves off."""
+    score = song.orchestra_of(pathlib.Path(path))
+    heads = [(part.name, bar.number, head.octave) for part in score.parts for bar in part.bars for voices in (bar.voices, bar.voices2) for voice in voices for event in voice for head in event.heads]
+    assert heads, "no note read: the guard would judge nothing"
+    assert not [head for head in heads if not 0 <= head[2] <= 8]

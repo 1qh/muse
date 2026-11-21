@@ -3,12 +3,15 @@ from __future__ import annotations
 
 import pathlib
 import re
+import xml.etree.ElementTree as ET
 
 from muse import chordnames, launch, musicxml, pdftext, port, scorefile
 from muse.model import Orchestra, Score
 from muse.song import Song, orchestra_of
 
 SPATIUM = 0.9  # millimetres: the source's own staff space, which holds its largest system of 23 staves on 1 page
+SPATIUM_STEP = 0.05  # millimetres the staff space shrinks by while a source system wraps
+SPATIUM_FLOOR = 0.5  # millimetres: the smallest staff space a full score prints at
 DISTANCE = port.BASE_DISTANCE
 
 
@@ -26,22 +29,46 @@ def build(src: pathlib.Path, out_dir: pathlib.Path, work: pathlib.Path, info: So
     orchestra = orchestra_of(src)
     xml = xml_path(work, info)
     xml.write_text(musicxml.write_orchestra(orchestra), encoding="utf-8")
-    style = port.styled(work, f"{info.name}-score.mss", info.title, SPATIUM, DISTANCE)
-    raw = work / f"{info.name}-score-import.mscz"
-    port.run("-S", str(style), "-o", str(raw), str(xml))
-    port.strip_title_frame(raw)
     final = out_dir / info.score_file
-    port.edited(raw, final, SPATIUM, DISTANCE, breaks_of(orchestra))
+    spatium = fit(xml, work, final, info, orchestra)
     chordnames.drop_chord_path(final)
     pdf = out_dir / info.original_pdf
     port.run("-o", str(pdf), str(final))
-    report: dict[str, object] = {"pdf pages": len(pdftext.open(pdf))}
+    report: dict[str, object] = {"pdf pages": len(pdftext.open(pdf)), "spatium": spatium}
     legacy = out_dir / info.legacy_file
     reason = build_legacy(xml, work, legacy, final, info, orchestra)
     if reason:
         legacy.unlink(missing_ok=True)
         report["legacy"] = reason
     return report
+
+
+def system_problems(orchestra: Orchestra, mpos: pathlib.Path) -> list[str]:
+    """Every system of the score opens on the bar its source system opens on."""
+    boxes = [(int(float(e.get("page") or 0)), round(float(e.get("y") or 0))) for e in ET.parse(mpos).getroot().iter("element")]
+    starts = [at + 1 for at, box in enumerate(boxes) if not at or box != boxes[at - 1]]
+    wanted = [1] + [bar.number for bar in orchestra.parts[0].bars if bar.new_system]
+    return [] if starts == wanted else [f"systems open on bars {starts}, the source's on {wanted}"]
+
+
+def fit(xml: pathlib.Path, work: pathlib.Path, final: pathlib.Path, info: Song, orchestra: Orchestra) -> float:
+    """The largest staff space at which every source system holds on 1 line, judged on MuseScore's own layout, written to the final file."""
+    tried = []
+    spatium = SPATIUM
+    while spatium >= SPATIUM_FLOOR - 1e-9:
+        style = port.styled(work, f"{info.name}-score-{spatium:g}.mss", info.title, spatium, DISTANCE)
+        raw = work / f"{info.name}-score-{spatium:g}-import.mscz"
+        port.run("-S", str(style), "-o", str(raw), str(xml))
+        port.strip_title_frame(raw)
+        port.edited(raw, final, spatium, DISTANCE, breaks_of(orchestra))
+        probe = work / f"{info.name}-score-{spatium:g}.mpos"
+        port.run("-o", str(probe), str(final))
+        problems = system_problems(orchestra, probe)
+        if not problems:
+            return spatium
+        tried.append(f"{spatium:g}: {problems[0]}")
+        spatium = round(spatium - SPATIUM_STEP, 2)
+    raise port.DoesNotFit(f"{info.name}: no staff space holds every source system: {tried[-3:]}")
 
 
 def build_legacy(xml: pathlib.Path, work: pathlib.Path, target: pathlib.Path, latest: pathlib.Path, info: Song, orchestra: Orchestra) -> list[str]:

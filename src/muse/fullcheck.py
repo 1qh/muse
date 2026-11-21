@@ -7,7 +7,7 @@ import pathlib
 import xml.etree.ElementTree as ET
 from fractions import Fraction as F
 
-from muse import chordnames, gate, launch, pdfcheck, pdftext, port, scorefile, verify
+from muse import chordnames, fullscore, gate, launch, pdfcheck, pdftext, port, scorefile, verify
 from muse.model import Orchestra
 from muse.song import Song, orchestra_of
 
@@ -53,12 +53,7 @@ def content_problems(orchestra: Orchestra, xml: pathlib.Path) -> list[str]:
     return problems
 
 
-def system_problems(orchestra: Orchestra, mpos: pathlib.Path) -> list[str]:
-    """Every system of the score opens on the bar its source system opens on."""
-    boxes = [(int(float(e.get("page") or 0)), round(float(e.get("y") or 0))) for e in ET.parse(mpos).getroot().iter("element")]
-    starts = [at + 1 for at, box in enumerate(boxes) if not at or box != boxes[at - 1]]
-    wanted = [1] + [bar.number for bar in orchestra.parts[0].bars if bar.new_system]
-    return [] if starts == wanted else [f"systems open on bars {starts}, the source's on {wanted}"]
+
 
 
 def navigation_problems(score_file: pathlib.Path) -> list[str]:
@@ -116,7 +111,7 @@ def problems(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path, info: Son
 
     def systems() -> list[str]:
         launch.mscore(["-o", str(probe), str(final)], port.LAUNCH_SECONDS, check=True)
-        return system_problems(orchestra, probe)
+        return fullscore.system_problems(orchestra, probe)
 
     def legacy() -> list[str]:
         held = out / info.legacy_file

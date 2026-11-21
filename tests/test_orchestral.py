@@ -189,7 +189,7 @@ def test_the_gate_refuses_systems_that_open_off_the_source_s_bars(tmp_path):
 
     def laid(rows):
         mpos.write_text("<score><elements>" + "".join(f'<element id="{n}" x="0" y="{y}" sx="1" sy="1" page="0"/>' for n, y in enumerate(rows)) + "</elements></score>")
-        return fullcheck.system_problems(score, mpos)
+        return fullscore.system_problems(score, mpos)
 
     assert laid([100, 100, 300, 300]) == []
     assert laid([100, 100, 100, 300]) == ["systems open on bars [1, 4], the source's on [1, 3]"]
