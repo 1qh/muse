@@ -114,6 +114,8 @@ def decode(path: pathlib.Path) -> Score:
     score = settle_chord_bars(decoders[encoding(path)](str(path)))
     found = KEY.fullmatch(path.stem.rsplit("-", 1)[-1])
     score.minor = None if found is None else found[2] == "m"
+    for bar in score.bars:
+        bar.source_line = bar.new_system  # the source's own line starts, kept when a plan replaces them
     return score
 
 

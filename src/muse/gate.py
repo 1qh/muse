@@ -296,7 +296,8 @@ def chord_starts(score_path: pathlib.Path, score: Score) -> list[str]:
         print(f"{score_path.name}: a tie holds these lyric labels inside a line: {tied_labels}", flush=True)
     starts = sorted(opening)
     lone = [f"bar {first}: lone bar on a line" for first in piano.lone_lines(starts, len(score.bars))]  # no stranded single bar on any sheet
-    return [f"bar {bar}: line starts without its chord" for bar in found if bar not in marks] + [f"bar {bar}: lyric label inside a line" for bar in sorted(labels - opening - tied_in - after_mark)] + lone
+    sourced = {bar.number for bar in score.bars if bar.source_line}  # the source itself opens a line on that chordless bar
+    return [f"bar {bar}: line starts without its chord" for bar in found if bar not in marks and bar not in sourced] + [f"bar {bar}: lyric label inside a line" for bar in sorted(labels - opening - tied_in - after_mark)] + lone
 
 
 def even_bars(src: pathlib.Path, score_path: pathlib.Path, pdf: pathlib.Path, work: pathlib.Path, options: dict[str, object] | None, reduced: bool) -> list[str]:
