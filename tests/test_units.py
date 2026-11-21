@@ -1037,3 +1037,16 @@ def test_a_section_box_marks_the_barline_under_or_beside_it():
     assert mark_bar(row, 188.0, 205.0).number == 2  # starting just after it
     assert mark_bar(row, 50.8, 77.0).number == 1  # at the line's start, clear of every later barline
     assert mark_bar(row, 230.0, 250.0).number == 2  # inside a bar, clear of its barlines
+
+
+def test_a_chord_seated_where_the_seating_aims_after_a_sign_never_touches_it():
+    from muse.chordseat import TOLERANCE, sign_end
+    from muse.pdfcheck import sign_touches
+
+    sign = {"origin": (37.4, 245.7), "bbox": (37.4, 229.7, 46.1, 249.7)}
+    box = pymupdf.Rect(33.1, 231.1, 50.6, 248.6)  # the measured segno, its red box and a 20-point sign font
+    target = sign_end(sign, 20.0, [box])
+    for bearing in (0.4, 0.8, 1.2):  # a chord letter's ink starts this far past its text box
+        for stray in (-TOLERANCE, 0.0, TOLERANCE):
+            left = target + stray - bearing
+            assert not sign_touches(37.4, 245.7, 20.0, 11.2, [(left, left + 7.6, 246.5)]), (bearing, stray)

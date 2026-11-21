@@ -30,7 +30,8 @@ STEM_REACH = 1.0
 HEAD_CODES = (0xE0A0, 0xE0FF)
 INK_REACH = 0.8  # points a letter's ink can start left of its text box; further left is a neighbour
 SIGN_INK_WIDTH = 0.75  # the printed part of a segno or coda, in sign font sizes
-SIGN_CLEAR = 0.5  # points between a sign's box and the chord after it, past the seating tolerance
+SIGN_CLEAR = 1.5  # points between a sign's room and the ink of the chord after it, past the seating tolerance: enough that the chord letter's side bearing stays clear too
+SIGN_TOUCH_SLACK = 1.0  # points the printed part of a sign may reach into a chord letter's box and still read as clear
 SIGN_FRAME = (10.0, 60.0)  # points wide the coloured box around a sign can be
 TARGET_LABELS = ("segno", "codab")  # marker labels of the signs a jump returns to
 SIGN_TEXT_OVERLAP = 0.5  # points a box may touch past its barline before it counts as crossing
@@ -192,11 +193,16 @@ def measure_boxes(mpos: pathlib.Path) -> list[dict[str, float]]:
 
 
 def sign_end(char: dict[str, Any], size: float, frames: list[pymupdf.Rect]) -> float:
-    """Where a segno or coda stops taking room: the right edge of the coloured box drawn around it, else its printed glyph."""
+    """Where a segno or coda stops taking room: the further of the coloured box drawn around it and its printed glyph, 1 definition with the touch check."""
     middle = ((char["bbox"][0] + char["bbox"][2]) / 2, (char["bbox"][1] + char["bbox"][3]) / 2)
     around = [frame.x1 for frame in frames if frame.x0 <= middle[0] <= frame.x1 and frame.y0 <= middle[1] <= frame.y1]
-    edge = float(max(around)) if around else float(char["origin"][0]) + size * SIGN_INK_WIDTH
-    return edge + TOLERANCE + SIGN_CLEAR  # clear of the box by more than a chord may stray from its target
+    edge = float(max([*around, sign_ink_end(float(char["origin"][0]), size)]))
+    return edge + TOLERANCE + SIGN_CLEAR  # clear of the box and the glyph by more than a chord may stray from its target
+
+
+def sign_ink_end(x: float, size: float) -> float:
+    """Where a sign's printed part ends, as the touch check judges it."""
+    return x + size * SIGN_INK_WIDTH - SIGN_TOUCH_SLACK
 
 
 def sign_middle(char: dict[str, Any]) -> float:

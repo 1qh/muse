@@ -22,9 +22,7 @@ CHORD_FLOOR = 9.0  # points: text this large starting with a note letter is a ch
 COVER_SLACK = 1.5  # points a sign may graze a chord letter
 ROW_SLACK = 10.0  # points a sign baseline may rise above its line's chord baseline
 SIGN_OVER_CHORD = 1.6
-SIGN_TOUCH_SLACK = 1.0
 MAX_CHORD_SPACES = 2.5  # chord baseline above the staff top, on a line with no notes
-SIGN_INK_WIDTH = 0.75  # the printed part of a sign, in sign font sizes
 SIGN_BASELINE_SHARE = 0.3  # a sign higher than this share of the chord size clears the letters
 CLEFS = {0xE050, 0xE052, 0xE053}
 HEAD_CODES = (0xE0A0, 0xE0FF)
@@ -222,7 +220,7 @@ def overlap(a: tuple[float, float, float, float], b: tuple[float, float, float, 
 
 def sign_touches(x: float, y: float, size: float, chord_size: float, chord_letters: list[tuple[float, float, float]]) -> bool:
     """Whether a sign's ink runs into a chord letter, given each letter's left, right and baseline."""
-    ink_end = x + size * SIGN_INK_WIDTH - SIGN_TOUCH_SLACK  # a chord seated right after a sign meets it without touching
+    ink_end = chordseat.sign_ink_end(x, size)  # a chord seated right after a sign meets it without touching; the seating aims past this same end
     return any(abs(base - y) < chord_size * SIGN_BASELINE_SHARE and x < right and left < ink_end for left, right, base in chord_letters)
 
 
