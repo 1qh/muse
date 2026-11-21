@@ -242,14 +242,16 @@ def plan(score: Score, widths: list[float], room: float, variant: str | None = N
     stretched = shares is not None and not mode.PRINT  # strict mode widens no bar for its chords: the whole line stretches evenly
 
     def width(line: list[int]) -> float:
-        """A line's width once its empty bars are evened to the widest of them, as they will be; in strict mode, its natural widths stretched by its most chord-bound bar, as justification will."""
-        if stretched:
-            assert shares is not None
-            natural = [widths[i] / shares[i] for i in line]
-            widest = max((n for n, i in zip(natural, line, strict=True) if empty[i]), default=0.0)
-            return sum(widest if empty[i] else n for n, i in zip(natural, line, strict=True)) * max(shares[i] for i in line)
+        """A line's width once its empty bars are evened to the widest of them, as they will be; in strict mode at least its natural widths stretched by its most chord-bound empty bar, as justification will."""
         widest = max((widths[i] for i in line if empty[i]), default=0.0)
-        return sum(widest if empty[i] else widths[i] for i in line)
+        added = sum(widest if empty[i] else widths[i] for i in line)
+        if not stretched:
+            return added
+        assert shares is not None
+        natural = [widths[i] / shares[i] for i in line]
+        bare = max((n for n, i in zip(natural, line, strict=True) if empty[i]), default=0.0)
+        stretch = max((shares[i] for i in line if empty[i]), default=1.0)  # only an empty bar's chords need the whole line stretched
+        return max(added, sum(bare if empty[i] else n for n, i in zip(natural, line, strict=True)) * stretch)
 
     def judged(line: list[int], opens_block: bool, ends_block: bool, lone_allowed: bool) -> tuple[int, float]:
         used = width(line)
