@@ -232,26 +232,17 @@ def blocks_of(score: Score, variant: str | None) -> list[list[int]]:
     return joined
 
 
-def plan(score: Score, widths: list[float], room: float, variant: str | None = None, shares: list[float] | None = None) -> set[int]:
+def plan(score: Score, widths: list[float], room: float, variant: str | None = None) -> set[int]:
     """1-based line starts: per section, the break set with fewest rule breaks, then fewest lines, then the most even fill."""
     cap = room * LINE_SHARE
     tied = [port.tied_out(bar) for bar in score.bars]
     empty = [not piano.has_notes(bar) for bar in score.bars]
     chorded = [bool(bar.chords) or bar.source_line for bar in score.bars]  # a chordless bar the source itself opens a line on may open one here too
 
-    stretched = shares is not None and not mode.PRINT  # strict mode widens no bar for its chords: the whole line stretches evenly
-
     def width(line: list[int]) -> float:
-        """A line's width once its empty bars are evened to the widest of them, as they will be; in strict mode at least its natural widths stretched by its most chord-bound empty bar, as justification will."""
+        """A line's width once its empty bars are evened to the widest of them, as they will be: an empty bar widens for its own chords and its line's empty bars follow."""
         widest = max((widths[i] for i in line if empty[i]), default=0.0)
-        added = sum(widest if empty[i] else widths[i] for i in line)
-        if not stretched:
-            return added
-        assert shares is not None
-        natural = [widths[i] / shares[i] for i in line]
-        bare = max((n for n, i in zip(natural, line, strict=True) if empty[i]), default=0.0)
-        stretch = max((shares[i] for i in line if empty[i]), default=1.0)  # only an empty bar's chords need the whole line stretched
-        return max(added, sum(bare if empty[i] else n for n, i in zip(natural, line, strict=True)) * stretch)
+        return sum(widest if empty[i] else widths[i] for i in line)
 
     def judged(line: list[int], opens_block: bool, ends_block: bool, lone_allowed: bool) -> tuple[int, float]:
         used = width(line)
@@ -303,7 +294,7 @@ def candidate(src: pathlib.Path, work: pathlib.Path, variant: str, size: float) 
     with BATCHER.worker():
         sheet = Sheet(src, work, variant, size)
         widths, room = measure(sheet)
-        sheet.set_lines(plan(sheet.score, widths, room, sheet.variant, sheet.shares or None))
+        sheet.set_lines(plan(sheet.score, widths, room, sheet.variant))
         _, probe = render(sheet, "plan")
         wanted = sheet.starts()
         held = sorted({1, *port.system_starts(probe)}) == wanted
@@ -457,7 +448,7 @@ def finish_at(src: pathlib.Path, work: pathlib.Path, variant: str, size: float, 
     score_path = sheet.path("final")
     tried: set[frozenset[int]] = set()
     for _ in range(REPLAN_ROUNDS):
-        sheet.set_lines(plan(sheet.score, widths, room, sheet.variant, sheet.shares or None))
+        sheet.set_lines(plan(sheet.score, widths, room, sheet.variant))
         tried.add(frozenset(sheet.starts()))
         _, probe = render(sheet, "final")
         bad = overflowing(sheet, probe, seated=False)
@@ -475,7 +466,7 @@ def finish_at(src: pathlib.Path, work: pathlib.Path, variant: str, size: float, 
         grown = widths
         for _ in range(GROW_STEPS):  # widen those bars until the plan actually changes; 1 step is often too little to cross a break
             grown = [width * GROW if index in bad else width for index, width in enumerate(grown)]
-            if frozenset(plan(sheet.score, grown, room, sheet.variant, sheet.shares or None)) not in tried:  # a plan already rendered would only repeat its fault
+            if frozenset(plan(sheet.score, grown, room, sheet.variant)) not in tried:  # a plan already rendered would only repeat its fault
                 break
         else:
             raise port.DoesNotFit(f"{sheet.name} at {size}: bars {sorted(b + 1 for b in bad)} overflow and no plan can move them: {port.crowded_reasons(probe)[:3]}")

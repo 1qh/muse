@@ -475,8 +475,8 @@ def signed_bars(text: str) -> set[int]:
     return {number for number, match in enumerate(MEASURE.finditer(body), 1) if "<Marker>" in match.group(0) or "<Jump>" in match.group(0)}
 
 
-def empty_widths(text: str, lines: list[dict[str, Any]], noted: set[int]) -> list[tuple[int, float, float]]:
-    """(bar, width, the line's mean empty width) for each bar with no notes and no sign, on lines whose barlines match the score: evening and judgement share this 1 definition."""
+def empty_lines(text: str, lines: list[dict[str, Any]], noted: set[int]) -> list[list[tuple[int, float]]]:
+    """Per line whose barlines match the score, (bar, width) of each bar with no notes and no sign, where it holds 2 or more."""
     noted = noted | signed_bars(text)
     found = []
     chorded = [row for row, chords in zip(bar_rows(text), rows_of(text), strict=True) if chords]
@@ -485,17 +485,20 @@ def empty_widths(text: str, lines: list[dict[str, Any]], noted: set[int]) -> lis
         if len(widths) != len(row):
             continue
         empty = [(bar, width) for bar, width in zip(row, widths, strict=True) if bar not in noted]
-        if len(empty) < 2:
-            continue
-        mean = sum(width for _, width in empty) / len(empty)
-        found += [(bar, width, mean) for bar, width in empty]
+        if len(empty) >= 2:
+            found.append(empty)
     return found
 
 
+def empty_widths(text: str, lines: list[dict[str, Any]], noted: set[int]) -> list[tuple[int, float, float]]:
+    """(bar, width, the line's mean empty width) for each bar with no notes and no sign: evening and judgement share this 1 definition."""
+    return [(bar, width, sum(w for _, w in empty) / len(empty)) for empty in empty_lines(text, lines, noted) for bar, width in empty]
+
+
 def equalize(mscz: pathlib.Path, pdf: pathlib.Path, noted: set[int]) -> bool:
-    """Correct each empty bar's stretch by its measured width; True when anything moved."""
+    """Correct each empty bar's stretch toward the widest empty bar of its line, which an empty bar's own chords may have widened; True when anything moved."""
     name, text = score_text(mscz)
-    off = {bar: mean / width for bar, width, mean in empty_widths(text, matched(text, pdf), noted) if abs(width - mean) > EQUAL_TOLERANCE / 2}
+    off = {bar: widest / width for empty in empty_lines(text, matched(text, pdf), noted) for widest in [max(w for _, w in empty)] for bar, width in empty if abs(width - widest) > EQUAL_TOLERANCE / 2}
     if not off:
         return False
     set_stretch(mscz, off)

@@ -406,9 +406,10 @@ function main() {
         seatStarts(all)
         var short = shortfalls(all)
         var moved = curScore.metaTag("museEven") === "0" ? 0 : even()  // the caller evens from a fresh render when it says so
-        var widening = curScore.metaTag("museEven") !== "0" || curScore.metaTag("museWiden") === "1"  // chord text sets no bar's width unless the caller allows it
-        if ((!short.length || !widening) && !moved) break
-        if (short.length && widening) widen(short)
+        var widening = curScore.metaTag("museEven") !== "0" || curScore.metaTag("museWiden") === "1"  // a bar with notes widens for its chords only where the caller allows it
+        var wide = widening ? short : short.filter(function (item) { return !isNoted(item.measure) })  // an empty bar always widens for its chords; the caller then evens its line's empty bars to the widest
+        if (!wide.length && !moved) break
+        if (wide.length) widen(wide)
     }
     seatStarts(all)
     var remaining = shortfalls(all)

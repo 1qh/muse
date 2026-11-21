@@ -319,20 +319,6 @@ def test_the_line_gap_widens_past_any_fixed_count_until_the_checks_pass(monkeypa
     assert len(tried) == 7  # 6 gaps refused, the 7th passes: far beyond 4 steps
 
 
-def test_a_strict_line_is_stretched_by_its_most_chord_bound_bar(monkeypatch) -> None:
-    """Strict mode widens no bar for its chords: an empty bar whose 2 chords need 5 times its natural width cannot share a line with dense bars."""
-    monkeypatch.setattr(layout.mode, "PRINT", False)
-    score = Score([noted(1), noted(2), empty(3), noted(4), noted(5)], [], [])
-    natural = [30.0, 30.0, 4.0, 30.0, 30.0]
-    shares = [1.0, 1.0, 5.0, 1.0, 1.0]
-    widths = [n * s for n, s in zip(natural, shares, strict=True)]
-    additive = sorted(layout.plan(score, widths, ROOM))
-    strict = sorted(layout.plan(score, widths, ROOM, shares=shares))
-    rows = [range(first, stop) for first, stop in zip(strict, [*strict[1:], 6], strict=True)]
-    assert all(not (3 in row and ({1, 2, 4, 5} & set(row))) for row in rows), strict
-    assert additive != strict, "the additive model must accept a mixed line here, or the guard judges nothing"
-
-
 def test_a_line_may_open_on_a_chordless_bar_only_where_the_source_opens_one() -> None:
     score = Score([noted(1), noted(2), noted(3, chords=False), noted(4), noted(5)], [], [])
     widths = [30.0, 30.0, 30.0, 28.0, 28.0]  # 1-2 then 3-5 fills more evenly than 1-3 then 4-5, but opens on the chordless bar
@@ -344,16 +330,6 @@ def test_a_line_may_open_on_a_chordless_bar_only_where_the_source_opens_one() ->
     assert port.line_rule_breaks(score, port.ORIGINAL) == []
     score.bars[2].source_line = False
     assert port.line_rule_breaks(score, port.ORIGINAL) == [3]
-
-
-def test_a_strict_line_holds_a_noted_bar_whose_chords_need_room(monkeypatch) -> None:
-    """The spacing gives a bar with notes room for its chords: only an empty bar's chords stretch the whole line."""
-    monkeypatch.setattr(layout.mode, "PRINT", False)
-    score = Score([noted(n) for n in range(1, 5)], [], [])
-    natural = [20.0, 20.0, 15.0, 20.0]
-    shares = [1.0, 1.0, 2.0, 1.0]
-    widths = [n * s for n, s in zip(natural, shares, strict=True)]
-    assert sorted(layout.plan(score, widths, ROOM, shares=shares)) == [1]  # 20 + 20 + 30 + 20 = 90 fits; stretching the line by 2 would not
 
 
 def test_the_layout_refuses_a_line_break_inside_a_short_tie() -> None:
@@ -370,3 +346,14 @@ def test_the_layout_judges_even_empty_bars_in_strict_mode(monkeypatch, tmp_path)
     sheet = types.SimpleNamespace(score=Score([noted(1), empty(2)], [], []))
     assert layout.uneven_empty_bars(sheet, tmp_path / "s.mscz", tmp_path / "s.pdf") == ["bar 2: 30.0 pt wide, line mean 20.0"]  # type: ignore[arg-type]
     assert seen == [{1}]
+
+
+def test_a_lines_empty_bars_are_evened_to_the_widest(monkeypatch, tmp_path) -> None:
+    """An empty bar widens for its own chords, and the rest of its line's empty bars follow it, so they stay equal."""
+    set_to: dict[int, float] = {}
+    monkeypatch.setattr(layout.chordseat, "score_text", lambda _: ("s", ""))
+    monkeypatch.setattr(layout.chordseat, "matched", lambda text, pdf: [])
+    monkeypatch.setattr(layout.chordseat, "empty_lines", lambda text, lines, noted: [[(2, 20.0), (3, 40.0), (4, 20.0)]])
+    monkeypatch.setattr(layout.chordseat, "set_stretch", lambda mscz, off: set_to.update(off))
+    assert layout.chordseat.equalize(tmp_path / "s.mscz", tmp_path / "s.pdf", set())
+    assert set_to == {2: 2.0, 4: 2.0}
