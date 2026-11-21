@@ -441,6 +441,13 @@ def finish(src: pathlib.Path, work: pathlib.Path, variant: str, size: float) -> 
     raise refusal
 
 
+def uneven_empty_bars(sheet: Sheet, score_path: pathlib.Path, probe: pathlib.Path) -> list[str]:
+    """The gate's even-bars rule in strict mode: the empty bars of 1 line are equal; print mode lets a bar widen for its own chords, which the gate alone measures."""
+    if mode.PRINT:
+        return []
+    return chordseat.uneven(score_path, probe, {bar.number for bar in sheet.score.bars if piano.has_notes(bar)})
+
+
 def finish_at(src: pathlib.Path, work: pathlib.Path, variant: str, size: float, distance: float, learned: list[list[float]] | None = None) -> tuple[Score, pathlib.Path, float, float, int]:
     """1 size and line gap from plan to a seated sheet that passes every final check; a line that will not hold grows its estimate and the whole plan is made again."""
     sheet = Sheet(src, work, variant, size, distance)
@@ -477,7 +484,7 @@ def finish_at(src: pathlib.Path, work: pathlib.Path, variant: str, size: float, 
             learned.append(widths)
     else:
         raise port.DoesNotFit(f"{sheet.name} at {size}: lines still overflow after {REPLAN_ROUNDS} plans")
-    problems = pdfcheck.all_problems(probe, sheet.title) + chordseat.problems(score_path, probe) + chordseat.crowded_line_texts(score_path, probe) + port.line_rule_reasons(sheet.score, sheet.variant)
+    problems = pdfcheck.all_problems(probe, sheet.title) + chordseat.problems(score_path, probe) + chordseat.crowded_line_texts(score_path, probe) + port.line_rule_reasons(sheet.score, sheet.variant) + uneven_empty_bars(sheet, score_path, probe)
     if problems:
         raise port.DoesNotFit(f"{sheet.name} at {size}: {problems[:3]}")
     return sheet.score, score_path, size, sheet.distance, len(pdftext.open(probe))

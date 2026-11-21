@@ -447,6 +447,27 @@ def line_starts(score: Score) -> list[int]:
 
 
 
+MIN_TIED_CHAIN = 4  # a tied run of this many bars may not fit 1 line
+
+
+def tie_findings(starts: list[int], tied: list[bool]) -> tuple[list[str], list[str]]:
+    """A tie over a line end fails unless its tied run is too long for 1 line, which is only reported."""
+    failures: list[str] = []
+    reported: list[str] = []
+    for start in starts:
+        if start < 2 or start > len(tied) or not tied[start - 2]:
+            continue
+        low = start - 2
+        while low > 0 and tied[low - 1]:
+            low -= 1
+        high = start - 2
+        while high + 1 < len(tied) and tied[high + 1]:
+            high += 1
+        run = high - low + 2
+        (reported if run >= MIN_TIED_CHAIN else failures).append(f"tie over line end into bar {start} (tied run of {run} bars)")
+    return failures, reported
+
+
 def line_rule_reasons(score: Score, variant: str = TONE) -> list[str]:
     """Bars the line rules say start a line and that sit inside one, or lines opening on a bar without a chord that a mark does not excuse; on any sheet a label may sit second after a mark bar that opens its line."""
     firsts = {row[0] for row in rows(score)}
@@ -456,12 +477,21 @@ def line_rule_reasons(score: Score, variant: str = TONE) -> list[str]:
     bare = [n for n in firsts if n not in marks and not score.bars[n - 1].chords and not score.bars[n - 1].source_line]  # the source's own break on a chordless bar reads as the original does
     lone = piano.lone_lines(sorted(firsts), len(score.bars))  # the gate's own reading: no stranded single bar on any sheet
     found = [(n, "its label sits inside a line") for n in inside] + [(n, "opens a line with no chord") for n in bare] + [(n, "a line holds this bar alone") for n in lone]
-    return [f"bar {n}: {why}" for n, why in sorted(set(found))]
+    ties = tie_findings(sorted(firsts), [tied_out(bar) for bar in score.bars])[0]  # the gate's own tie rule
+    return [f"bar {n}: {why}" for n, why in sorted(set(found))] + ties
 
 
 def line_rule_breaks(score: Score, variant: str = TONE) -> list[int]:
     """The bars that break a line rule, each once."""
-    return sorted({int(reason.split()[1].rstrip(":")) for reason in line_rule_reasons(score, variant)})
+    return sorted({bar_of(reason) for reason in line_rule_reasons(score, variant)})
+
+
+def bar_of(reason: str) -> int:
+    """The bar a line-rule reason names."""
+    found = re.search(r"bar (\d+)", reason)
+    if found is None:
+        raise ValueError(f"a line-rule reason names no bar: {reason}")
+    return int(found[1])
 
 
 

@@ -86,9 +86,9 @@ def test_ink_near_any_edge_fails(tmp_path):
 
 def test_tie_over_a_line_end_fails_unless_the_run_cannot_fit():
     tied = [False, True, False, False, False]
-    assert gate.tie_findings([1, 3], tied)[0] == ["tie over line end into bar 3 (tied run of 2 bars)"]
-    assert gate.tie_findings([1, 4], tied) == ([], [])
-    assert gate.tie_findings([1, 4], [True, True, True, True, False])[1] == ["tie over line end into bar 4 (tied run of 5 bars)"]
+    assert port.tie_findings([1, 3], tied)[0] == ["tie over line end into bar 3 (tied run of 2 bars)"]
+    assert port.tie_findings([1, 4], tied) == ([], [])
+    assert port.tie_findings([1, 4], [True, True, True, True, False])[1] == ["tie over line end into bar 4 (tied run of 5 bars)"]
 
 
 def test_line_lengths_count_short_lines():
