@@ -118,9 +118,12 @@ class Sheet:
     style: pathlib.Path = field(init=False)
     import_style: pathlib.Path = field(init=False)
     name: str = field(init=False)
+    shares: list[float] = field(init=False, default_factory=list)  # per bar, how much its own chords widen it past its notes, measured with the natural widths
 
     def __post_init__(self) -> None:
         self.score = decode(self.src)
+        for bar in self.score.bars:
+            bar.source_line = bar.new_system  # the decoders mark the source's own line starts; the plan replaces them
         info = song_of(self.src, self.score)
         if self.variant == port.PIANO:
             piano.reduce(self.score)
@@ -196,6 +199,7 @@ def measure(sheet: Sheet) -> tuple[list[float], float]:
     BATCHER.render(normal, [normal.with_suffix(".mpos")], sheet.options)
     laid_natural = boxes(natural.with_suffix(".mpos"))
     shares = chord_shares(natural, len(laid_natural), [index for index, bar in enumerate(sheet.score.bars) if piano.has_notes(bar)])
+    sheet.shares = shares
     widths = [box["sx"] * share for box, share in zip(laid_natural, shares, strict=True)]
     laid = boxes(normal.with_suffix(".mpos"))
     first = [box for box in laid if box["page"] == laid[0]["page"] and box["y"] == laid[0]["y"]]
@@ -230,15 +234,22 @@ def blocks_of(score: Score, variant: str | None) -> list[list[int]]:
     return joined
 
 
-def plan(score: Score, widths: list[float], room: float, variant: str | None = None) -> set[int]:
+def plan(score: Score, widths: list[float], room: float, variant: str | None = None, shares: list[float] | None = None) -> set[int]:
     """1-based line starts: per section, the break set with fewest rule breaks, then fewest lines, then the most even fill."""
     cap = room * LINE_SHARE
     tied = [port.tied_out(bar) for bar in score.bars]
     empty = [not piano.has_notes(bar) for bar in score.bars]
-    chorded = [bool(bar.chords) for bar in score.bars]
+    chorded = [bool(bar.chords) or bar.source_line for bar in score.bars]  # a chordless bar the source itself opens a line on may open one here too
+
+    stretched = shares is not None and not mode.PRINT  # strict mode widens no bar for its chords: the whole line stretches evenly
 
     def width(line: list[int]) -> float:
-        """A line's width once its empty bars are evened to the widest of them, as they will be."""
+        """A line's width once its empty bars are evened to the widest of them, as they will be; in strict mode, its natural widths stretched by its most chord-bound bar, as justification will."""
+        if stretched:
+            assert shares is not None
+            natural = [widths[i] / shares[i] for i in line]
+            widest = max((n for n, i in zip(natural, line, strict=True) if empty[i]), default=0.0)
+            return sum(widest if empty[i] else n for n, i in zip(natural, line, strict=True)) * max(shares[i] for i in line)
         widest = max((widths[i] for i in line if empty[i]), default=0.0)
         return sum(widest if empty[i] else widths[i] for i in line)
 
@@ -292,7 +303,7 @@ def candidate(src: pathlib.Path, work: pathlib.Path, variant: str, size: float) 
     with BATCHER.worker():
         sheet = Sheet(src, work, variant, size)
         widths, room = measure(sheet)
-        sheet.set_lines(plan(sheet.score, widths, room, sheet.variant))
+        sheet.set_lines(plan(sheet.score, widths, room, sheet.variant, sheet.shares or None))
         _, probe = render(sheet, "plan")
         wanted = sheet.starts()
         held = sorted({1, *port.system_starts(probe)}) == wanted
@@ -323,7 +334,14 @@ def overflowing(sheet: Sheet, probe: pathlib.Path, seated: bool) -> set[int]:
     wanted, got = sheet.starts(), sorted({1, *port.system_starts(probe)})
     extra = set(got) - set(wanted)
     crowded = port.crowded_rows(probe, wanted) | merged_rows(sheet.score, probe) if seated and not extra else set()
-    return {bar - 1 for row in port.rows(sheet.score) if row[0] in crowded or any(row[0] < bar <= row[-1] for bar in extra) for bar in row}
+    bad: set[int] = set()
+    for row in port.rows(sheet.score):
+        if any(row[0] < bar <= row[-1] for bar in extra):  # a wrapped line: every bar is too wide
+            bad |= {bar - 1 for bar in row}
+        elif row[0] in crowded:  # a crowded line: the bars whose own chords need more room than their notes give, when it has any
+            bound = {bar - 1 for bar in row if bar - 1 < len(sheet.shares) and sheet.shares[bar - 1] > 1}
+            bad |= bound or {bar - 1 for bar in row}
+    return bad
 
 
 def merged_rows(score: Score, probe: pathlib.Path) -> set[int]:
@@ -432,7 +450,7 @@ def finish_at(src: pathlib.Path, work: pathlib.Path, variant: str, size: float, 
     score_path = sheet.path("final")
     tried: set[frozenset[int]] = set()
     for _ in range(REPLAN_ROUNDS):
-        sheet.set_lines(plan(sheet.score, widths, room, sheet.variant))
+        sheet.set_lines(plan(sheet.score, widths, room, sheet.variant, sheet.shares or None))
         tried.add(frozenset(sheet.starts()))
         _, probe = render(sheet, "final")
         bad = overflowing(sheet, probe, seated=False)
@@ -450,7 +468,7 @@ def finish_at(src: pathlib.Path, work: pathlib.Path, variant: str, size: float, 
         grown = widths
         for _ in range(GROW_STEPS):  # widen those bars until the plan actually changes; 1 step is often too little to cross a break
             grown = [width * GROW if index in bad else width for index, width in enumerate(grown)]
-            if frozenset(plan(sheet.score, grown, room, sheet.variant)) not in tried:  # a plan already rendered would only repeat its fault
+            if frozenset(plan(sheet.score, grown, room, sheet.variant, sheet.shares or None)) not in tried:  # a plan already rendered would only repeat its fault
                 break
         else:
             raise port.DoesNotFit(f"{sheet.name} at {size}: bars {sorted(b + 1 for b in bad)} overflow and no plan can move them: {port.crowded_reasons(probe)[:3]}")

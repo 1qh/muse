@@ -87,6 +87,7 @@ class Bar:
     time_symbol: str | None = None
     key: int | None = None
     new_system: bool = False
+    source_line: bool = False  # the source opens a line on this bar
     new_page: bool = False
     voices: list[list[Event]] = dataclasses.field(default_factory=list)
     voices2: list[list[Event]] = dataclasses.field(default_factory=list)

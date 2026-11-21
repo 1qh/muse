@@ -256,7 +256,7 @@ def test_the_seated_overflow_check_reports_lines_whose_chords_merged(monkeypatch
 
     bars = [Bar(n, 0, 0.0, 100.0, F(4)) for n in range(1, 5)]
     bars[2].new_system = True
-    sheet = SimpleNamespace(score=Score(bars, [], []), starts=lambda: [1, 3])
+    sheet = SimpleNamespace(score=Score(bars, [], []), starts=lambda: [1, 3], shares=[])
     monkeypatch.setattr(port, "system_starts", lambda probe: [1, 3])
     monkeypatch.setattr(port, "crowded_rows", lambda probe, wanted: set())
     monkeypatch.setattr(layout, "merged_rows", lambda score, probe: {3})
@@ -317,3 +317,30 @@ def test_the_line_gap_widens_past_any_fixed_count_until_the_checks_pass(monkeypa
     monkeypatch.setattr(layout, "finish_at", finish_at)
     assert layout.finish(pathlib.Path("s.pdf"), pathlib.Path("w"), "original", 2.0)[3] == port.BASE_DISTANCE + 12
     assert len(tried) == 7  # 6 gaps refused, the 7th passes: far beyond 4 steps
+
+
+def test_a_strict_line_is_stretched_by_its_most_chord_bound_bar(monkeypatch) -> None:
+    """Strict mode widens no bar for its chords: an empty bar whose 2 chords need 5 times its natural width cannot share a line with dense bars."""
+    monkeypatch.setattr(layout.mode, "PRINT", False)
+    score = Score([noted(1), noted(2), empty(3), noted(4), noted(5)], [], [])
+    natural = [30.0, 30.0, 4.0, 30.0, 30.0]
+    shares = [1.0, 1.0, 5.0, 1.0, 1.0]
+    widths = [n * s for n, s in zip(natural, shares, strict=True)]
+    additive = sorted(layout.plan(score, widths, ROOM))
+    strict = sorted(layout.plan(score, widths, ROOM, shares=shares))
+    rows = [range(first, stop) for first, stop in zip(strict, [*strict[1:], 6], strict=True)]
+    assert all(not (3 in row and ({1, 2, 4, 5} & set(row))) for row in rows), strict
+    assert additive != strict, "the additive model must accept a mixed line here, or the guard judges nothing"
+
+
+def test_a_line_may_open_on_a_chordless_bar_only_where_the_source_opens_one() -> None:
+    score = Score([noted(1), noted(2), noted(3, chords=False), noted(4), noted(5)], [], [])
+    widths = [30.0, 30.0, 30.0, 28.0, 28.0]  # 1-2 then 3-5 fills more evenly than 1-3 then 4-5, but opens on the chordless bar
+    assert 3 not in layout.plan(score, widths, ROOM)
+    score.bars[2].source_line = True
+    assert 3 in layout.plan(score, widths, ROOM)
+    for bar, first in zip(score.bars, (True, False, True, False, False), strict=True):
+        bar.new_system = first
+    assert port.line_rule_breaks(score, port.ORIGINAL) == []
+    score.bars[2].source_line = False
+    assert port.line_rule_breaks(score, port.ORIGINAL) == [3]
