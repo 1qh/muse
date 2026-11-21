@@ -125,6 +125,18 @@ def bar_at(bars: list[Bar], x: float, lead: float) -> Bar:
     return begun[-1] if begun else bars[0]
 
 
+MARK_REACH = 6.0  # points a section label may stand clear of the barline it marks
+
+
+def mark_bar(bars: list[Bar], left: float, right: float) -> Bar:
+    """The bar a section label marks: of the barlines under the label or within a few points of it, the one nearest its middle, since an engraver sets a section box on, just before or just after the barline it opens; else the bar it sits in."""
+    middle = (left + right) / 2
+    near = [bar for bar in bars[1:] if left - MARK_REACH <= bar.left <= right + MARK_REACH]
+    if near:
+        return min(near, key=lambda bar: abs(bar.left - middle))
+    return bar_at(bars, middle, 0.0)
+
+
 @dataclasses.dataclass
 class Score:
     bars: list[Bar]

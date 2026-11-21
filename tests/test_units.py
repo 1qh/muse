@@ -1026,3 +1026,14 @@ def test_decoding_keeps_the_sources_line_starts(monkeypatch):
     monkeypatch.setattr(song.leland, "decode", lambda _: decoded)
     monkeypatch.setattr(song, "settle_chord_bars", lambda score: score)
     assert [bar.source_line for bar in song.decode(pathlib.Path("X-C.pdf")).bars] == [False, False, True]
+
+
+def test_a_section_box_marks_the_barline_under_or_beside_it():
+    from muse.model import mark_bar
+
+    row = [Bar(n, 0, left, right, F(4)) for n, (left, right) in enumerate([(42.5, 186.2), (186.2, 290.4), (290.4, 341.4)], 1)]
+    assert mark_bar(row, 172.1, 198.4).number == 2  # centred on the barline
+    assert mark_bar(row, 168.0, 183.0).number == 2  # ending just before it
+    assert mark_bar(row, 188.0, 205.0).number == 2  # starting just after it
+    assert mark_bar(row, 50.8, 77.0).number == 1  # at the line's start, clear of every later barline
+    assert mark_bar(row, 230.0, 250.0).number == 2  # inside a bar, clear of its barlines

@@ -43,6 +43,7 @@ def reading(score):
         rows.append("|".join(f"{c.root}{c.root_alter}{c.kind}/{c.bass}{c.bass_alter}" for c in b.chords))
         rows.append(f"{b.repeat_start}{b.repeat_end}{b.volta}{b.segno}{b.coda}{b.to_coda}{b.dal_segno}")
         rows.append("|".join(f"{'^' if text.above else 'v'}" + "".join(run[0] for run in text.runs) for text in [*b.texts, *b.texts2]))
+        rows.append("|".join(b.rehearsal))
     return "\n".join(rows)
 
 
@@ -228,3 +229,38 @@ def test_every_lyric_hint_reads_under_the_staff_it_is_printed_under() -> None:
     assert judged, "no lyric hint found in any source: the guard would judge nothing"
     assert not lost
     assert not above
+
+
+def boxed_labels(path: pathlib.Path) -> list[str]:
+    """Every bold label a source prints alone inside a drawn box: its section marks; a parenthesised instruction in a box is a cue."""
+    import pymupdf
+
+    found = []
+    for page in pymupdf.open(path):
+        boxes = [d["rect"] for d in page.get_drawings() if 8 < d["rect"].width < 140 and 8 < d["rect"].height < 30]
+        held: dict[int, list[tuple[str, bool]]] = {}
+        for block in page.get_text("dict")["blocks"]:
+            for line in block.get("lines", []):
+                for span in line["spans"]:
+                    x, y = span["origin"]
+                    at = next((n for n, r in enumerate(boxes) if r.x0 - 1 <= x <= r.x1 and r.y0 <= y <= r.y1 + 1), None)
+                    if at is not None and span["text"].strip():
+                        held.setdefault(at, []).append((span["text"].strip(), "Bold" in span["font"]))
+        for pieces in held.values():
+            text = " ".join(piece for piece, _ in pieces)
+            if all(bold for _, bold in pieces) and len(text) > 1 and not text.rstrip(".").isdigit() and not text.startswith("("):
+                found.append(text)
+    return found
+
+
+def test_every_boxed_section_label_reads_as_a_section_mark() -> None:
+    """A boxed label read as a plain cue neither starts its line nor prints as a section, and a performer misses the interlude."""
+    judged, lost = 0, []
+    for folder in os.environ["MUSE_SOURCES"].split(os.pathsep):
+        for path in sorted(pathlib.Path(folder).glob("*.pdf")):
+            marks = [mark for bar in decode(path).bars for mark in bar.rehearsal]
+            for label in boxed_labels(path):
+                judged += 1
+                lost += [] if label in marks else [(path.stem, label)]
+    assert judged, "no boxed label found in any source: the guard would judge nothing"
+    assert not lost
