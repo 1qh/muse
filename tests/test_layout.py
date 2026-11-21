@@ -344,3 +344,13 @@ def test_a_line_may_open_on_a_chordless_bar_only_where_the_source_opens_one() ->
     assert port.line_rule_breaks(score, port.ORIGINAL) == []
     score.bars[2].source_line = False
     assert port.line_rule_breaks(score, port.ORIGINAL) == [3]
+
+
+def test_a_strict_line_holds_a_noted_bar_whose_chords_need_room(monkeypatch) -> None:
+    """The spacing gives a bar with notes room for its chords: only an empty bar's chords stretch the whole line."""
+    monkeypatch.setattr(layout.mode, "PRINT", False)
+    score = Score([noted(n) for n in range(1, 5)], [], [])
+    natural = [20.0, 20.0, 15.0, 20.0]
+    shares = [1.0, 1.0, 2.0, 1.0]
+    widths = [n * s for n, s in zip(natural, shares, strict=True)]
+    assert sorted(layout.plan(score, widths, ROOM, shares=shares)) == [1]  # 20 + 20 + 30 + 20 = 90 fits; stretching the line by 2 would not
