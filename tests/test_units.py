@@ -1058,3 +1058,27 @@ def test_a_printed_tempo_becomes_words_and_a_metronome_mark():
     assert "<words" in out and "Andante religioso</words>" in out
     assert "<metronome><beat-unit>quarter</beat-unit><per-minute>58</per-minute></metronome>" in out
     assert '<sound tempo="58"/>' in out
+
+
+def test_a_text_with_nothing_to_print_writes_nothing():
+    assert musicxml.words(Text(0.0, 0.0, [("", True, True)], True)) == ""
+    bar = Bar(1, 0, 0, 100, F(4), key=0, time=(4, 4))
+    bar.tempo = ("", 68.0)
+    score = Score([bar], [], [])
+    score.minor = False
+    out = musicxml.measure(bar, 1, score)
+    assert "<words" not in out and "<per-minute>68</per-minute>" in out  # a tempo printed without words keeps its metronome mark
+
+
+def test_a_page_with_a_tall_blank_band_is_refused(tmp_path):
+    def page_with(gap: float) -> pathlib.Path:
+        doc = pymupdf.open()
+        page = doc.new_page(width=595, height=842)
+        page.insert_text((50, 60), "top line", fontsize=12)
+        page.insert_text((50, 60 + gap), "next line", fontsize=12)
+        path = tmp_path / f"p{gap:g}.pdf"
+        doc.save(path)
+        return path
+
+    assert pdfcheck.blank_bands(page_with(60)) == []
+    assert pdfcheck.blank_bands(page_with(300)) != []

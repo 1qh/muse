@@ -183,6 +183,7 @@ def check_song(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> tupl
     guarded("tone", lambda: inverse.check(src, out, work))
     guarded("chord beats", lambda: verify.chord_beat_problems(src, out / song.score_file))
     guarded("signs built in", lambda: scorefile.builtin_sign_problems(out / song.score_file))
+    guarded("empty texts", lambda: scorefile.empty_text_problems(out / song.score_file))
     guarded("chord file", lambda: chordnames.chord_path_problems(out / song.score_file))
     legacy = out / song.legacy_file
     if legacy.exists():

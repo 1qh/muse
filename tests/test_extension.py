@@ -421,3 +421,32 @@ def test_a_jump_moved_into_a_cues_span_stays_below_the_cue(tmp_path: pathlib.Pat
     cue = [pymupdf.Rect(w[:4]) for w in page.get_text("words") if w[4] == "Band"]
     assert len(frames) == 1 and len(cue) == 1
     assert frames[0].y0 >= cue[0].y1  # moved with automatic placement on, the sign stacks above the cue it meets
+
+
+def text_lifts(score_path: pathlib.Path) -> list[float]:
+    import zipfile
+
+    with zipfile.ZipFile(score_path) as archive:
+        text = archive.read(next(n for n in archive.namelist() if n.endswith(".mscx") and "/" not in n)).decode()
+    return [float(y) for y in re.findall(r'<StaffText>.*?<offset x="[^"]*" y="([^"]*)"', text, re.S)]
+
+
+def test_raising_a_text_again_never_lifts_it_further(tmp_path: pathlib.Path) -> None:
+    """The extension runs many times per sheet; a lift that stacks run after run pushes the line's staff down the page."""
+    from muse.model import Text
+
+    cues = [Text(10.0, -20.0, [(words, True, True)], True, "cue", 10.0) for words in ("PIANO ONLY", "Ballad", "BAND IN")]
+    bars = [resting(1, [chord("C", "maj7")], cues), resting(2, [chord("A", "m")])] + [resting(n, [chord("F")]) for n in range(3, 9)]
+    score_path = imported(tmp_path, bars, {1, 3, 5, 7})
+    pdf = score_path.with_suffix(".pdf")
+
+    def rendered() -> pathlib.Path:
+        BATCHER.render(score_path, [pdf, pdf.with_suffix(".mpos")], None)
+        return pdf
+
+    layout.seat_inked(score_path, rendered, lambda probe: True)
+    first = text_lifts(score_path)
+    assert first, "no cue was raised: the guard would judge nothing"
+    for _ in range(3):
+        layout.run_extension(score_path, score_path)
+    assert text_lifts(score_path) == pytest.approx(first, abs=0.05)

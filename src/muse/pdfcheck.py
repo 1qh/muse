@@ -398,8 +398,24 @@ def symbol_text_overlaps(path: pathlib.Path) -> list[str]:
     return found
 
 
+BLANK_BAND = 0.15  # share of a page's height a blank band between its first and last ink may span
+
+
+def blank_bands(path: pathlib.Path) -> list[str]:
+    """Every page leaving a blank band taller than BLANK_BAND of its height between its first and last ink."""
+    found = []
+    for number, page in enumerate(pdftext.open(path), 1):
+        pix = page.get_pixmap(dpi=36, colorspace=pymupdf.csGRAY)
+        rows = [y for y in range(pix.height) if min(pix.samples[y * pix.stride:y * pix.stride + pix.width]) < 128]
+        gap = max((b - a for a, b in zip(rows, rows[1:], strict=False)), default=0) / pix.height
+        if gap > BLANK_BAND:
+            found.append(f"p{number}: a blank band of {gap:.0%} of the page between its ink")
+    return found
+
+
 def all_problems(path: pathlib.Path, title: str) -> list[str]:
-    return empty_staves(path) + text_problems(path) + title_problems(path, title) + sign_problems(path) + sign_row_problems(path) + sign_on_chord(path) + seating_problems(path) + [f"text on text: {c[2]}" for c in text_collisions(path)] + sign_text_overlaps(path) + symbol_text_overlaps(path)
+    page = blank_bands(path)  # an empty band any cause leaves
+    return page + empty_staves(path) + text_problems(path) + title_problems(path, title) + sign_problems(path) + sign_row_problems(path) + sign_on_chord(path) + seating_problems(path) + [f"text on text: {c[2]}" for c in text_collisions(path)] + sign_text_overlaps(path) + symbol_text_overlaps(path)
 
 
 def main() -> None:

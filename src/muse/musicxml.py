@@ -37,6 +37,9 @@ TEMPO_TEXT = re.compile(r"(.*?)\s*\u2669\s*=\s*(\d+)")  # a printed tempo: its w
 
 
 def words(text: Text, staff_offset: int = 0) -> str:
+    """A text as MusicXML words, a printed tempo as words and a metronome mark; nothing for a text with nothing to print."""
+    if not any(content.strip() for content, _, _ in text.runs):
+        return ""
     place = "above" if text.above else "below"
     runs = []
     for content, bold, italic in text.runs:
@@ -251,7 +254,8 @@ def measure(bar: Bar, part: int, score: Score, time: tuple[int, int] | None = No
     if part == 1:
         if bar.tempo:
             label, bpm = bar.tempo[0], f"{bar.tempo[1]:g}"
-            out.append(f'<direction placement="above"><direction-type><words font-weight="bold" font-style="italic" font-size="{MAX_TEXT_SIZE:g}">{escape(label)}</words></direction-type></direction>')
+            if label.strip():  # a tempo printed without words writes its metronome mark alone
+                out.append(f'<direction placement="above"><direction-type><words font-weight="bold" font-style="italic" font-size="{MAX_TEXT_SIZE:g}">{escape(label)}</words></direction-type></direction>')
             out.append(f'<direction placement="above"><direction-type><metronome><beat-unit>quarter</beat-unit><per-minute>{bpm}</per-minute></metronome></direction-type><sound tempo="{bpm}"/></direction>')
         for mark in bar.rehearsal:
             out.append(f'<direction placement="above"><direction-type><rehearsal enclosure="square">{escape(mark)}</rehearsal></direction-type></direction>')

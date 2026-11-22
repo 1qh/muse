@@ -177,3 +177,20 @@ def chord_at(measure: ET.Element, onset: F) -> ET.Element | None:
                     return node
                 at += length_of(node, scale)
     return None
+
+
+TEXT_ELEMENTS = ("StaffText", "SystemText", "Tempo", "RehearsalMark", "Expression")
+
+
+def empty_text_problems(path: pathlib.Path) -> list[str]:
+    """Every text element with nothing to print: MuseScore still places it and reserves room for it."""
+    problems = []
+    for number, staff in enumerate(staves(root_of(path)), 1):
+        for bar, measure in enumerate(staff.findall("Measure"), 1):
+            for tag in TEXT_ELEMENTS:
+                for element in measure.iter(tag):
+                    shown = element.find("text")
+                    if shown is None or ("".join(shown.itertext()).strip() or shown.find(".//sym") is not None):
+                        continue
+                    problems.append(f"staff {number} bar {bar}: an empty {tag}")
+    return problems

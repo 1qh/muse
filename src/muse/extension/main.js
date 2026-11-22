@@ -418,8 +418,32 @@ function main() {
     raiseText(all)
 }
 
+function textKey(segment, t, n) {
+    // a text's identity across runs of the extension: its segment's tick, its kind and its place among the segment's annotations
+    return segment.tick + ":" + t.type + ":" + n
+}
+
+function undoRaises() {
+    // put back every lift the last run recorded, so this run measures from where the texts stood before any raising
+    var applied = {}
+    try { applied = JSON.parse(curScore.metaTag("museRaised") || "{}") } catch (error) { applied = {} }
+    curScore.startCmd()
+    var segment = curScore.firstSegment()
+    while (segment) {
+        var notes = segment.annotations
+        for (var n = 0; n < notes.length; n++) {
+            var lift = applied[textKey(segment, notes[n], n)]
+            if (lift) notes[n].offsetY = notes[n].offsetY + lift
+        }
+        segment = segment.next
+    }
+    curScore.endCmd()
+}
+
 function raiseText(all) {
     // a line's cues, marks and tempi, in reading order, each started above every chord and every text already placed over the same span; automatic placement then stacks them and reserves their height
+    undoRaises()
+    var raised = {}
     var placed = {}
     for (var i = 0; i < all.length; i++) {
         var c = all[i].chord
@@ -447,7 +471,7 @@ function raiseText(all) {
             var t = notes[n]
             if (t.type === Element.HARMONY || t.type === Element.FERMATA || !t.bbox || t.track !== 0) continue
             if (t.pagePos.y + t.bbox.y >= segment.parent.pagePos.y) continue  // below the staff: no chord row there, and MuseScore stacks those itself
-            texts.push({ text: t, key: lineKey(segment.parent), x0: t.pagePos.x + t.bbox.x, x1: t.pagePos.x + t.bbox.x + t.bbox.width, top: t.pagePos.y + t.bbox.y, height: t.bbox.height })
+            texts.push({ text: t, id: textKey(segment, t, n), key: lineKey(segment.parent), x0: t.pagePos.x + t.bbox.x, x1: t.pagePos.x + t.bbox.x + t.bbox.width, top: t.pagePos.y + t.bbox.y, height: t.bbox.height })
         }
         segment = segment.next
     }
@@ -475,10 +499,12 @@ function raiseText(all) {
         if (ceiling < 1e9 && item.top + item.height > ceiling - GAP - TEXT_SLACK) {
             var rise = item.top + item.height - (ceiling - GAP - TEXT_SLACK)
             item.text.offsetY = item.text.offsetY - rise  // placement stays automatic: MuseScore stacks texts and makes room above the line
+            raised[item.id] = rise
             top = item.top - rise
         }
         if (!placed[item.key]) placed[item.key] = []
         placed[item.key].push({ x0: item.x0, x1: item.x1, top: top })
     }
     curScore.endCmd()
+    curScore.setMetaTag("museRaised", JSON.stringify(raised))  // the lifts this run applied, undone by the next run before it measures
 }
