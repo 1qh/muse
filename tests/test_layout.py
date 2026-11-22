@@ -376,3 +376,9 @@ def test_balancing_replaces_every_earlier_page_break(monkeypatch, tmp_path) -> N
     monkeypatch.setattr(port, "line_heights", lambda pdf, firsts: ([10.0] * 6, 2))
     assert port.balance(score, tmp_path / "s.pdf")
     assert [bar.number for bar in score.bars if bar.new_page] == [4]
+
+
+def test_every_sheet_takes_the_size_giving_the_fewest_lines() -> None:
+    fit = [{"size": 1.8, "lines": 24, "fill": 0.9}, {"size": 1.3, "lines": 17, "fill": 0.7}, {"size": 1.25, "lines": 17, "fill": 0.9}, {"size": 1.2, "lines": 17, "fill": 0.9}]
+    assert layout.ranked(fit) == [1.25, 1.2, 1.3, 1.8]  # fewest lines, then filling its pages, then largest
+    assert layout.ranked([*fit, {"size": 1.15, "lines": 15, "fill": 0.9}])[-1] == 1.15  # under the readable floor only when nothing else holds

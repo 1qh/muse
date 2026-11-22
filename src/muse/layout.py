@@ -305,11 +305,9 @@ def candidate(src: pathlib.Path, work: pathlib.Path, variant: str, size: float) 
                 "lone": bool(piano.lone_lines(wanted, len(sheet.score.bars)))}  # no stranded single bar on any sheet
 
 
-def ranked(fit: list[dict[str, Any]], variant: str) -> list[float]:
-    """A piano sheet's sizes by fewest lines, then largest; a band sheet's largest first, those filling their pages ahead."""
-    if variant == port.PIANO:
-        return [c["size"] for c in sorted(fit, key=lambda c: (c["lines"], -c["size"]))]
-    return sorted((c["size"] for c in fit if c["fill"] >= port.PAGE_FILL), reverse=True) + sorted((c["size"] for c in fit if c["fill"] < port.PAGE_FILL), reverse=True)
+def ranked(fit: list[dict[str, Any]]) -> list[float]:
+    """Every sheet's sizes by fewest lines, then those filling their pages, then largest: a dense sheet reads more of the song per glance."""
+    return [c["size"] for c in sorted(fit, key=lambda c: (c["size"] < port.SIZE_FLOORS[0], c["lines"], c["fill"] < port.PAGE_FILL, -c["size"]))]  # under the readable floor only when no readable size holds
 
 
 def choose(found: list[dict[str, Any]], variant: str) -> list[float]:
@@ -317,7 +315,7 @@ def choose(found: list[dict[str, Any]], variant: str) -> list[float]:
     order: list[float] = []
     for share in (port.MAX_SHORT_SHARE, port.RELAXED_SHORT_SHARE):
         fit = [c for c in found if c["good"] and not c["lone"] and c["share"] <= share]
-        order += [size for size in ranked(fit, variant) if size not in order]
+        order += [size for size in ranked(fit) if size not in order]
     return order
 
 
