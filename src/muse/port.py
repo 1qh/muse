@@ -20,6 +20,7 @@ CHORD_GAP = chordseat.CHORD_GAP  # of the chord size, between 2 chords
 CHORD_SIZE_PER_SPACE = 8.0  # printed chord points per unit of the style's spatium
 SIZE_FLOORS = (1.2, 1.15)  # below 1.2 only for a song that fits its pages no other way; under 1.15 the fixed title outgrows chords
 SIZE_CAP = 2.0  # the largest notation any sheet takes
+PAGE_SLACK = 0.05  # share a printed page may stand taller than the most even split allows
 PAGE_FILL = mode.pick(0.85, 0.0)  # how far down every page the music must reach
 MAX_WORKERS = 10
 LAUNCH_SECONDS = 240  # 1 import or export, counted from when its launch slot frees
@@ -278,14 +279,23 @@ def balance(score: Score, probe: pathlib.Path) -> bool:
 
 def page_problems(score: Score, probe: pathlib.Path) -> list[str]:
     """A sheet whose printed pages differ from the balanced split of its own line heights."""
-    firsts = [row[0] for row in rows(score)]
+    return balance_problems(probe, [row[0] for row in rows(score)])
+
+
+def balance_problems(probe: pathlib.Path, firsts: list[int]) -> list[str]:
+    """Printed pages whose tallest page stands taller than the most even split of the lines' own heights allows, given the bars that open each line."""
     heights, pages = line_heights(probe, firsts)
     if pages < 2:
         return []
     starts = balanced_pages(heights, pages)
-    wanted = [b - a for a, b in zip([0, *starts], [*starts, len(firsts)], strict=True)]
+    best = max(sum(heights[a:b]) for a, b in zip([0, *starts], [*starts, len(heights)], strict=True))
     printed = lines_per_page(probe, firsts)
-    return [] if printed == wanted else [f"pages hold {printed} lines, balanced {wanted}"]
+    edges = [sum(printed[:at]) for at in range(len(printed) + 1)]
+    tallest = max(sum(heights[a:b]) for a, b in zip(edges, edges[1:], strict=False))
+    if tallest > best * (1 + PAGE_SLACK):
+        wanted = [b - a for a, b in zip([0, *starts], [*starts, len(firsts)], strict=True)]
+        return [f"pages hold {printed} lines, balanced {wanted}"]
+    return []
 
 
 def lines_per_page(pdf: pathlib.Path, firsts: list[int]) -> list[int]:

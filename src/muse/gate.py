@@ -202,7 +202,7 @@ def check_song(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> tupl
 
         guarded(f"pdf {short}", lambda: pdfcheck.all_problems(final, song.title))
         guarded(f"words {short}", lambda: verify.pdf_words_problems(final, song.title))
-        guarded(f"pages {short}", lambda: page_problems(final))
+        guarded(f"pages {short}", lambda: page_problems(final) + port.balance_problems(final, line_starts(final)))
         guarded(f"ink {short}", lambda: ink_problems(final))
         guarded(f"signs {short}", signs)
         notes.append(f"{final.name}: {len(pymupdf.open(final))} pages")
