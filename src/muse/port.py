@@ -285,10 +285,16 @@ class DoesNotFit(Exception):
 def styled(work: pathlib.Path, name: str, title: str, spatium: float, distance: float, overrides: dict[str, object] | None = None) -> pathlib.Path:
     """A copy of the style at 1 notation size and line gap, with the song title at the top right of every page, and any tag a kind of score sets its own way."""
     text = STYLE.read_text(encoding="utf-8")
-    for tag, value in (("Spatium", spatium), ("minSystemDistance", distance), ("maxSystemDistance", distance), ("oddHeaderR", title), ("evenHeaderR", title), *(overrides or {}).items()):
+    for tag, value in (("Spatium", spatium), ("minSystemDistance", distance), ("maxSystemDistance", distance), ("oddHeaderR", title), ("evenHeaderR", title)):
         text, count = re.subn(rf"<{tag}>[^<]*</{tag}>", f"<{tag}>{value}</{tag}>", text)
         if count != 1:
             raise RuntimeError(f"style has no single {tag}")
+    for tag, setting in (overrides or {}).items():  # a kind of score's own setting, set where the style holds it or added where it leaves MuseScore's default
+        text, count = re.subn(rf"<{tag}>[^<]*</{tag}>", f"<{tag}>{setting}</{tag}>", text)
+        if count > 1:
+            raise RuntimeError(f"style holds {tag} {count} times")
+        if not count:
+            text = text.replace("</Style>", f"<{tag}>{setting}</{tag}></Style>", 1)
     text = text.replace("</Style>", f"<chordStyle>custom</chordStyle><chordDescriptionFile>{chordnames.chord_file(work)}</chordDescriptionFile></Style>")
     path = work / name
     fresh = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")

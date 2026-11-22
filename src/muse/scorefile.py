@@ -134,3 +134,46 @@ def builtin_sign_problems(path: pathlib.Path) -> list[str]:
         elif (box.get("r") == "220") != ("segno" in kind) or (box.get("b") == "220") != ("coda" in kind):
             problems.append(f"jump sign {sorted(kind)} has the wrong box color")
     return problems
+
+
+def articulate(path: pathlib.Path, marks: list[tuple[int, int, F, str]]) -> list[str]:
+    """Write each (staff index, bar number, onset in quarters, articulation subtype) onto the chord there; the marks no chord stands at."""
+    with zipfile.ZipFile(path) as z:
+        members = {name: z.read(name) for name in z.namelist()}
+    name = next(n for n in members if n.endswith(".mscx") and "/" not in n)
+    root = ET.fromstring(members[name])
+    lost = []
+    found = staves(root)
+    for staff, number, onset, subtype in marks:
+        chord = chord_at(found[staff].findall("Measure")[number - 1], onset) if staff < len(found) and number <= len(found[staff].findall("Measure")) else None
+        if chord is None:
+            lost.append(f"staff {staff + 1} bar {number} beat {onset}: no chord for {subtype}")
+            continue
+        mark = ET.Element("Articulation")
+        ET.SubElement(mark, "subtype").text = subtype
+        first_note = next((at for at, child in enumerate(chord) if child.tag == "Note"), len(chord))
+        chord.insert(first_note, mark)
+    members[name] = ET.tostring(root, encoding="utf-8", xml_declaration=True)
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
+        for member, data in members.items():
+            z.writestr(member, data)
+    return lost
+
+
+def chord_at(measure: ET.Element, onset: F) -> ET.Element | None:
+    """The chord a bar's voices start at onset quarters, read as `read_bar` reads them."""
+    for voice in measure.findall("voice"):
+        at = F(0)
+        scale = F(1)
+        for node in voice:
+            if node.tag == "location":
+                at += F(node.findtext("fractions") or "0")
+            elif node.tag == "Tuplet":
+                scale = F(int(node.findtext("normalNotes") or 1), int(node.findtext("actualNotes") or 1))
+            elif node.tag == "endTuplet":
+                scale = F(1)
+            elif node.tag in ("Chord", "Rest"):
+                if node.tag == "Chord" and at * 4 == onset:
+                    return node
+                at += length_of(node, scale)
+    return None

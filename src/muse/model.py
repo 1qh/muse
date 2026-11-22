@@ -44,6 +44,7 @@ class Event:
     trill: bool = False
     accent: bool = False
     fermata: bool = False
+    marks: list[str] = dataclasses.field(default_factory=list)  # a full score's articulations, bowings and ornaments on this note: tenuto, strong-accent-up, strong-accent-down, up-bow, down-bow, harmonic, arpeggiate, tremolo
     grace: bool = False
     beam_state: str | None = None
     tuplet_state: str | None = None

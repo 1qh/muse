@@ -29,6 +29,9 @@ def harmony(chord: Chord, onset: F) -> str:
     return f'<harmony><root><root-step>{chord.root}</root-step>{alter}</root><kind text="{text}">{kind_value(chord.kind)}</kind>{bass}{offset}</harmony>'
 
 
+ARTICULATION_XML = {"tenuto": "<tenuto/>", "strong-accent-up": '<strong-accent type="up"/>', "strong-accent-down": '<strong-accent type="down"/>'}
+TECHNICAL_XML = {"up-bow": "<up-bow/>", "down-bow": "<down-bow/>", "harmonic": "<harmonic/>"}
+WEDGES = {"crescendo": "crescendo", "diminuendo": "diminuendo", "wedge-stop": "stop"}  # a hairpin's start and end
 MAX_TEXT_SIZE = 11.0  # every text stays below the chords
 TEMPO_TEXT = re.compile(r"(.*?)\s*\u2669\s*=\s*(\d+)")  # a printed tempo: its words, a quarter-note sign and a beat count
 
@@ -108,9 +111,17 @@ def note_xml(ev: Event, voice: int, div: int = DIV) -> str:
             nota.append('<slur type="start" number="1"/>')
         if ev.tuplet and ev.tuplet_state and not i:
             nota.append(f'<tuplet type="{ev.tuplet_state}" bracket="no"/>')
+        if "arpeggiate" in ev.marks:
+            nota.append("<arpeggiate/>")  # on every note of the chord
         if not i:
-            if ev.accent:
-                nota.append("<articulations><accent/></articulations>")
+            articulations = ["<accent/>"] * ev.accent + [ARTICULATION_XML[m] for m in ev.marks if m in ARTICULATION_XML]
+            if articulations:
+                nota.append("<articulations>" + "".join(articulations) + "</articulations>")
+            technical = [TECHNICAL_XML[m] for m in ev.marks if m in TECHNICAL_XML]
+            if technical:
+                nota.append("<technical>" + "".join(technical) + "</technical>")
+            if "tremolo" in ev.marks:
+                nota.append('<ornaments><tremolo type="single">3</tremolo></ornaments>')
             if ev.trill:
                 nota.append("<ornaments><trill-mark/></ornaments>")
             if ev.fermata:
@@ -333,6 +344,8 @@ def clef_xml(clef: Clef, number: int | None) -> str:
 def direction_xml(text: Text, staff: int | None) -> str:
     """A dynamic as MusicXML's dynamics, any other text as words, on the staff it prints by."""
     on_staff = f"<staff>{staff}</staff>" if staff else ""
+    if text.kind in WEDGES:
+        return f'<direction placement="below"><direction-type><wedge type="{WEDGES[text.kind]}"/></direction-type>{on_staff}</direction>'
     if text.kind == "dynamic":
         mark = text.runs[0][0]
         inner = f"<{mark}/>" if mark in DYNAMICS else f"<other-dynamics>{escape(mark)}</other-dynamics>"

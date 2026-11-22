@@ -4,13 +4,18 @@ from __future__ import annotations
 import pathlib
 import re
 import xml.etree.ElementTree as ET
+from fractions import Fraction as F
 
 from muse import chordnames, launch, musicxml, pdftext, port, scorefile
 from muse.model import Orchestra, Score
 from muse.song import Song, orchestra_of
 
 SPATIUM = 0.9  # millimetres: the source's own staff space, which holds its largest system of 23 staves on 1 page
-NAMED: dict[str, object] = {"firstSystemInstNameVisibility": 0, "subsSystemInstNameVisibility": 1, "enableIndentationOnFirstSystem": 1}  # full names on the first system, short ones after, the first system indented to hold them
+NAMED: dict[str, object] = {
+    "firstSystemInstNameVisibility": 0, "subsSystemInstNameVisibility": 1, "enableIndentationOnFirstSystem": 1,  # full names on the first system, short ones after, the first system indented to hold them
+    "enableVerticalSpread": 1, "maxSystemDistance": 200, "maxStaffSpread": 200, "maxSystemSpread": 200,  # systems spread over the whole page height
+    "maxPageFillSpread": 400,  # "Max page fill distance": the handbook says to raise it so staves are justified however few a page holds
+}
 SPATIUM_STEP = 0.05  # millimetres the staff space shrinks by while a source system wraps
 SPATIUM_FLOOR = 0.5  # millimetres: the smallest staff space a full score prints at
 DISTANCE = port.BASE_DISTANCE
@@ -79,11 +84,26 @@ def build_legacy(xml: pathlib.Path, work: pathlib.Path, target: pathlib.Path, la
     text = style.read_text(encoding="utf-8").replace('version="4.70"', 'version="3.02"').replace("</Style>", fonts + "</Style>")
     style.write_text(re.sub(r"<staffUpperBorder>[^<]*</staffUpperBorder>", f"<staffUpperBorder>{port.LEGACY_TOP_BORDER}</staffUpperBorder>", text), encoding="utf-8")
     raw = work / f"{info.name}-score-legacy-import.mscz"
-    done = launch.mscore(["-S", str(style), "-o", str(raw), str(xml)], port.LAUNCH_SECONDS, port.legacy_command())
+    plain = work / f"{info.name}-legacy.musicxml"  # MuseScore 3 stops reading a part at a harmonic: it gets them written into its file instead
+    plain.write_text(xml.read_text(encoding="utf-8").replace(musicxml.TECHNICAL_XML["harmonic"], "").replace("<technical></technical>", ""), encoding="utf-8")
+    done = launch.mscore(["-S", str(style), "-o", str(raw), str(plain)], port.LAUNCH_SECONDS, port.legacy_command())
     if done.returncode or not raw.exists():
         return [f"MuseScore 3 refused the MusicXML: exit {done.returncode}: {done.stderr.strip()[-300:]}"]
     port.strip_title_frame(raw)
     port.legacy_signs(raw)
     port.edited(raw, target, spatium, DISTANCE, breaks_of(orchestra))
     chordnames.drop_chord_path(target)
-    return scorefile.difference(latest, target)
+    lost = scorefile.articulate(target, harmonics(orchestra))
+    return lost + scorefile.difference(latest, target)
+
+
+def harmonics(orchestra: Orchestra) -> list[tuple[int, int, F, str]]:
+    """Every harmonic as (staff index, bar, onset in quarters, MuseScore's articulation subtype)."""
+    found = []
+    first = 0
+    for part in orchestra.parts:
+        for bar in part.bars:
+            for staff, voices in enumerate((bar.voices, bar.voices2)):
+                found += [(first + staff, bar.number, event.onset, "stringsHarmonic") for voice in voices for event in voice if "harmonic" in event.marks]
+        first += part.staves
+    return found

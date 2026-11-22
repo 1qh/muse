@@ -66,6 +66,12 @@ ACCIDENTAL_REACH = 7.0  # points an accidental prints left of its head, a 2nd co
 KEY_START = 12.0  # points from a clef to its key signature's first sign
 KEY_SPACING = 4.5  # points between 2 signs of 1 key signature
 ARTICULATION_REACH = 4.0  # points an accent, fermata or trill sits off its stem or head
+HAIRPIN_RISE = (0.5, 9.0)  # points a hairpin leg climbs or falls over its length
+HAIRPIN_MIN = 10.0  # points a hairpin leg spans at least
+HAIRPIN_JOIN = 1.0  # points apart the 2 legs' meeting ends may lie
+HAIRPIN_OPEN = 1.5  # points the 2 legs' open ends stand apart at least
+ARPEGGIO_REACH = 12.0  # points an arpeggio's wavy line stands left of its chord
+NOTE_MARKS = {symbolfont.TENUTO: "tenuto", symbolfont.MARCATO: "strong-accent-up", symbolfont.MARCATO_BELOW: "strong-accent-down", symbolfont.UP_BOW: "up-bow", symbolfont.DOWN_BOW: "down-bow", symbolfont.HARMONIC: "harmonic", symbolfont.ARPEGGIO: "arpeggiate", TREMOLO: "tremolo"}
 WORD_GAP = 3.0  # points between 2 pieces of 1 printed word or phrase
 HEADER_REACH = 12.0  # points above a system's top staff: its own tempo and expression words print within 10.2, page 1's title and credits from 13.3
 
@@ -135,6 +141,7 @@ class Sheet:
     beams: list[tuple[float, float, float, float]]
     ticks: list[tuple[float, float, float]]
     curves: list[tuple[float, float, float, float]]  # left end, right end
+    slants: list[tuple[float, float, float, float]] = dataclasses.field(default_factory=list)  # single slanted strokes, left end then right end: hairpin legs
 
 
 @dataclasses.dataclass
@@ -216,6 +223,9 @@ def read(page: pymupdf.Page, role: dict[str, str]) -> Sheet:
                 sheet.ticks.append(((a.y + b.y) / 2, r.x0, r.x1))
             elif abs(a.x - b.x) < 0.1:
                 sheet.verticals.append((a.x, r.y0, r.y1, d["width"] or 0))
+            elif HAIRPIN_RISE[0] < abs(a.y - b.y) < HAIRPIN_RISE[1] and abs(a.x - b.x) > HAIRPIN_MIN:
+                left, right = (a, b) if a.x < b.x else (b, a)
+                sheet.slants.append((left.x, left.y, right.x, right.y))
         elif kinds == "re" and d["type"] == "f" and r.height < 2 and 3 < r.width < 200:  # a level beam is drawn as a filled rectangle
             sheet.beams.append((r.x0, r.x1, (r.y0 + r.y1) / 2, (r.y0 + r.y1) / 2))
         elif kinds == "llll" and 3 < r.width < page.rect.width - 1:
@@ -231,6 +241,24 @@ def read(page: pymupdf.Page, role: dict[str, str]) -> Sheet:
             start, end = d["items"][0][1], d["items"][0][4]
             sheet.curves.append((start.x, start.y, end.x, end.y))
     return sheet
+
+
+def hairpins(slants: list[tuple[float, float, float, float]]) -> list[tuple[str, float, float, float]]:
+    """Every hairpin: 2 straight strokes meeting at 1 end and opening at the other; a crescendo where they meet on the left. Kind, left, right and the height of its point."""
+    found = []
+    used: set[int] = set()
+    for i, one in enumerate(slants):
+        for j in range(i + 1, len(slants)):
+            if i in used or j in used:
+                continue
+            two = slants[j]
+            if abs(one[0] - two[0]) < HAIRPIN_JOIN and abs(one[1] - two[1]) < HAIRPIN_JOIN and abs(one[2] - two[2]) < 2 * HAIRPIN_JOIN and abs(one[3] - two[3]) > HAIRPIN_OPEN:
+                found.append(("crescendo", one[0], one[2], one[1]))
+                used |= {i, j}
+            elif abs(one[2] - two[2]) < HAIRPIN_JOIN and abs(one[3] - two[3]) < HAIRPIN_JOIN and abs(one[0] - two[0]) < 2 * HAIRPIN_JOIN and abs(one[1] - two[1]) > HAIRPIN_OPEN:
+                found.append(("diminuendo", one[0], one[2], one[3]))
+                used |= {i, j}
+    return found
 
 
 def staves(lines: list[tuple[float, float, float]]) -> list[Staff]:
@@ -668,6 +696,31 @@ def marks_into(reading: Reading, system: System, sheet: Sheet, first: int, edges
         name, number = owner(system, y, below=True)
         bar = bar_of(name, x0)
         (bar.texts if number == 1 else bar.texts2).append(Text(x0, y, [(text, False, True)], above=False, kind="dynamic"))
+    for kind, x0, x1, y in hairpins(sheet.slants):
+        if not top - 40 < y < bottom + 30 or not system.bars[0] <= x0 < system.bars[-1]:
+            continue
+        name, number = owner(system, y, below=True)  # printed under its staff, as a dynamic
+        start, stop = bar_of(name, x0), bar_of(name, min(x1, system.bars[-1] - 0.5))
+        (start.texts if number == 1 else start.texts2).append(Text(x0, y, [("", False, False)], above=False, kind=kind))
+        (stop.texts if number == 1 else stop.texts2).append(Text(x1, y, [("", False, False)], above=False, kind="wedge-stop"))
+    for g in [*sheet.music, *sheet.extra]:
+        mark = NOTE_MARKS.get(g.code)
+        if mark is None or not top - 40 < g.y < bottom + 30 or not system.bars[0] <= g.x < system.bars[-1]:
+            continue
+        reach = ARPEGGIO_REACH if mark == "arpeggiate" else ARTICULATION_REACH + 3
+        near: list[Event] = []
+        for at in sorted(range(len(system.staves)), key=lambda i: max(system.staves[i].top - g.y, g.y - system.staves[i].bottom, 0.0)):  # the staff it stands on or beside, else the next nearest that has a note there
+            name = system.names[at]
+            bar = bar_of(name, g.x)
+            own = bar.voices2 if at and system.names[at - 1] == name else bar.voices
+            near = [e for voice in own for e in voice if e.heads and (0 < e.x - g.x < reach if mark == "arpeggiate" else abs(e.x - g.x) < reach)]
+            if near:
+                break
+        if not near:
+            raise Unreadable(f"page {system.page + 1}: {mark} at {g.x:.0f} stands by no note")
+        chosen = min(near, key=lambda e: (round(abs(e.x - g.x)), min(abs(h.y - g.y) for h in e.heads)))  # at its x, the voice whose head it stands by
+        if mark not in chosen.marks:  # a wavy line is several glyphs, and a chord may print 1 mark per head
+            chosen.marks.append(mark)
     for g in sheet.music:
         flag = {ACCENT_BELOW: "accent", FERMATA: "fermata", TRILL: "trill"}.get(g.code)
         if flag is None or not top - 40 < g.y < bottom + 30:

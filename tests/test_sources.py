@@ -433,3 +433,58 @@ def test_every_orchestral_note_lies_in_a_playable_octave(path):
     heads = [(part.name, bar.number, head.octave) for part in score.parts for bar in part.bars for voices in (bar.voices, bar.voices2) for voice in voices for event in voice for head in event.heads]
     assert heads, "no note read: the guard would judge nothing"
     assert not [head for head in heads if not 0 <= head[2] <= 8]
+
+
+@pytest.mark.parametrize("path", orchestral_sources())
+def test_every_printed_mark_reaches_its_note(path):
+    """A bowing or articulation lost, or given to another part, changes how the part is played."""
+    import collections
+
+    import pymupdf
+
+    from muse import symbolfont
+
+    glyphs = {symbolfont.TENUTO: "tenuto", symbolfont.MARCATO: "strong-accent-up", symbolfont.MARCATO_BELOW: "strong-accent-down", symbolfont.UP_BOW: "up-bow", symbolfont.DOWN_BOW: "down-bow", symbolfont.HARMONIC: "harmonic"}
+    printed: collections.Counter[str] = collections.Counter()
+    waves = set()
+    for number, page in enumerate(pymupdf.open(path)):
+        for block in page.get_text("rawdict")["blocks"]:
+            for line in block.get("lines", []):
+                for span in line["spans"]:
+                    for char in span["chars"]:
+                        code = ord(char["c"])
+                        printed[glyphs.get(code, "")] += code in glyphs
+                        if code == symbolfont.ARPEGGIO:
+                            waves.add((number, round(char["origin"][0])))
+    score = song.orchestra_of(pathlib.Path(path))
+    read = collections.Counter(mark for part in score.parts for bar in part.bars for voices in (bar.voices, bar.voices2) for voice in voices for event in voice for mark in event.marks)
+    assert sum(printed.values()), "no mark printed: the guard would judge nothing"
+    assert {mark: read[mark] for mark in glyphs.values()} == {mark: printed[mark] for mark in glyphs.values()}
+    assert read["arpeggiate"] >= len(waves)
+
+
+@pytest.mark.parametrize("path", orchestral_sources())
+def test_every_hairpin_reads_as_a_wedge_with_its_end(path):
+    """A hairpin dropped from a part loses its swell; counted here from the raw strokes, apart from the reader."""
+    import pymupdf
+
+    pins = {"crescendo": 0, "diminuendo": 0}
+    for page in pymupdf.open(path):
+        legs = []
+        for drawing in page.get_drawings():
+            items = drawing["items"]
+            if len(items) == 1 and items[0][0] == "l":
+                a, b = sorted((items[0][1], items[0][2]), key=lambda point: point.x)
+                if 0.5 < abs(a.y - b.y) < 9 and b.x - a.x > 10:
+                    legs.append((a, b))
+        for at, (a, b) in enumerate(legs):
+            for c, d in legs[at + 1:]:
+                if abs(a.x - c.x) < 1 and abs(a.y - c.y) < 1 and abs(b.y - d.y) > 1.5:
+                    pins["crescendo"] += 1
+                elif abs(b.x - d.x) < 1 and abs(b.y - d.y) < 1 and abs(a.y - c.y) > 1.5:
+                    pins["diminuendo"] += 1
+    score = song.orchestra_of(pathlib.Path(path))
+    kinds = [text.kind for part in score.parts for bar in part.bars for text in [*bar.texts, *bar.texts2]]
+    assert sum(pins.values()), "no hairpin printed: the guard would judge nothing"
+    assert {kind: kinds.count(kind) for kind in pins} == pins
+    assert kinds.count("wedge-stop") == sum(pins.values())
