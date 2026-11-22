@@ -357,3 +357,22 @@ def test_a_lines_empty_bars_are_evened_to_the_widest(monkeypatch, tmp_path) -> N
     monkeypatch.setattr(layout.chordseat, "set_stretch", lambda mscz, off: set_to.update(off))
     assert layout.chordseat.equalize(tmp_path / "s.mscz", tmp_path / "s.pdf", set())
     assert set_to == {2: 2.0, 4: 2.0}
+
+
+def test_a_sheet_whose_pages_are_not_balanced_is_refused(monkeypatch, tmp_path) -> None:
+    """A line pushed onto a page of its own, as 10, 1 and 11 lines, is refused; the balanced split of the same lines passes."""
+    score = Score([noted(n, new_system=True) for n in range(1, 23)], [], [])
+    monkeypatch.setattr(port, "line_heights", lambda pdf, firsts: ([10.0] * 22, 3))
+    balanced = [b - a for a, b in zip([0, *port.balanced_pages([10.0] * 22, 3)], [*port.balanced_pages([10.0] * 22, 3), 22], strict=True)]
+    monkeypatch.setattr(port, "lines_per_page", lambda pdf, firsts: [10, 1, 11])
+    assert port.page_problems(score, tmp_path / "s.pdf") == [f"pages hold [10, 1, 11] lines, balanced {balanced}"]
+    monkeypatch.setattr(port, "lines_per_page", lambda pdf, firsts: balanced)
+    assert port.page_problems(score, tmp_path / "s.pdf") == []
+
+
+def test_balancing_replaces_every_earlier_page_break(monkeypatch, tmp_path) -> None:
+    score = Score([noted(n, new_system=True) for n in range(1, 7)], [], [])
+    score.bars[4].new_page = True  # a break an earlier balance left behind
+    monkeypatch.setattr(port, "line_heights", lambda pdf, firsts: ([10.0] * 6, 2))
+    assert port.balance(score, tmp_path / "s.pdf")
+    assert [bar.number for bar in score.bars if bar.new_page] == [4]

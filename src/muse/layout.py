@@ -23,6 +23,7 @@ from muse.song import decode, song_of
 LINE_SHARE = 0.93  # of a line's width a plan fills; the rest is the clef and key each line carries
 WIDE_PAGE = 200.0  # inches: wide enough that a whole song prints on 1 line at its natural width
 REPLAN_ROUNDS = 16
+BALANCE_ROUNDS = 3  # times the pages are balanced again from a seated render before a size is refused for uneven pages
 IMPORT_SIZE = 1.5  # the staff space the shared import is made at; each size sets its own on an edited copy
 OVERFLOW_BREAKS = 1000  # a line too wide cannot print at all, so it outweighs every soft line rule
 SHORT_COST = 0.15  # a 2-bar line is allowed, but a fuller arrangement of as many lines wins
@@ -459,6 +460,12 @@ def finish_at(src: pathlib.Path, work: pathlib.Path, variant: str, size: float, 
             if not bad:
                 probe = seat(sheet, score_path)
                 bad = overflowing(sheet, probe, seated=True)
+            for _ in range(BALANCE_ROUNDS):  # seating, raised texts and the line gap make lines taller: balance the pages again from the final render
+                if bad or not port.page_problems(sheet.score, probe) or not port.balance(sheet.score, probe):
+                    break
+                render(sheet, "final")
+                probe = seat(sheet, score_path)
+                bad = overflowing(sheet, probe, seated=True)
         if os.environ.get("MUSE_LAYOUT_TRACE"):
             print(f"{sheet.name} {size}: starts {sheet.starts()} overflowing {sorted(b + 1 for b in bad)}", flush=True)
         if not bad:
@@ -475,7 +482,7 @@ def finish_at(src: pathlib.Path, work: pathlib.Path, variant: str, size: float, 
             learned.append(widths)
     else:
         raise port.DoesNotFit(f"{sheet.name} at {size}: lines still overflow after {REPLAN_ROUNDS} plans")
-    problems = pdfcheck.all_problems(probe, sheet.title) + chordseat.problems(score_path, probe) + chordseat.crowded_line_texts(score_path, probe) + port.line_rule_reasons(sheet.score, sheet.variant) + uneven_empty_bars(sheet, score_path, probe)
+    problems = pdfcheck.all_problems(probe, sheet.title) + chordseat.problems(score_path, probe) + chordseat.crowded_line_texts(score_path, probe) + port.line_rule_reasons(sheet.score, sheet.variant) + uneven_empty_bars(sheet, score_path, probe) + port.page_problems(sheet.score, probe)
     if problems:
         raise port.DoesNotFit(f"{sheet.name} at {size}: {problems[:3]}")
     return sheet.score, score_path, size, sheet.distance, len(pdftext.open(probe))

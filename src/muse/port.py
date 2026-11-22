@@ -266,14 +266,45 @@ def line_heights(pdf: pathlib.Path, firsts: list[int]) -> tuple[list[float], int
 
 
 def balance(score: Score, probe: pathlib.Path) -> bool:
-    """Spread the lines evenly over the pages they need; False when there is only 1 page."""
+    """Spread the lines evenly over the pages the render needs, replacing every earlier page break; False when nothing changes."""
+    firsts = [row[0] for row in rows(score)]
+    heights, pages = line_heights(probe, firsts)
+    wanted = {firsts[start] for start in balanced_pages(heights, pages)} if pages > 1 else set()
+    held = {bar.number for bar in score.bars if bar.new_page}
+    for bar in score.bars:
+        bar.new_page = bar.number in wanted
+    return wanted != held
+
+
+def page_problems(score: Score, probe: pathlib.Path) -> list[str]:
+    """A sheet whose printed pages differ from the balanced split of its own line heights."""
     firsts = [row[0] for row in rows(score)]
     heights, pages = line_heights(probe, firsts)
     if pages < 2:
-        return False
-    for start in balanced_pages(heights, pages):
-        score.bars[firsts[start] - 1].new_page = True
-    return True
+        return []
+    starts = balanced_pages(heights, pages)
+    wanted = [b - a for a, b in zip([0, *starts], [*starts, len(firsts)], strict=True)]
+    printed = lines_per_page(probe, firsts)
+    return [] if printed == wanted else [f"pages hold {printed} lines, balanced {wanted}"]
+
+
+def lines_per_page(pdf: pathlib.Path, firsts: list[int]) -> list[int]:
+    """How many of the score's lines each page prints, by where each line's bar number prints."""
+    pages = [page_of(pdf, first) for first in firsts]
+    return [pages.count(page) for page in range(len(pdftext.open(pdf)))]
+
+
+def page_of(pdf: pathlib.Path, bar: int) -> int:
+    """The page a bar's printed number stands on; bar 1, which prints no number, opens page 1."""
+    if bar == 1:
+        return 0
+    for page_no, page in enumerate(pdftext.open(pdf)):
+        for block in page.get_text("dict")["blocks"]:
+            for line in block.get("lines", []):
+                for span in line["spans"]:
+                    if span["text"].strip() == str(bar) and span["bbox"][0] < 60 and "Italic" in span["font"]:
+                        return page_no
+    raise DoesNotFit(f"{pdf.name}: bar {bar} opens a line that prints no number")
 
 
 
