@@ -282,10 +282,10 @@ class DoesNotFit(Exception):
     """This size does not fit the song's page count."""
 
 
-def styled(work: pathlib.Path, name: str, title: str, spatium: float, distance: float) -> pathlib.Path:
-    """A copy of the style at 1 notation size and line gap, with the song title at the top right of every page."""
+def styled(work: pathlib.Path, name: str, title: str, spatium: float, distance: float, overrides: dict[str, object] | None = None) -> pathlib.Path:
+    """A copy of the style at 1 notation size and line gap, with the song title at the top right of every page, and any tag a kind of score sets its own way."""
     text = STYLE.read_text(encoding="utf-8")
-    for tag, value in (("Spatium", spatium), ("minSystemDistance", distance), ("maxSystemDistance", distance), ("oddHeaderR", title), ("evenHeaderR", title)):
+    for tag, value in (("Spatium", spatium), ("minSystemDistance", distance), ("maxSystemDistance", distance), ("oddHeaderR", title), ("evenHeaderR", title), *(overrides or {}).items()):
         text, count = re.subn(rf"<{tag}>[^<]*</{tag}>", f"<{tag}>{value}</{tag}>", text)
         if count != 1:
             raise RuntimeError(f"style has no single {tag}")

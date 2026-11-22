@@ -10,6 +10,7 @@ from muse.model import Orchestra, Score
 from muse.song import Song, orchestra_of
 
 SPATIUM = 0.9  # millimetres: the source's own staff space, which holds its largest system of 23 staves on 1 page
+NAMED: dict[str, object] = {"firstSystemInstNameVisibility": 0, "subsSystemInstNameVisibility": 1, "enableIndentationOnFirstSystem": 1}  # full names on the first system, short ones after, the first system indented to hold them
 SPATIUM_STEP = 0.05  # millimetres the staff space shrinks by while a source system wraps
 SPATIUM_FLOOR = 0.5  # millimetres: the smallest staff space a full score prints at
 DISTANCE = port.BASE_DISTANCE
@@ -36,7 +37,7 @@ def build(src: pathlib.Path, out_dir: pathlib.Path, work: pathlib.Path, info: So
     port.run("-o", str(pdf), str(final))
     report: dict[str, object] = {"pdf pages": len(pdftext.open(pdf)), "spatium": spatium}
     legacy = out_dir / info.legacy_file
-    reason = build_legacy(xml, work, legacy, final, info, orchestra)
+    reason = build_legacy(xml, work, legacy, final, info, orchestra, spatium)
     if reason:
         legacy.unlink(missing_ok=True)
         report["legacy"] = reason
@@ -56,7 +57,7 @@ def fit(xml: pathlib.Path, work: pathlib.Path, final: pathlib.Path, info: Song, 
     tried = []
     spatium = SPATIUM
     while spatium >= SPATIUM_FLOOR - 1e-9:
-        style = port.styled(work, f"{info.name}-score-{spatium:g}.mss", info.title, spatium, DISTANCE)
+        style = port.styled(work, f"{info.name}-score-{spatium:g}.mss", info.title, spatium, DISTANCE, NAMED)
         raw = work / f"{info.name}-score-{spatium:g}-import.mscz"
         port.run("-S", str(style), "-o", str(raw), str(xml))
         port.strip_title_frame(raw)
@@ -71,9 +72,9 @@ def fit(xml: pathlib.Path, work: pathlib.Path, final: pathlib.Path, info: Song, 
     raise port.DoesNotFit(f"{info.name}: no staff space holds every source system: {tried[-3:]}")
 
 
-def build_legacy(xml: pathlib.Path, work: pathlib.Path, target: pathlib.Path, latest: pathlib.Path, info: Song, orchestra: Orchestra) -> list[str]:
+def build_legacy(xml: pathlib.Path, work: pathlib.Path, target: pathlib.Path, latest: pathlib.Path, info: Song, orchestra: Orchestra, spatium: float) -> list[str]:
     """The MuseScore 3 file, from the pipeline's own MusicXML, in MuseScore 3.6.2; what keeps it from matching the latest file, or nothing."""
-    style = port.styled(work, f"{info.name}-score-legacy.mss", info.title, SPATIUM, DISTANCE)
+    style = port.styled(work, f"{info.name}-score-legacy.mss", info.title, spatium, DISTANCE, NAMED)  # the same size and named staves as the latest file
     fonts = "".join(f"<{tag}>SF Pro Display</{tag}>" for tag in port.LEGACY_ONLY_FONTS)
     text = style.read_text(encoding="utf-8").replace('version="4.70"', 'version="3.02"').replace("</Style>", fonts + "</Style>")
     style.write_text(re.sub(r"<staffUpperBorder>[^<]*</staffUpperBorder>", f"<staffUpperBorder>{port.LEGACY_TOP_BORDER}</staffUpperBorder>", text), encoding="utf-8")
@@ -83,6 +84,6 @@ def build_legacy(xml: pathlib.Path, work: pathlib.Path, target: pathlib.Path, la
         return [f"MuseScore 3 refused the MusicXML: exit {done.returncode}: {done.stderr.strip()[-300:]}"]
     port.strip_title_frame(raw)
     port.legacy_signs(raw)
-    port.edited(raw, target, SPATIUM, DISTANCE, breaks_of(orchestra))
+    port.edited(raw, target, spatium, DISTANCE, breaks_of(orchestra))
     chordnames.drop_chord_path(target)
     return scorefile.difference(latest, target)
