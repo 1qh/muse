@@ -450,3 +450,34 @@ def test_raising_a_text_again_never_lifts_it_or_its_chords_further(tmp_path: pat
     for _ in range(3):
         layout.run_extension(score_path, score_path)
     assert text_lifts(score_path) == pytest.approx(first, abs=0.05)
+
+
+def score_body(path: pathlib.Path) -> list[str]:
+    """The saved score's lines, every number rounded to 0.01 and the raise record left out: what a 2nd run may not move."""
+    import zipfile
+
+    with zipfile.ZipFile(path) as archive:
+        name = next(item for item in archive.namelist() if item.endswith(".mscx") and "/" not in item)
+        text = archive.read(name).decode()
+    lines = [line for line in text.splitlines() if 'name="museRaised"' not in line]
+    return [re.sub(r"-?\d+\.\d+", lambda found: f"{float(found[0]):.2f}", line) for line in lines]
+
+
+def test_running_the_extension_again_changes_nothing(tmp_path: pathlib.Path) -> None:
+    """Every edit the extension makes is set from the score's own state, never added to it: run after run lands the same file."""
+    from muse.model import Text
+
+    cues = [Text(10.0, -20.0, [(words, True, True)], True, "cue", 10.0) for words in ("PIANO ONLY", "Ballad", "BAND IN")]  # stacked cues: the case a lift that adds up run after run shows
+    bars = [resting(1, [chord("C", "maj7"), chord("G", "7")], cues), resting(2, [chord("A", "m")]), held(3, [chord("F"), chord("Bb", "maj7"), chord("E", "7")])] + [resting(n, [chord("F")]) for n in range(4, 9)]
+    score_path = imported(tmp_path, bars, {1, 4, 7})
+    pdf = score_path.with_suffix(".pdf")
+
+    def rendered() -> pathlib.Path:
+        BATCHER.render(score_path, [pdf, pdf.with_suffix(".mpos")], None)
+        return pdf
+
+    layout.seat_inked(score_path, rendered, lambda probe: True)
+    once = score_body(score_path)
+    for _ in range(3):
+        layout.run_extension(score_path, score_path)
+    assert score_body(score_path) == once
