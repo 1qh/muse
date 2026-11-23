@@ -406,6 +406,7 @@ def seat_inked(score_path: pathlib.Path, rendered: Callable[[], pathlib.Path], h
         if not evened and not overlaps and all(gap is None or abs(gap - chordseat.GAP) <= chordseat.TOLERANCE for gap in gaps) and not pdfcheck.chord_collisions(probe):
             break
     for round_number in range(INK_ROUNDS):  # however the rounds ended, measure the latest render and correct it until every chord is on target and every line's empty bars are even
+        probe = current_render(score_path, probe, rendered)
         _, text = chordseat.score_text(score_path)
         rows = chordseat.rows_of(text)
         lines = chordseat.matched(text, probe)
@@ -426,7 +427,12 @@ def seat_inked(score_path: pathlib.Path, rendered: Callable[[], pathlib.Path], h
         set_tags(score_path, {"museSignReach": f"{reach:.4f}", "museInkBias": ",".join(f"{b:.4f}" for b in bias), "museInkWidth": ",".join(f"{w:.4f}" for w in inks), "museEven": "0"})
         run_extension(score_path, score_path)
         probe = rendered()
-    return probe
+    return current_render(score_path, probe, rendered)
+
+
+def current_render(score_path: pathlib.Path, probe: pathlib.Path, rendered: Callable[[], pathlib.Path]) -> pathlib.Path:
+    """The render of the score file as it now stands: a file written after its render is rendered again, so nothing judges a print that is not its own."""
+    return rendered() if score_path.stat().st_mtime_ns > probe.stat().st_mtime_ns else probe
 
 
 def seat(sheet: Sheet, score_path: pathlib.Path) -> pathlib.Path:
@@ -499,6 +505,7 @@ def finish_at(src: pathlib.Path, work: pathlib.Path, variant: str, size: float, 
             learned.append(widths)
     else:
         raise port.DoesNotFit(f"{sheet.name} at {size}: lines still overflow after {REPLAN_ROUNDS} plans")
+    probe = current_render(score_path, probe, lambda: render(sheet, "final", seated=True)[1])
     problems = pdfcheck.all_problems(probe, sheet.title) + chordseat.problems(score_path, probe) + chordseat.crowded_line_texts(score_path, probe) + port.line_rule_reasons(sheet.score, sheet.variant) + uneven_empty_bars(sheet, score_path, probe) + port.page_problems(sheet.score, probe)
     if problems:
         raise port.DoesNotFit(f"{sheet.name} at {size}: {problems[:3]}")

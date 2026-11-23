@@ -382,3 +382,17 @@ def test_every_sheet_takes_the_size_giving_the_fewest_lines() -> None:
     fit = [{"size": 1.8, "lines": 24, "fill": 0.9}, {"size": 1.3, "lines": 17, "fill": 0.7}, {"size": 1.25, "lines": 17, "fill": 0.9}, {"size": 1.2, "lines": 17, "fill": 0.9}]
     assert layout.ranked(fit) == [1.25, 1.2, 1.3, 1.8]  # fewest lines, then filling its pages, then largest
     assert layout.ranked([*fit, {"size": 1.15, "lines": 15, "fill": 0.9}])[-1] == 1.15  # under the readable floor only when nothing else holds
+
+
+def test_a_score_written_after_its_render_is_rendered_again(tmp_path) -> None:
+    import os
+
+    score, probe = tmp_path / "s.mscz", tmp_path / "s.pdf"
+    probe.write_text("render")
+    score.write_text("score")
+    os.utime(probe, ns=(1_000_000_000, 1_000_000_000))
+    os.utime(score, ns=(2_000_000_000, 2_000_000_000))
+    fresh = tmp_path / "fresh.pdf"
+    assert layout.current_render(score, probe, lambda: fresh) == fresh  # the file changed after its render
+    os.utime(probe, ns=(3_000_000_000, 3_000_000_000))
+    assert layout.current_render(score, probe, lambda: fresh) == probe
