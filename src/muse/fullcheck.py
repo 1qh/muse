@@ -7,7 +7,7 @@ import pathlib
 import xml.etree.ElementTree as ET
 from fractions import Fraction as F
 
-from muse import chordnames, fullscore, gate, launch, pdfcheck, pdftext, port, scorefile, verify
+from muse import chordnames, fullscore, gate, launch, pdfcheck, pdftext, scorefile, verify
 from muse.model import Orchestra
 from muse.song import Song, orchestra_of
 
@@ -106,18 +106,17 @@ def problems(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path, info: Son
     probe = work / f"{info.name}-final.mpos"
 
     def content() -> list[str]:
-        launch.mscore(["-o", str(exported), str(final)], port.LAUNCH_SECONDS, check=True)
+        launch.mscore(["-o", str(exported), str(final)], launch.LAUNCH_SECONDS, check=True)
         return content_problems(orchestra, exported)
 
     def systems() -> list[str]:
-        launch.mscore(["-o", str(probe), str(final)], port.LAUNCH_SECONDS, check=True)
+        launch.mscore(["-o", str(probe), str(final)], launch.LAUNCH_SECONDS, check=True)
         return fullscore.system_problems(orchestra, probe)
 
-    def legacy() -> list[str]:
-        held = out / info.legacy_file
-        if not held.exists():
-            return [f"{held.name} withheld"]
-        return scorefile.difference(final, held) + chordnames.chord_path_problems(held)
+    def ms3_file() -> list[str]:
+        from muse import gate  # noqa: PLC0415  # the gate imports this module
+
+        return gate.ms3_problems(src, out)
 
     def page() -> list[str]:
         notes.append(f"{pdf.name}: {len(pdftext.open(pdf))} pages")
@@ -129,7 +128,7 @@ def problems(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path, info: Son
             notes.append(note)
         return wrong
 
-    steps = {"verify": content, "systems": systems, "navigate": lambda: navigation_problems(final), "chord file": lambda: chordnames.chord_path_problems(final), "ms3": legacy, "pdf": page, "homr": homr}
+    steps = {"verify": content, "systems": systems, "navigate": lambda: navigation_problems(final), "chord file": lambda: chordnames.chord_path_problems(final), "ms3": ms3_file, "pdf": page, "homr": homr}
     for label in CHECKS:
         guarded(label, steps[label])
     return failures, notes

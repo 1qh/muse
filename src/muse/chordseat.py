@@ -17,11 +17,8 @@ from muse.smufl import HEAD_CODES
 
 GAP = 0.0  # a beat-1 chord's ink starts exactly at the barline's right edge, or after a line's clef and signatures
 TOLERANCE = mode.pick(0.4, 2.0)  # points a beat-1 chord may sit off its barline
-LEGACY_REACH = 1.7  # staff spaces: MuseScore 3 holds a mid-line chord about 1.5 after the barline whatever its offset
 INK_DPI = 720
 MPOS_UNITS = 200.0  # position export units per point
-LEGACY_MPOS_UNITS = 60.0  # MuseScore 3 writes other units
-LEGACY_EXTENT = 50000.0  # a line reaches past this only in the larger units
 DEFAULT_SPACE = 3.4
 SIGNATURE_GAP = 2.0  # staff spaces between 2 glyphs of 1 signature run, at most
 LEDGER_REACH = 6.0  # staff spaces above and below a staff its notes can reach on ledger lines
@@ -184,8 +181,7 @@ def chord_size(path: pathlib.Path) -> float:
 def measure_boxes(mpos: pathlib.Path) -> list[dict[str, float]]:
     """Every measure's box in points, from the score program's own position export."""
     elements = list(ET.parse(mpos).getroot().iter("element"))
-    extent = max((float(e.get("x", "0")) + float(e.get("sx", "0")) for e in elements), default=0.0)
-    units = MPOS_UNITS if extent > LEGACY_EXTENT else LEGACY_MPOS_UNITS
+    units = MPOS_UNITS
     boxes = []
     for element in elements:
         boxes.append({key: float(element.get(tag, "0")) / units for key, tag in (("x", "x"), ("y", "y"), ("w", "sx"))} | {"page": float(element.get("page", "0"))})
@@ -385,43 +381,8 @@ def spaces_of(rows: list[list[tuple[int, bool]]], lines: list[dict[str, Any]]) -
     return [line["space"] for row, line in zip([r for r in rows if r], lines, strict=True) for _ in row]
 
 
-def moved_chord(element: str, spaces: float) -> str:
-    """A chord moved sideways by its own offset."""
-    old = re.search(r'<offset x="([-\d.e]+)" y="[-\d.e]+"/>', element)
-    was = float(old.group(1)) if old else 0.0
-    inner = re.sub(r'<offset x="[-\d.e]+" y="[-\d.e]+"/>', "", element[len("<Harmony>"):])
-    return f'<Harmony><offset x="{was + spaces:.3f}" y="0"/>{inner}'
 
 
-def align(mscz: pathlib.Path, pdf: pathlib.Path, reach: float | None = None) -> bool:
-    """Move each beat-1 chord to the barline, leaving alone what lies inside a program's own reach; True when anything moved."""
-    name, text = score_text(mscz)
-    rows = rows_of(text)
-    lines = matched(text, pdf)
-    found = gaps(rows, lines)
-    room = spaces_of(rows, lines)
-    first = text.index('<Staff id="1">', text.index("</Part>"))
-    end = text.find('<Staff id="2">', first)
-    end = end if end != -1 else text.index("</Score>", first)
-    at = iter(zip(found, room, strict=True))
-    moved = False
-
-    def seat(match: re.Match[str]) -> str:
-        nonlocal moved
-        gap, space = next(at)
-        if gap is None or (abs(gap - GAP) <= TOLERANCE / 2 if reach is None else -TOLERANCE <= gap <= reach * space):
-            return match.group(0)
-        moved = True
-        return moved_chord(match.group(0), (GAP - gap) / space)
-
-    body = re.sub(r"<Harmony>.*?</Harmony>", seat, text[first:end], flags=re.S)
-    with zipfile.ZipFile(mscz) as z:
-        items = {info.filename: z.read(info.filename) for info in z.infolist()}
-    items[name] = (text[:first] + body + text[end:]).encode("utf-8")
-    with zipfile.ZipFile(mscz, "w", zipfile.ZIP_DEFLATED) as z:
-        for key, data in items.items():
-            z.writestr(key, data)
-    return moved
 
 
 def set_stretch(mscz: pathlib.Path, factors: dict[int, float]) -> None:
@@ -530,8 +491,8 @@ def jump_crossings(mscz: pathlib.Path, pdf: pathlib.Path) -> list[tuple[int, flo
     return [crossed for line in matched(score_text(mscz)[1], pdf) for crossed in line["crossed"]]
 
 
-def problems(mscz: pathlib.Path, pdf: pathlib.Path, reach: float | None = None) -> list[str]:
-    """Beat-1 chords off the barline on a final PDF; a reach allows a program's own fixed hold after it."""
+def problems(mscz: pathlib.Path, pdf: pathlib.Path) -> list[str]:
+    """Beat-1 chords off the barline on a final PDF."""
     text = score_text(mscz)[1]
     rows = rows_of(text)
     lines = matched(text, pdf)
@@ -541,7 +502,7 @@ def problems(mscz: pathlib.Path, pdf: pathlib.Path, reach: float | None = None) 
     found = gaps(rows, lines)
     room = spaces_of(rows, lines)
     crossed = [f"a sign box crosses into bar {bar} by {width:.1f} pt" for line in lines for bar, width in line["crossed"]]
-    return crossed + [f"chord {index + 1}: gap {gap:.1f} pt, wanted {GAP}" for index, (gap, space) in enumerate(zip(found, room, strict=True)) if gap is not None and (abs(gap - GAP) > TOLERANCE if reach is None else not -TOLERANCE <= gap <= reach * space)]
+    return crossed + [f"chord {index + 1}: gap {gap:.1f} pt, wanted {GAP}" for index, (gap, space) in enumerate(zip(found, room, strict=True)) if gap is not None and abs(gap - GAP) > TOLERANCE]
 
 
 LINE_TEXT_CLEAR = 2.0  # staff spaces a cue below 1 line keeps from a cue above the next, where both share a stretch of the page

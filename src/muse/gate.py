@@ -15,20 +15,13 @@ from functools import partial
 
 import pymupdf
 
-from muse import buildcache, chordnames, chordseat, fullcheck, inverse, launch, mode, navigate, pdfcheck, piano, port, scorefile, verify
+from muse import buildcache, chordnames, chordseat, fullcheck, inverse, launch, mode, ms3, navigate, pdfcheck, piano, port, scorefile, verify
 from muse.model import Score
 from muse.song import Song, decode, song_of, sources
 
 HOMR_SECONDS = 1500  # 1 page through the optical cross-check, counted from when its slot frees
 MIN_HOMR_AGREEMENT = 0.6  # below this the independent reading has stopped agreeing about the song
 WITHHELD = "withheld.json"
-
-
-def legacy_staff_problems(legacy: pathlib.Path, work: pathlib.Path, title: str) -> list[str]:
-    """Render the file in MuseScore 3 itself and refuse an empty staff on a shared line."""
-    pdf = work / f"{legacy.stem}-staves.pdf"
-    port.render_pair(legacy, pdf, port.legacy_command())  # 1 load draws both: positions from another render misplace every bar
-    return chordseat.problems(legacy, pdf, chordseat.LEGACY_REACH) + pdfcheck.bass_problems(pdf) + pdfcheck.empty_staves(pdf) + [f"text on text: {c[2]}" for c in pdfcheck.text_collisions(pdf)] + pdfcheck.title_problems(pdf, title)
 
 
 def line_starts(pdf: pathlib.Path) -> list[int]:
@@ -101,7 +94,7 @@ def folder_problems(out: pathlib.Path, songs: list[Song], withheld: set[str]) ->
     """The sheets repo holds exactly the songs' folders, and each folder exactly its files."""
     wanted: set[str] = set()
     for song in songs:
-        wanted |= {name for name in song.files() if name != song.legacy_file or song.name not in withheld}
+        wanted |= {name for name in song.files() if name != song.ms3_file or song.name not in withheld}
     held = {str(p.relative_to(out)) for p in out.rglob("*") if p.is_file() and ".git" not in p.relative_to(out).parts and p.name != ".DS_Store"}
     return [f"missing {name}" for name in sorted(wanted - held)] + [f"stray {name}" for name in sorted(held - wanted)]
 
@@ -157,13 +150,7 @@ def check_song(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> tupl
     guarded("signs built in", lambda: scorefile.builtin_sign_problems(out / song.score_file))
     guarded("empty texts", lambda: scorefile.empty_text_problems(out / song.score_file))
     guarded("chord file", lambda: chordnames.chord_path_problems(out / song.score_file))
-    legacy = out / song.legacy_file
-    if legacy.exists():
-        guarded("ms3 chord file", lambda: chordnames.chord_path_problems(legacy))
-        guarded("ms3", lambda: scorefile.difference(out / song.score_file, legacy))
-        guarded("ms3 chord beats", lambda: verify.chord_beat_problems(src, legacy))
-        guarded("ms3 signs built in", lambda: scorefile.builtin_sign_problems(legacy))
-        guarded("ms3 staves", lambda: legacy_staff_problems(legacy, work, song.title))
+    failures.extend(ms3_problems(src, out))  # 1 home for what the MuseScore 3 file is judged on
     wanted = sum(bar.segno or bar.coda for bar in score.bars)
 
     def judge_pdf(final: pathlib.Path) -> None:
@@ -296,16 +283,30 @@ def cached_check(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> tu
 
 
 def chord_name_problems(work: pathlib.Path) -> list[str]:
-    """Every short spelling plays as proved in both programs, and transposes in the latest, with the sheets' own style."""
+    """Every short spelling plays as proved in MuseScore 3 and 4, and transposes in MuseScore 4, with the sheets' own style."""
     style = port.styled(work, "chord-check.mss", "x", 1.5, 11.0)
-    legacy_style = work / "chord-check-legacy.mss"
-    legacy_style.write_text(style.read_text(encoding="utf-8").replace('version="4.70"', 'version="3.02"'), encoding="utf-8")
-    latest = shutil.which("mscore") or "mscore"
+    ms3_style = work / "chord-check-ms3.mss"
+    ms3_style.write_text(style.read_text(encoding="utf-8").replace('version="4.70"', 'version="3.02"'), encoding="utf-8")
+    ms4 = shutil.which("mscore") or "mscore"
     return [
-        *chordnames.playback_problems(latest, style, work, legacy=False, run=chordnames.checked_run),
-        *chordnames.playback_problems(port.legacy_command(), legacy_style, work, legacy=True, run=chordnames.checked_run),
-        *chordnames.transposes(latest, style, work, chordnames.checked_run),
+        *chordnames.playback_problems(ms4, style, work, ms3=False, run=chordnames.checked_run),
+        *chordnames.playback_problems(ms3.command(), ms3_style, work, ms3=True, run=chordnames.checked_run),
+        *chordnames.transposes(ms4, style, work, chordnames.checked_run),
     ]
+
+
+def ms3_problems(src: pathlib.Path, out: pathlib.Path) -> list[str]:
+    """A song's MuseScore 3 file against its MuseScore 4 file: notes, chords, chord beats and jumps, all it plays, each labelled `ms3`."""
+    info = song_of(src)
+    ms3_file = out / info.ms3_file
+    if not ms3_file.exists():
+        return [f"ms3: missing {info.ms3_file}"]
+    return [f"ms3: {problem}" for problem in scorefile.difference(out / info.score_file, ms3_file)] + ([] if info.orchestral else [f"ms3 chord beats: {problem}" for problem in verify.chord_beat_problems(src, ms3_file)])
+
+
+def ms3_verdicts(src_dir: pathlib.Path, out: pathlib.Path, work: pathlib.Path, names: tuple[str, ...] = ()) -> dict[str, list[str]]:
+    """Each named song's MuseScore 3 failures alone, for publishing MuseScore 3 files ahead of their songs' other files."""
+    return {song_of(src).name: ms3_problems(src, out) for src in sources(src_dir) if not names or song_of(src).name in names}
 
 
 def verdicts(src_dir: pathlib.Path, out: pathlib.Path, work: pathlib.Path, names: tuple[str, ...] = ()) -> dict[str, list[str]]:
@@ -318,7 +319,7 @@ def verdicts(src_dir: pathlib.Path, out: pathlib.Path, work: pathlib.Path, names
         info = song_of(src)
         if names and info.name not in names:
             continue
-        files = {name for name in info.files() if name != info.legacy_file or info.name not in held_back}
+        files = {name for name in info.files() if name != info.ms3_file or info.name not in held_back}
         folder = out / info.name
         held = {f"{info.name}/{p.name}" for p in folder.iterdir() if p.is_file() and p.name != ".DS_Store"} if folder.exists() else set()
         found[info.name] = [f"missing {name}" for name in sorted(files - held)] + [f"stray {name}" for name in sorted(held - files)]

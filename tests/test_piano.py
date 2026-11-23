@@ -193,10 +193,10 @@ SONG = Song("Name", "Dm", -1, "Em", 1, "up", 2, "Name")
 SAME = Song("Same", "Em", 1, "Em", 1, "", 0, "Same")
 
 
-def test_a_folder_holds_4_files_or_3_when_the_original_is_the_tone():
-    assert len(SONG.files()) == 4
-    assert len(SAME.files()) == 3
-    assert SONG.legacy_file not in SONG.files()
+def test_a_folder_holds_5_files_or_4_when_the_original_is_the_tone():
+    assert len(SONG.files()) == 5
+    assert len(SAME.files()) == 4
+    assert SONG.ms3_file in SONG.files()
 
 
 def test_missing_and_stray_files_are_named(tmp_path):
@@ -207,6 +207,7 @@ def test_missing_and_stray_files_are_named(tmp_path):
     (tmp_path / SONG.tone_pdf).unlink()
     assert gate.folder_problems(tmp_path, [SONG], set()) == [f"missing {SONG.tone_pdf}"]
     (tmp_path / SONG.tone_pdf).write_text("x")
+    (tmp_path / SONG.ms3_file).unlink()  # a withheld MuseScore 3 file is absent, never stray
     assert gate.folder_problems(tmp_path, [SONG], {"Name"}) == []
     (tmp_path / "old.pdf").write_text("x")
     assert gate.folder_problems(tmp_path, [SONG], {"Name"}) == ["stray old.pdf"]
@@ -267,10 +268,10 @@ def test_a_lone_line_is_found_and_only_it():
     assert piano.lone_lines([1, 5], 8) == []
 
 
-def test_the_legacy_half_diminished_spelling_is_the_same_chord(tmp_path):
+def test_the_ms3_half_diminished_spelling_is_the_same_chord(tmp_path):
     rest = "<Rest><durationType>measure</durationType><duration>1/1</duration></Rest>"
     short = write_score(tmp_path / "s.mscz", f"<Harmony><root>16</root><name>0</name></Harmony>{rest}")
-    legacy = write_score(tmp_path / "l.mscz", f"<Harmony><root>16</root><name>07</name></Harmony>{rest}")
+    ms3_score = write_score(tmp_path / "l.mscz", f"<Harmony><root>16</root><name>07</name></Harmony>{rest}")
     other = write_score(tmp_path / "o.mscz", f"<Harmony><root>16</root><name>m7</name></Harmony>{rest}")
-    assert scorefile.difference(short, legacy) == []
+    assert scorefile.difference(short, ms3_score) == []
     assert "chords differ" in scorefile.difference(short, other)[0]

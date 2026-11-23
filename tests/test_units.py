@@ -336,8 +336,6 @@ def test_measure_boxes_are_read_in_points(tmp_path):
     mpos.write_text('<score><elements><element id="0" x="4320" y="11776" sx="2000" sy="2607" page="1"></element></elements></score>')
     mpos.write_text('<score><elements><element id="0" x="4320" y="11776" sx="110000" sy="2607" page="1"></element></elements></score>')
     assert chordseat.measure_boxes(mpos) == [{"x": 21.6, "y": 58.88, "w": 550.0, "page": 1.0}]
-    mpos.write_text('<score><elements><element id="0" x="1296" y="4014" sx="33000" sy="2836" page="0"/></elements></score>')
-    assert chordseat.measure_boxes(mpos) == [{"x": 21.6, "y": 66.9, "w": 550.0, "page": 0.0}]
 
 
 def test_a_staff_is_5_equal_lines_and_a_stray_line_is_not():
@@ -346,19 +344,12 @@ def test_a_staff_is_5_equal_lines_and_a_stray_line_is_not():
     assert [staff[0] for staff in chordseat.staves_of(shapes)] == [60.0, 100.0]
 
 
-def test_a_moved_chord_adds_to_its_offset():
-    element = '<Harmony><offset x="1.000" y="0"/><root>14</root></Harmony>'
-    assert chordseat.moved_chord(element, 0.5) == '<Harmony><offset x="1.500" y="0"/><root>14</root></Harmony>'
-
-
-def test_a_reach_allows_the_hold_and_nothing_past_it(monkeypatch, tmp_path):
+def test_a_chord_past_its_barline_is_off_target(monkeypatch, tmp_path):
     monkeypatch.setattr(chordseat, "score_text", lambda _: ("x", ""))
     monkeypatch.setattr(chordseat, "rows_of", lambda _: [[(0, True), (1, True)]])
     monkeypatch.setattr(chordseat, "bar_rows", lambda _: [[1, 2]])
     monkeypatch.setattr(chordseat, "matched", lambda text, pdf: [{"chords": [50.0, 105.0], "bars": [100.0, 150.0], "openings": [100.0], "start": 50.0, "space": 4.0, "crossed": []}])
-    assert chordseat.problems(tmp_path, tmp_path, 1.7) == []
-    assert len(chordseat.problems(tmp_path, tmp_path, 1.0)) == 1
-    assert len(chordseat.problems(tmp_path, tmp_path)) == 1
+    assert len(chordseat.problems(tmp_path, tmp_path)) == 1  # 5 points past its barline
 
 
 def test_signatures_end_at_the_first_glyph_that_is_no_signature():
@@ -419,7 +410,7 @@ def test_no_chord_stretches_a_bar():
 
 
 def test_every_short_spelling_has_proved_playback():
-    assert set(chordnames.SHORT.values()) | set(chordnames.LEGACY_SPELLING.values()) == set(chordnames.PLAYS)
+    assert set(chordnames.SHORT.values()) | set(chordnames.MS3_SPELLING.values()) == set(chordnames.PLAYS)
     assert chordnames.stored("maj7") == "^7" and chordnames.stored("m7") == "m7"
 
 
@@ -455,21 +446,6 @@ def test_a_flag_far_from_a_stem_does_not_shorten_its_note() -> None:
     far_flag = (0xE240, 56.8, 140.0)
     voices = leland.read_events(bar, [head, far_flag], 108.0, 2.7, [stem], [], 0, [])
     assert voices[0][0].nominal == 1
-
-
-def test_a_chord_list_lands_inside_the_style(tmp_path):
-    import zipfile
-
-    from muse import chordnames
-
-    score = tmp_path / "s.mscz"
-    with zipfile.ZipFile(score, "w") as z:
-        z.writestr("s.mscx", "<museScore><Style><a>1</a></Style></museScore>")
-    chords = tmp_path / "c.xml"
-    chords.write_text('<museScore version="3"><renderBase>/ :n :a</renderBase></museScore>', encoding="utf-8")
-    chordnames.embed_chord_list(score, chords)
-    text = zipfile.ZipFile(score).read("s.mscx").decode()
-    assert "<a>1</a><ChordList><renderBase>/ :n :a</renderBase></ChordList></Style>" in text
 
 
 def test_a_saved_layout_with_a_label_inside_a_line_fails_its_proof():
@@ -1082,25 +1058,6 @@ def test_a_page_with_a_tall_blank_band_is_refused(tmp_path):
     assert pdfcheck.blank_bands(page_with(300)) != []
 
 
-def test_a_mark_lost_between_2_score_files_is_reported(tmp_path):
-    import zipfile
-
-    from muse import scorefile
-
-    def score_with(articulation: str) -> pathlib.Path:
-        body = f"<museScore><Score><Staff id=\"1\"><Measure><voice><Chord><durationType>whole</durationType>{articulation}<Note><pitch>69</pitch></Note></Chord></voice></Measure></Staff></Score></museScore>"
-        path = tmp_path / f"s{len(articulation)}.mscz"
-        with zipfile.ZipFile(path, "w") as archive:
-            archive.writestr("s.mscx", body)
-        return path
-
-    plain = score_with("")
-    marked = score_with("<Articulation><subtype>stringsHarmonic</subtype></Articulation>")
-    above = score_with("<Articulation><subtype>stringsHarmonicAbove</subtype></Articulation>")
-    assert scorefile.difference(marked, plain) == ["bar 1 staff 1: marks differ ['stringsHarmonic'] []"]
-    assert scorefile.difference(marked, above) == []  # where it prints is layout
-
-
 DISTINCT_FACTS = {  # a name 2 modules define for different facts: each font's own codes, or a module re-exporting its owner's value
     "ACCIDENTALS", "BAR_REST", "CHORD", "CHORD_GAP", "CREDIT_ROW", "DYNAMICS", "FLAGS", "GRACE", "HEADS",
     "JUMP_WORDS", "KNOWN_GLYPHS", "MUSIC_FONTS", "RESTS", "STAFF_REACH", "STYLE",
@@ -1146,3 +1103,13 @@ def test_the_ink_reader_finds_a_mark_where_it_is_drawn(tmp_path):
     assert 99 <= cols[0] <= 101 and 299 <= cols[-1] <= 301
     blank = doc.new_page(width=595, height=842)
     assert pdfcheck.inked_rows(blank, 72)[0] == []
+
+
+def test_no_code_names_a_musescore_version_by_age():
+    """MuseScore 3 and 4 are both current targets: code names each by its version, `ms3` or `ms4`."""
+    import re
+
+    root = pathlib.Path(port.__file__).parents[2]
+    words = re.compile(r"\b(legacy|outdated|deprecated)\b", re.IGNORECASE)
+    found = [f"{path.relative_to(root)}:{at}" for path in sorted([*root.glob("src/muse/**/*"), *root.glob("tests/*"), root / "README.md"]) if path.is_file() and path.suffix in {".py", ".js", ".md", ".json"} for at, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1) if words.search(line) and "words = re.compile" not in line]
+    assert found == []

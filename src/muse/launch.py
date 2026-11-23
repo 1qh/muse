@@ -15,6 +15,8 @@ import psutil
 
 SLOTS_VARIABLE = "MUSE_LAUNCH_SLOTS"
 LAUNCHES = {"count": 0}
+LAUNCH_SECONDS = 240  # 1 MuseScore import or export, counted from when its launch slot frees
+
 
 
 def slots() -> int:

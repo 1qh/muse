@@ -2,19 +2,17 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import os
 import pathlib
 import re
 import shutil
 import threading
 import zipfile
-from collections.abc import Callable
 from typing import Any
 
 from muse import buildcache, chordnames, chordseat, launch, mode, musicxml, pdfcheck, pdftext, piano
 from muse.model import Bar, Score
-from muse.song import Song, decode
+from muse.song import Song
 
 CHORD_GAP = chordseat.CHORD_GAP  # of the chord size, between 2 chords
 CHORD_SIZE_PER_SPACE = 8.0  # printed chord points per unit of the style's spatium
@@ -23,10 +21,7 @@ SIZE_CAP = 2.0  # the largest notation any sheet takes
 PAGE_SLACK = 0.05  # share a printed page may stand taller than the most even split allows
 PAGE_FILL = mode.pick(0.85, 0.0)  # how far down every page the music must reach
 MAX_WORKERS = 10
-LAUNCH_SECONDS = 240  # 1 import or export, counted from when its launch slot frees
-SEAT_PASSES = 5
 SIZE_STEP = 0.05
-CLIMB_START, CLIMB_STEP, CLIMB_STEPS = 1.3, 0.1, 8
 SIGN_CLEARANCE = 3.0  # spaces a chord moves right off a sign printed on its baseline
 TARGET_HOLD = '<autoplace>0</autoplace><offset x="1" y="-3"/>'
 SIGN_STEP = -6  # spaces a jump sign steps left of the sign beside it
@@ -34,11 +29,8 @@ SIGN_RISE = -2.5  # spaces above the staff, in its own chord row
 SIGN_BAR_STRETCH = 2.5  # a bar holding 2 signs widens to hold both
 SIGN_SIZE = 25  # a sign may exceed the chords: about 2.5 times the default sign
 MARKER_TYPES = {"segno": "segno", "coda": "codab"}
-LEGACY_SIGN_SIZE = 25  # MuseScore 3 sizes the sign as text
-LEGACY_ONLY_FONTS = ("staffFontFace", "systemFontFace", "beginFontFace", "continueFontFace", "endFontFace")  # its names for text styles
 MAX_SHORT_SHARE = mode.pick(0.15, 0.40)  # readers find many 2-bar lines sparse; smaller notation is preferred
 RELAXED_SHORT_SHARE = mode.pick(0.30, 0.40)  # when no size holds a song to the base share
-LEGACY_TOP_BORDER = 15  # MuseScore 3 lifts jump words and voltas into the title otherwise
 BASE_DISTANCE = 11.0
 ORIGINAL = "original"
 TONE = "tone"
@@ -61,7 +53,7 @@ def require_font(folders: tuple[pathlib.Path, ...] = FONT_DIRS) -> None:
 
 
 def run(*args: str) -> None:
-    done = launch.mscore(list(args), LAUNCH_SECONDS)
+    done = launch.mscore(list(args), launch.LAUNCH_SECONDS)
     if done.returncode:
         raise RuntimeError(f"mscore {args}: {done.stderr[-400:]}")
 
@@ -396,19 +388,6 @@ def transpose_options(song: Song) -> dict[str, Any] | None:
 
 
 
-def seat_chords(score_path: pathlib.Path, pdf: pathlib.Path, render: Callable[[], None], song: str, noted: set[int] | None = None, reach: float | None = None) -> None:
-    """Even out empty bars where asked and move beat-1 chords to their barlines by measuring the render, until nothing is left to move."""
-    try:
-        for _ in range(SEAT_PASSES if noted is not None else 0):  # bars first: evening them moves every barline
-            if not chordseat.equalize(score_path, pdf, noted or set()):
-                break
-            render()
-        for _ in range(SEAT_PASSES):
-            if not chordseat.align(score_path, pdf, reach):
-                break
-            render()
-    except ValueError:
-        return  # chords run together, so the text layer merges them; the crowding check splits that line
 
 
 
@@ -592,52 +571,10 @@ def sizes_between(low: float, high: float) -> list[float]:
 
 
 
-def legacy_command() -> str:
-    """MuseScore 3.7's own executable, native on Apple silicon; the pinned build is named in the pipeline ADR."""
-    return os.environ.get("MUSE_MS3") or str(chordnames.LEGACY_APP / "Contents" / "MacOS" / "mscore")
 
 
-def build_legacy(src: pathlib.Path, work: pathlib.Path, target: pathlib.Path, spatium: float, distance: float, info: Song) -> None:
-    """The MuseScore 3 file, from the same MusicXML as the latest file, in its own program's format."""
-    score = decode(src)
-    style = styled(work, f"{info.name}-legacy.mss", info.title, spatium, distance)
-    fonts = "".join(f"<{tag}>SF Pro Display</{tag}>" for tag in LEGACY_ONLY_FONTS)
-    style.write_text(style.read_text(encoding="utf-8").replace('version="4.70"', 'version="3.02"').replace("</Style>", fonts + "</Style>"), encoding="utf-8")
-    style.write_text(re.sub(r"<staffUpperBorder>[^<]*</staffUpperBorder>", f"<staffUpperBorder>{LEGACY_TOP_BORDER}</staffUpperBorder>", style.read_text(encoding="utf-8")), encoding="utf-8")
-    xml = work / f"{info.name}-{ORIGINAL}.musicxml"
-    raw = work / f"{info.name}-legacy.mscz"
-    done = launch.mscore(["-S", str(style), "-o", str(raw), str(xml)], LAUNCH_SECONDS, legacy_command())
-    if done.returncode:
-        raise RuntimeError(f"MuseScore 3: {done.stderr[-300:]}")
-    strip_title_frame(raw)
-    legacy_signs(raw)
-    big_signs(raw)
-    legacy_sign_size(raw)
-    chordnames.embed_chord_list(raw, chordnames.chord_file(work))
-    seen = work / f"{info.name}-legacy-seat.pdf"
-
-    def render() -> None:
-        for out in (seen, seen.with_suffix(".mpos")):
-            launch.mscore(["-o", str(out), str(raw)], LAUNCH_SECONDS, legacy_command(), check=True)
-
-    render()
-    seat_chords(raw, seen, render, f"{info.name}-legacy", {bar.number for bar in score.bars if piano.has_notes(bar)}, chordseat.LEGACY_REACH)
-    target.write_bytes(raw.read_bytes())
 
 
-def legacy_sign_size(mscz: pathlib.Path) -> None:
-    """MuseScore 3 sizes a sign as text."""
-    with zipfile.ZipFile(mscz) as z:
-        items = {info.filename: z.read(info.filename) for info in z.infolist()}
-    for name, data in items.items():
-        if name.endswith(".mscx"):
-            text = data.decode("utf-8")
-            for sym in ("segno", "coda"):
-                text = text.replace(f"<text><sym>{sym}</sym></text>", f"<size>{LEGACY_SIGN_SIZE}</size><text><sym>{sym}</sym></text>")
-            items[name] = text.encode("utf-8")
-    with zipfile.ZipFile(mscz, "w", zipfile.ZIP_DEFLATED) as z:
-        for key, data in items.items():
-            z.writestr(key, data)
 
 
 def lift_idle_cues(score: Score) -> None:
@@ -648,28 +585,8 @@ def lift_idle_cues(score: Score) -> None:
             bar.texts2 = []
 
 
-def legacy_signs(mscz: pathlib.Path) -> None:
-    """MuseScore 3's import already writes the built-in signs; only their size is ours."""
-    with zipfile.ZipFile(mscz) as z:
-        items = {info.filename: z.read(info.filename) for info in z.infolist()}
-    for name, data in items.items():
-        if name.endswith(".mscx"):
-            text = data.decode("utf-8")
-            text = text.replace("<hideEmptyStaves>1</hideEmptyStaves>", "<hideEmptyStaves>1</hideEmptyStaves>\n    <dontHidStavesInFirstSystm>0</dontHidStavesInFirstSystm>", 1)  # MuseScore 3 spells it this way
-            for spelled, legacy_name in chordnames.LEGACY_SPELLING.items():
-                text = text.replace(f"<name>{spelled}</name>", f"<name>{legacy_name}</name>")
-            items[name] = text.encode("utf-8")
-    with zipfile.ZipFile(mscz, "w", zipfile.ZIP_DEFLATED) as z:
-        for key, data in items.items():
-            z.writestr(key, data)
 
 
-def render_pair(score: pathlib.Path, pdf: pathlib.Path, command: str = "mscore") -> pathlib.Path:
-    """A PDF and its measure positions drawn in 1 load of the score, so the positions describe that very print."""
-    job = pdf.with_suffix(".job.json")
-    job.write_text(json.dumps([{"in": str(score), "out": [str(pdf), str(pdf.with_suffix(".mpos"))]}]))
-    launch.mscore(["-j", str(job)], LAUNCH_SECONDS, command, check=True)
-    return pdf.with_suffix(".mpos")
 
 
 def keep_pair(positions: pathlib.Path, pdf: pathlib.Path, target: pathlib.Path) -> None:

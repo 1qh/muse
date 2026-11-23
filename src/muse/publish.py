@@ -9,7 +9,8 @@ import tempfile
 import time
 from collections.abc import Callable
 
-from muse import gate
+from muse import gate, ms3
+from muse.song import song_of, sources
 
 PUSH_TRIES = 4
 PUSH_WAIT = 60.0
@@ -73,28 +74,53 @@ def resync(out: pathlib.Path, run: Runner = sh) -> None:
     run("git", "reset", "--quiet", "--hard", "@{u}", cwd=out)
 
 
-def commit_message(songs: list[str]) -> str:
+MS3_FLAG = "--ms3"
+MS3_LABEL = "MuseScore 3 files"
+MS3_SUFFIX = "-ms3.mscz"
+
+
+def commit_message(songs: list[str], what: str = "") -> str:
     """Name what a publish brings, since the history purge leaves no earlier file to diff against."""
-    return f"feat: publish {', '.join(songs)}" if songs else "chore: refresh sheets"
+    return f"feat: publish {what + ' of ' if what else ''}{', '.join(songs)}" if songs else "chore: refresh sheets"
+
+
+def only_ms3(failures: list[str]) -> bool:
+    """Whether every failure of a song is its MuseScore 3 file's, whose checks the gate labels `ms3`."""
+    return all(failure.startswith("ms3") for failure in failures)
+
+
+def ms3_paths(out: pathlib.Path, song: str) -> list[str]:
+    """A song's MuseScore 3 file, relative to the sheets repo."""
+    return [f"{song}/{path.name}" for path in sorted((out / song).glob(f"*{MS3_SUFFIX}"))]
 
 
 def publish(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path, run: Runner = sh, judge: Judge = gate.verdicts, names: tuple[str, ...] = ()) -> dict[str, list[str]]:
     """Publish every song passing its gate; returns the blocked songs, each keeping its last good folder, with reasons."""
     verdicts = judge(src, out, work, names)
-    blocked = {song: failures for song, failures in verdicts.items() if failures}
+    blocked = {song: failures for song, failures in verdicts.items() if failures and not only_ms3(failures)}
+    held = {song: failures for song, failures in verdicts.items() if failures and only_ms3(failures)}  # the MuseScore 3 file alone fails: it is withheld, the rest publishes
     for song in blocked:
         keep_last_good(out, song, run)
-    for song in verdicts:
-        if song not in blocked:
-            run("git", "add", "-A", "--", song, cwd=out)
+    for song in held:
+        for path in ms3_paths(out, song):
+            keep_last_good(out, path, run)
+            print(f"withheld {path}: {held[song][:3]}", flush=True)
+    passing = sorted(song for song in verdicts if song not in blocked)
     extras = stray_files(run("git", "ls-files", cwd=out))
     if extras:
         raise SystemExit(f"the sheets repo holds only PDF and MuseScore files, refusing: {extras}")
-    if run("git", "diff", "--cached", "--name-only", cwd=out):
-        run("git", "commit", "-m", commit_message(sorted(song for song in verdicts if song not in blocked)), cwd=out)
-    elif not run("git", "rev-list", "@{u}..HEAD", cwd=out):
-        return blocked  # nothing new and nothing left unpushed by an earlier run
-    pushed(run, ("git", "push"), out)
+    moved = False
+    for paths, message in (([path for song in passing if song not in held for path in ms3_paths(out, song)], commit_message([song for song in passing if song not in held], MS3_LABEL)), (passing, commit_message(passing))):  # the MuseScore 3 files reach the remote first
+        for path in paths:
+            run("git", "add", "-A", "--", path, cwd=out)
+        if run("git", "diff", "--cached", "--name-only", cwd=out):
+            run("git", "commit", "-m", message, cwd=out)
+            pushed(run, ("git", "push"), out)
+            moved = True
+    if not moved:
+        if not run("git", "rev-list", "@{u}..HEAD", cwd=out):
+            return blocked  # nothing new and nothing left unpushed by an earlier run
+        pushed(run, ("git", "push"), out)
     tree = run("git", "rev-parse", "HEAD^{tree}", cwd=out)
     url = run("git", "remote", "get-url", "origin", cwd=out)
     with tempfile.TemporaryDirectory() as tmp:
@@ -122,9 +148,20 @@ def publish(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path, run: Runne
 def main() -> None:
     if not shutil.which("git-filter-repo"):
         raise SystemExit("git-filter-repo not found")
-    src, out, work = map(pathlib.Path, sys.argv[1:4])
+    args = [arg for arg in sys.argv[1:] if arg != MS3_FLAG]
+    src, out, work = map(pathlib.Path, args[:3])
+    names = tuple(args[3:])
     try:
-        blocked = publish(src, out, work, names=tuple(sys.argv[4:]))
+        if MS3_FLAG in sys.argv[1:]:  # MuseScore 3 files alone: built from the song, judged against the published MuseScore 4 files
+            resync(out)
+            work.mkdir(parents=True, exist_ok=True)
+            for found in sources(src):
+                info = song_of(found)
+                if (not names or info.name in names) and not info.orchestral:  # a full score's MuseScore 3 file comes from its own MusicXML, in its build
+                    ms3.build_song(found, work, out / info.ms3_file, info)
+            blocked = publish(src, out, work, judge=gate.ms3_verdicts, names=names)
+        else:
+            blocked = publish(src, out, work, names=names)
     except Refused as error:
         raise SystemExit(str(error)) from error
     for song, failures in blocked.items():

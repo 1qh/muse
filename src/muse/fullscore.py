@@ -2,11 +2,9 @@
 from __future__ import annotations
 
 import pathlib
-import re
 import xml.etree.ElementTree as ET
-from fractions import Fraction as F
 
-from muse import chordnames, launch, musicxml, pdftext, port, scorefile
+from muse import chordnames, ms3, musicxml, pdftext, port
 from muse.model import Orchestra, Score
 from muse.song import Song, orchestra_of
 
@@ -41,11 +39,7 @@ def build(src: pathlib.Path, out_dir: pathlib.Path, work: pathlib.Path, info: So
     pdf = out_dir / info.original_pdf
     port.run("-o", str(pdf), str(final))
     report: dict[str, object] = {"pdf pages": len(pdftext.open(pdf)), "spatium": spatium}
-    legacy = out_dir / info.legacy_file
-    reason = build_legacy(xml, work, legacy, final, info, orchestra, spatium)
-    if reason:
-        legacy.unlink(missing_ok=True)
-        report["legacy"] = reason
+    ms3.build(xml, out_dir / info.ms3_file)  # the same MusicXML, harmonics and every mark included
     return report
 
 
@@ -77,33 +71,3 @@ def fit(xml: pathlib.Path, work: pathlib.Path, final: pathlib.Path, info: Song, 
     raise port.DoesNotFit(f"{info.name}: no staff space holds every source system: {tried[-3:]}")
 
 
-def build_legacy(xml: pathlib.Path, work: pathlib.Path, target: pathlib.Path, latest: pathlib.Path, info: Song, orchestra: Orchestra, spatium: float) -> list[str]:
-    """The MuseScore 3 file, from the pipeline's own MusicXML, in MuseScore 3.7; what keeps it from matching the latest file, or nothing."""
-    style = port.styled(work, f"{info.name}-score-legacy.mss", info.title, spatium, DISTANCE, NAMED)  # the same size and named staves as the latest file
-    fonts = "".join(f"<{tag}>SF Pro Display</{tag}>" for tag in port.LEGACY_ONLY_FONTS)
-    text = style.read_text(encoding="utf-8").replace('version="4.70"', 'version="3.02"').replace("</Style>", fonts + "</Style>")
-    style.write_text(re.sub(r"<staffUpperBorder>[^<]*</staffUpperBorder>", f"<staffUpperBorder>{port.LEGACY_TOP_BORDER}</staffUpperBorder>", text), encoding="utf-8")
-    raw = work / f"{info.name}-score-legacy-import.mscz"
-    plain = work / f"{info.name}-legacy.musicxml"  # MuseScore 3 stops reading a part at a harmonic: it gets them written into its file instead
-    plain.write_text(xml.read_text(encoding="utf-8").replace(musicxml.TECHNICAL_XML["harmonic"], "").replace("<technical></technical>", ""), encoding="utf-8")
-    done = launch.mscore(["-S", str(style), "-o", str(raw), str(plain)], port.LAUNCH_SECONDS, port.legacy_command())
-    if done.returncode or not raw.exists():
-        return [f"MuseScore 3 refused the MusicXML: exit {done.returncode}: {done.stderr.strip()[-300:]}"]
-    port.strip_title_frame(raw)
-    port.legacy_signs(raw)
-    port.edited(raw, target, spatium, DISTANCE, breaks_of(orchestra))
-    chordnames.drop_chord_path(target)
-    lost = scorefile.articulate(target, harmonics(orchestra))
-    return lost + scorefile.difference(latest, target)
-
-
-def harmonics(orchestra: Orchestra) -> list[tuple[int, int, F, str]]:
-    """Every harmonic as (staff index, bar, onset in quarters, MuseScore's articulation subtype)."""
-    found = []
-    first = 0
-    for part in orchestra.parts:
-        for bar in part.bars:
-            for staff, voices in enumerate((bar.voices, bar.voices2)):
-                found += [(first + staff, bar.number, event.onset, "stringsHarmonic") for voice in voices for event in voice if "harmonic" in event.marks]
-        first += part.staves
-    return found

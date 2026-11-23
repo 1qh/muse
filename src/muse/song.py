@@ -42,7 +42,7 @@ class Song:
         return f"{self.name}/{self.name}-{self.source_key}.mscz"
 
     @property
-    def legacy_file(self) -> str:
+    def ms3_file(self) -> str:
         return f"{self.name}/{self.name}-{self.source_key}-ms3.mscz"
 
     @property
@@ -61,11 +61,10 @@ class Song:
     def files(self) -> set[str]:
         """Exactly what the song's folder holds."""
         if self.orchestral:
-            return {self.score_file, self.legacy_file, self.original_pdf}
-        return {self.score_file, self.original_pdf, self.tone_pdf, self.piano_pdf} | ({self.legacy_file} if LEGACY_FILES else set())
+            return {self.score_file, self.ms3_file, self.original_pdf}
+        return {self.score_file, self.ms3_file, self.original_pdf, self.tone_pdf, self.piano_pdf}
 
 
-LEGACY_FILES = True  # every song ships a MuseScore 3 file
 PAST_EVENT = 8.0  # points past a bar's last note or rest
 CHORD_LETTER = 5.5  # points a source chord letter takes
 CROSSING = 2.0  # points past the barline

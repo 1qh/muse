@@ -407,22 +407,21 @@ def test_a_line_crossing_a_braced_pair_reads_as_1_line(path):
 @pytest.mark.musescore
 @pytest.mark.parametrize("path", orchestral_sources())
 def test_full_score_builds_3_files_that_hold_the_decode_and_the_source_s_systems(path, tmp_path):
-    from muse import fullcheck, fullscore, launch, port
+    from muse import fullcheck, fullscore, launch
 
     src = pathlib.Path(path)
     info = song.song_of(src)
     out, work = tmp_path / "out", tmp_path / "work"
     (out / info.name).mkdir(parents=True)
     work.mkdir()
-    report = fullscore.build(src, out, work, info)
-    assert "legacy" not in report, report
+    fullscore.build(src, out, work, info)
     assert all((out / name).stat().st_size for name in info.files())
     score = song.orchestra_of(src)
     exported = work / "final.musicxml"
-    launch.mscore(["-o", str(exported), str(out / info.score_file)], port.LAUNCH_SECONDS, check=True)
+    launch.mscore(["-o", str(exported), str(out / info.score_file)], launch.LAUNCH_SECONDS, check=True)
     assert fullcheck.content_problems(score, exported) == []
     probe = work / "final.mpos"
-    launch.mscore(["-o", str(probe), str(out / info.score_file)], port.LAUNCH_SECONDS, check=True)
+    launch.mscore(["-o", str(probe), str(out / info.score_file)], launch.LAUNCH_SECONDS, check=True)
     assert fullscore.system_problems(score, probe) == []
 
 

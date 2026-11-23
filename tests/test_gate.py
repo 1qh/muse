@@ -330,3 +330,23 @@ def test_the_gate_judges_a_pdf_against_the_positions_of_its_own_render(tmp_path,
     pdf.write_bytes(b"%PDF drawn by another render")  # the published PDF moved on; its kept positions no longer describe it
     with pytest.raises(port.DoesNotFit):
         gate.measured(pdf, work)
+
+
+def test_the_ms3_files_are_pushed_before_the_rest_of_their_songs(tmp_path):
+    for song in ("good", "held"):
+        (tmp_path / song).mkdir()
+        (tmp_path / song / f"{song}-A-ms3.mscz").write_text("x")
+    calls = []
+
+    def run(*args, cwd=None):
+        calls.append(args)
+        return {"--cached": "staged", "rev-parse": "t", "get-url": "u"}.get(next((x for x in reversed(args) if x in ("--cached", "rev-parse", "get-url")), ""), "")
+
+    publish.publish(tmp_path, tmp_path, tmp_path, run, lambda *_: {"good": [], "held": ["ms3: bar 3 chords differ"]})
+    adds = [args[-1] for args in calls if args[:3] == ("git", "add", "-A")]
+    commits = [at for at, args in enumerate(calls) if args[:2] == ("git", "commit")]
+    pushes = [at for at, args in enumerate(calls) if args == ("git", "push")]
+    assert adds == ["good/good-A-ms3.mscz", "good", "held"]  # the passing MuseScore 3 file first, alone; a failing one never
+    assert len(commits) == 2 and commits[0] < pushes[0] < commits[1] < pushes[1]
+    assert calls[commits[0]][-1] == "feat: publish MuseScore 3 files of good"
+    assert ("git", "checkout", "HEAD", "--", "held/held-A-ms3.mscz") in calls or ("git", "clean", "-fdq", "--", "held/held-A-ms3.mscz") in calls

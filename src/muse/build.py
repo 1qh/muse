@@ -14,15 +14,23 @@ import sys
 import time
 from typing import Any
 
-from muse import buildcache, chordnames, fullscore, gate, launch, layout, mode, piano, port, publish, scorefile
+from muse import buildcache, chordnames, fullscore, gate, launch, layout, mode, ms3, piano, port, publish
 from muse.model import Score
-from muse.song import LEGACY_FILES, decode, song_of
+from muse.song import decode, song_of
 from muse.song import sources as song_sources
 
 
 def variant_key(src: pathlib.Path, variant: str) -> str:
     """The build key of 1 sheet: its source, settings and every file of code that can shape it."""
     return buildcache.key_of(src, repr(song_of(src)), buildcache.sheet_code(), mode.label())  # records are kept per variant, so 1 key serves every sheet
+
+
+MS3 = "ms3"  # the build record of a song's MuseScore 3 file
+
+
+def ms3_key(src: pathlib.Path) -> str:
+    """The MuseScore 3 file's own key: its source, settings and only the code its conversion runs, so a layout change never rebuilds it."""
+    return buildcache.key_of(src, repr(song_of(src)), buildcache.sheet_code(writers=("ms3",)), mode.label())
 
 
 def decision(found: tuple[Score, pathlib.Path, float, float, int]) -> dict[str, Any]:
@@ -41,7 +49,7 @@ def song(src: pathlib.Path, out_dir: pathlib.Path, work: pathlib.Path) -> dict[s
     state = buildcache.load(info.name)
     built = []
     if info.orchestral:  # a full score keeps the source's breaks and takes no tone or piano sheet
-        outputs = [out_dir / info.score_file, out_dir / info.original_pdf, out_dir / info.legacy_file]
+        outputs = [out_dir / info.ms3_file, out_dir / info.score_file, out_dir / info.original_pdf]
         key = variant_key(src, port.ORIGINAL)
         if not buildcache.fresh(state.get(port.ORIGINAL), key, outputs):
             report.update(fullscore.build(src, out_dir, work, info))
@@ -64,26 +72,21 @@ def song(src: pathlib.Path, out_dir: pathlib.Path, work: pathlib.Path) -> dict[s
         report[variant] = (found[2], found[3], found[4])
         built.append(variant)
 
-    outputs = [out_dir / info.score_file, out_dir / info.original_pdf, port.paired(work, info.original_pdf), port.paired(work, info.original_pdf).with_suffix(".sha")] + ([out_dir / info.legacy_file] if LEGACY_FILES else [])
+    outputs = [out_dir / info.ms3_file]  # first: the MuseScore 3 file is the owner's first priority, and it needs no layout
+    key = ms3_key(src)
+    if not buildcache.fresh(state.get(MS3), key, outputs):
+        ms3.build_song(src, work, out_dir / info.ms3_file, info)
+        state[MS3] = buildcache.record(key, outputs)
+        buildcache.save(info.name, state)
+        built.append(MS3)
+    outputs = [out_dir / info.score_file, out_dir / info.original_pdf, port.paired(work, info.original_pdf), port.paired(work, info.original_pdf).with_suffix(".sha")]
     key, ready = current(port.ORIGINAL, outputs)
     if not ready:
         found = layout.lay(src, work, port.ORIGINAL)
         (out_dir / info.score_file).write_bytes(found[1].read_bytes())
         shutil.copyfile(found[1].with_name(found[1].stem + "-layout.pdf"), out_dir / info.original_pdf)
         port.keep_pair(found[1].with_name(found[1].stem + "-layout.mpos"), out_dir / info.original_pdf, port.paired(work, info.original_pdf))  # the positions of the render that drew the PDF
-        if LEGACY_FILES:
-            # the legacy file reads the original tone's MusicXML, so it is built before anything overwrites it
-            port.build_legacy(src, work, out_dir / info.legacy_file, found[2], found[3], info)
-            chordnames.drop_chord_path(out_dir / info.score_file)
-            chordnames.drop_chord_path(out_dir / info.legacy_file)
-            legacy_gap = scorefile.difference(out_dir / info.score_file, out_dir / info.legacy_file)
-            report["legacy"] = legacy_gap[:6]
-            if legacy_gap:
-                (out_dir / info.legacy_file).unlink()
-                outputs = outputs[:4]
-        else:
-            chordnames.drop_chord_path(out_dir / info.score_file)
-            (out_dir / info.legacy_file).unlink(missing_ok=True)
+        chordnames.drop_chord_path(out_dir / info.score_file)
         keep(port.ORIGINAL, key, outputs, found)
     if info.direction:
         tone_score = work / f"{info.name}-{port.TONE}.mscz"  # the gate reads the tone sheet's own score
