@@ -44,7 +44,19 @@ MUTATIONS = [
         LONG_ANCHOR_2,
         "cues of 2 lines crowd",
     ),
-    ("chordseat.py", "    noted |= signed_bars(text)", "    noted |= set()", "sign bar evened"),
+    ("chordseat.py", "    marked = noted | signed_bars(text)", "    marked = noted | set()", "sign bar evened"),
+    (
+        "chordseat.py",
+        "    marked = noted | signed_bars(text)",
+        "    noted |= signed_bars(text)\n    marked = noted",
+        "caller's noted bars changed",
+    ),
+    (
+        "build.py",
+        "        if (error := job.exception()) is not None:\n",
+        "        if (error := job.exception()) is not None and not error:\n",
+        "raising build stops the run",
+    ),
     ("chordseat.py", "    lost = missing(rows, lines)\n    if lost:\n        return lost\n", "", "missing chord crashes"),
     (
         "layout.py",

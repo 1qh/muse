@@ -445,3 +445,22 @@ def test_a_failed_publish_blocks_only_its_own_song(monkeypatch: pytest.MonkeyPat
         build._collect(pool, jobs, (tmp_path, tmp_path, tmp_path, tmp_path, True), (reports, refused, blocked))
     assert blocked == ["First"]
     assert len(reports) == 2
+
+
+def crashed(name: str) -> tuple[dict[str, object] | None, str]:
+    if name == "First":
+        msg = "worker died"
+        raise RuntimeError(msg)
+    return {"song": name}, ""
+
+
+def test_a_song_whose_build_raises_is_refused_and_the_run_goes_on(tmp_path: pathlib.Path) -> None:
+    """A build that raises is that song's refusal, reported at once, and every other song is still collected."""
+    reports: list[dict[str, object]] = []
+    refused: list[str] = []
+    blocked: list[str] = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+        jobs = {pool.submit(crashed, name): tmp_path / f"{name}.pdf" for name in ("First", "Second")}
+        build._collect(pool, jobs, (tmp_path, tmp_path, tmp_path, tmp_path, False), (reports, refused, blocked))
+    assert refused == ["First"]
+    assert reports == [{"song": "Second"}]

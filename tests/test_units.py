@@ -1399,3 +1399,13 @@ def test_no_script_runs_its_main_on_import() -> None:
         if isinstance(node, ast.Expr) and isinstance(node.value, ast.Call) and getattr(node.value.func, "id", "") == "main"
     ]
     assert found == []
+
+
+def test_finding_empty_bars_leaves_the_callers_noted_bars_alone(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The caller passes 1 set to several judgements, so finding empty bars must not add the signed bars to it."""
+    monkeypatch.setattr(chordseat, "signed_bars", lambda _: {5})
+    monkeypatch.setattr(chordseat, "bar_rows", lambda _: [])
+    monkeypatch.setattr(chordseat, "rows_of", lambda _: [])
+    noted = {3}
+    chordseat.empty_lines("", [], noted)
+    assert noted == {3}

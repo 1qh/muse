@@ -21,6 +21,7 @@ RectItem = tuple[Literal["re"], pymupdf.Rect, int]
 CurveItem = tuple[Literal["c"], pymupdf.Point, pymupdf.Point, pymupdf.Point, pymupdf.Point]
 QuadItem = tuple[Literal["qu"], pymupdf.Quad]
 Item = LineItem | RectItem | CurveItem | QuadItem
+FontRow = tuple[int, str, str, str, str, str]
 
 
 class Char(TypedDict):
@@ -184,14 +185,14 @@ class Page:
         """
         return self.page.get_pixmap(**options)
 
-    def get_fonts(self) -> list[tuple[object, ...]]:
+    def get_fonts(self) -> list[FontRow]:
         """List the fonts the page uses.
 
         Returns:
             PyMuPDF's own font rows: number, extension, type, base name, name and encoding.
 
         """
-        return [tuple(value for value in font) for font in self.page.get_fonts()]
+        return [cast("FontRow", tuple(font[:6])) for font in self.page.get_fonts()]
 
     def search_for(self, text: str) -> list[pymupdf.Rect]:
         """Find where a string prints.

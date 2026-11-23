@@ -308,7 +308,10 @@ def _collect(
     reports, refused, blocked = tallies
     for job in concurrent.futures.as_completed(jobs):
         src = jobs[job]
-        report, reason = job.result()
+        if (error := job.exception()) is not None:
+            report, reason = None, f"its build raised {error!r}"
+        else:
+            report, reason = job.result()
         if launch.UNAVAILABLE in reason:
             pool.shutdown(wait=False, cancel_futures=True)
             raise SystemExit(reason)

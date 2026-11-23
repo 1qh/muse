@@ -85,9 +85,7 @@ def foreign_fonts(path: pathlib.Path) -> list[str]:
         The sorted names of every text font outside the style's own.
 
     """
-    names = {
-        font[3].split("+")[-1] for page in pdftext.read(path) for font in page.get_fonts() if isinstance(font[3], str)
-    }
+    names = {font[3].split("+")[-1] for page in pdftext.read(path) for font in page.get_fonts()}
     return sorted(name for name in names if not name.startswith((*MUSIC_FONTS, "SFPro", "SF-Pro", "SF Pro")))
 
 

@@ -40,7 +40,8 @@ def main() -> None:
             )
             wanted = gate.gate_key(src) if variant == "gate" else build.variant_key(src, variant)
             ok = entry.get("key") == wanted and pushed
-            verdicts.append(f"{variant}:{'current' if ok else 'stale'}:{decision.get('spatium')}x{decision.get('pages')}p")
+            size = f":{decision['spatium']}x{decision['pages']}p" if "spatium" in decision and "pages" in decision else ""
+            verdicts.append(f"{variant}:{'current' if ok else 'stale'}{size}")
             current += ok
             stale += not ok
         if not state:

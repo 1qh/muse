@@ -365,9 +365,7 @@ def _page_marks(
         d["rect"]
         for d in page.get_drawings()
         if (color := d.get("color")) is not None
-        and isinstance(color, tuple)
-        and color
-        and color != (0.0, 0.0, 0.0)
+        and color not in {(), (0.0, 0.0, 0.0)}
         and SIGN_FRAME[0] < d["rect"].width < SIGN_FRAME[1]
     ]
     for block in page.get_text("rawdict")["blocks"]:
@@ -880,14 +878,14 @@ def empty_lines(text: str, lines: list[dict[str, Any]], noted: set[int]) -> list
         Per such line, (bar, width) of each empty bar.
 
     """
-    noted |= signed_bars(text)
+    marked = noted | signed_bars(text)
     found = []
     chorded = [row for row, chords in zip(bar_rows(text), rows_of(text), strict=True) if chords]
     for row, line in zip(chorded, lines, strict=False):
         widths = widths_of(line)
         if len(widths) != len(row):
             continue
-        empty = [(bar, width) for bar, width in zip(row, widths, strict=True) if bar not in noted]
+        empty = [(bar, width) for bar, width in zip(row, widths, strict=True) if bar not in marked]
         if len(empty) >= MIN_EMPTY_BARS:
             found.append(empty)
     return found
