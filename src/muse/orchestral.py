@@ -72,6 +72,8 @@ HAIRPIN_JOIN = 1.0  # points apart the 2 legs' meeting ends may lie
 HAIRPIN_OPEN = 1.5  # points the 2 legs' open ends stand apart at least
 ARPEGGIO_REACH = 12.0  # points an arpeggio's wavy line stands left of its chord
 NOTE_MARKS = {symbolfont.TENUTO: "tenuto", symbolfont.MARCATO: "strong-accent-up", symbolfont.MARCATO_BELOW: "strong-accent-down", symbolfont.UP_BOW: "up-bow", symbolfont.DOWN_BOW: "down-bow", symbolfont.HARMONIC: "harmonic", symbolfont.ARPEGGIO: "arpeggiate", TREMOLO: "tremolo"}
+MARK_REACH_ABOVE = 40.0  # points above a system's top staff its dynamics and marks reach
+MARK_REACH_BELOW = 30.0  # points below its bottom staff
 WORD_GAP = 3.0  # points between 2 pieces of 1 printed word or phrase
 HEADER_REACH = 12.0  # points above a system's top staff: its own tempo and expression words print within 10.2, page 1's title and credits from 13.3
 
@@ -395,6 +397,12 @@ class System:
     staves: list[Staff]
     names: list[str]  # the part each staff prints, top down; a harp's name twice
     bars: list[float]  # every bar line, left to right
+    above: float = float("-inf")  # the band of the page whose words and marks belong to this system: no further up than halfway to the system above
+    below: float = float("inf")  # and no further down than halfway to the system below
+
+    def holds(self, y: float, reach_above: float, reach_below: float) -> bool:
+        """Whether a word or mark at height y is this system's: within its reach of the staves, and on its own side of the halfway line to each neighbour."""
+        return max(self.staves[0].top - reach_above, self.above) < y < min(self.staves[-1].bottom + reach_below, self.below)
 
 
 def systems_of(page_no: int, sheet: Sheet, found: list[Staff], braces: list[tuple[float, float]]) -> list[System]:
@@ -572,7 +580,10 @@ def decode(path: str | pathlib.Path) -> Orchestra:
         braces = brace_spans(page, role)
         page_sounds, spans = sounds(sheet, found, braces)
         rests = rests_of(sheet, found, spans)
-        for at, system in enumerate(systems_of(page_no, sheet, found, braces)):
+        page_systems = systems_of(page_no, sheet, found, braces)
+        for upper, lower in zip(page_systems, page_systems[1:], strict=False):  # a word or mark between 2 systems belongs to the nearer one, never to both
+            upper.below = lower.above = (upper.staves[-1].bottom + lower.staves[0].top) / 2
+        for at, system in enumerate(page_systems):
             system.bars = system_bars(system, sheet.verticals)
             read_system(reading, system, sheet, page_sounds, rests, at == 0)
     return finish(reading)
@@ -678,16 +689,16 @@ def phrases(pieces: list[tuple[str, float, float, float, bool, bool]]) -> list[t
 
 def marks_into(reading: Reading, system: System, sheet: Sheet, first: int, edges: list[tuple[float, float]]) -> None:
     """The system's words, dynamics and articulations, each in the bar of the part it prints by."""
-    top, bottom = system.staves[0].top, system.staves[-1].bottom
+    top = system.staves[0].top
     left = system.staves[0].left
 
     def bar_of(name: str, x: float) -> Bar:
         at = next((i for i, (lo, hi) in enumerate(edges) if x < hi), len(edges) - 1)
         return reading.parts[name][first - 1 + at]
 
-    inside = [w for w in sheet.words if w[1] >= left and top - HEADER_REACH < w[3] < bottom + 30 and not (w[0].isdigit() and w[3] < top)]
-    letters = [(DYNAMIC_LETTERS[g.code], g.x, g.right, g.y, False, True) for g in sheet.symbols if g.code in DYNAMIC_LETTERS and top - 40 < g.y < bottom + 30]
-    signs = [(TEXT_SPELLING[g.code], g.x, g.right, g.y, False, False) for g in sheet.symbols if g.code in TEXT_SPELLING and top - 40 < g.y < bottom + 30]
+    inside = [w for w in sheet.words if w[1] >= left and system.holds(w[3], HEADER_REACH, MARK_REACH_BELOW) and not (w[0].isdigit() and w[3] < top)]
+    letters = [(DYNAMIC_LETTERS[g.code], g.x, g.right, g.y, False, True) for g in sheet.symbols if g.code in DYNAMIC_LETTERS and system.holds(g.y, MARK_REACH_ABOVE, MARK_REACH_BELOW)]
+    signs = [(TEXT_SPELLING[g.code], g.x, g.right, g.y, False, False) for g in sheet.symbols if g.code in TEXT_SPELLING and system.holds(g.y, MARK_REACH_ABOVE, MARK_REACH_BELOW)]
     for text, x0, _, y, bold, italic in phrases(inside + signs):
         name, number = owner(system, y, below=False)
         bar = bar_of(name, x0)
@@ -697,7 +708,7 @@ def marks_into(reading: Reading, system: System, sheet: Sheet, first: int, edges
         bar = bar_of(name, x0)
         (bar.texts if number == 1 else bar.texts2).append(Text(x0, y, [(text, False, True)], above=False, kind="dynamic"))
     for kind, x0, x1, y in hairpins(sheet.slants):
-        if not top - 40 < y < bottom + 30 or not system.bars[0] <= x0 < system.bars[-1]:
+        if not system.holds(y, MARK_REACH_ABOVE, MARK_REACH_BELOW) or not system.bars[0] <= x0 < system.bars[-1]:
             continue
         name, number = owner(system, y, below=True)  # printed under its staff, as a dynamic
         start, stop = bar_of(name, x0), bar_of(name, min(x1, system.bars[-1] - 0.5))
@@ -705,7 +716,7 @@ def marks_into(reading: Reading, system: System, sheet: Sheet, first: int, edges
         (stop.texts if number == 1 else stop.texts2).append(Text(x1, y, [("", False, False)], above=False, kind="wedge-stop"))
     for g in [*sheet.music, *sheet.extra]:
         mark = NOTE_MARKS.get(g.code)
-        if mark is None or not top - 40 < g.y < bottom + 30 or not system.bars[0] <= g.x < system.bars[-1]:
+        if mark is None or not system.holds(g.y, MARK_REACH_ABOVE, MARK_REACH_BELOW) or not system.bars[0] <= g.x < system.bars[-1]:
             continue
         reach = ARPEGGIO_REACH if mark == "arpeggiate" else ARTICULATION_REACH + 3
         near: list[Event] = []
@@ -723,7 +734,7 @@ def marks_into(reading: Reading, system: System, sheet: Sheet, first: int, edges
             chosen.marks.append(mark)
     for g in sheet.music:
         flag = {ACCENT_BELOW: "accent", FERMATA: "fermata", TRILL: "trill"}.get(g.code)
-        if flag is None or not top - 40 < g.y < bottom + 30:
+        if flag is None or not system.holds(g.y, MARK_REACH_ABOVE, MARK_REACH_BELOW):
             continue
         name, _ = owner(system, g.y, below=g.code == ACCENT_BELOW)
         bar = bar_of(name, g.x)

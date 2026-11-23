@@ -220,3 +220,11 @@ def test_preflight_reads_a_full_score_with_its_own_reader(tmp_path, monkeypatch)
     wrong = tmp_path / orchestral.FOLDER / "Score-E.pdf"
     wrong.write_bytes(b"source")
     assert preflight.song_problem(wrong).startswith("SongRefused")
+
+
+def test_a_mark_between_2_systems_belongs_to_the_nearer_one_only():
+    upper = orchestral.System(0, [orchestral.Staff(100.0, 140.0, 20.0, 560.0), orchestral.Staff(160.0, 200.0, 20.0, 560.0)], ["A", "B"], [])
+    lower = orchestral.System(0, [orchestral.Staff(260.0, 300.0, 20.0, 560.0)], ["C"], [])
+    upper.below = lower.above = (200.0 + 260.0) / 2
+    for y in (215.0, 225.0, 235.0, 245.0):  # inside both fixed reaches: 30 below the upper system, 40 above the lower one
+        assert upper.holds(y, 40.0, 30.0) != lower.holds(y, 40.0, 30.0)
