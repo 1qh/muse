@@ -18,14 +18,18 @@ KEEP = 64
 class Page:
     """1 page whose text and drawings are parsed at most once per kind."""
 
-    def __init__(self, page: Any) -> None:
+    def __init__(self, page: pymupdf.Page) -> None:
         self.page = page
         self.texts: dict[tuple[str, int | None], Any] = {}
         self.drawings: list[Any] | None = None
         self.lock = threading.Lock()
 
     def get_text(self, kind: str = "text", flags: int | None = None) -> Any:
-        """1 parse per kind and flags: flags change the boxes, so each set is its own parse."""
+        """Parse once per kind and flags: flags change the boxes, so each set is its own parse.
+
+        Returns:
+            The page text of that kind, parsed on the first call and shared after.
+        """
         with self.lock:
             key = (kind, flags)
             if key not in self.texts:
@@ -64,7 +68,11 @@ LOCK = threading.Lock()
 
 
 def open(path: pathlib.Path | str) -> Document:  # ruff: ignore[builtin-variable-shadowing] - the name the checks already call
-    """The shared parse of a PDF, keyed by its path, size and change time so a rewrite is read fresh."""
+    """Return the shared parse of a PDF, keyed by its path, size and change time so a rewrite is read fresh.
+
+    Returns:
+        The cached document for this version of the file.
+    """
     stat = pathlib.Path(path).stat()
     key = (str(path), stat.st_size, stat.st_mtime_ns)
     with LOCK:

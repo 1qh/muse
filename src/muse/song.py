@@ -13,6 +13,7 @@ import pymupdf
 
 from muse import bravura, leland, orchestral, symbolfont
 from muse.model import Orchestra, Score, UnknownEncoding
+from muse.smufl import PRIVATE_USE
 
 MAJOR = {
     "Cb": -7,
@@ -53,6 +54,7 @@ TARGETS = {True: (("Em", "E", 1), ("Am", "A", 0)), False: (("G", "G", 1), ("C", 
 KEY = re.compile(r"([A-G][b#]?)(m?)")
 OVERRIDES = "titles.json"
 MUSIC_FONTS = ("Anastasia", "Bravura")
+NAME_AND_KEY = 2
 
 
 class SongRefused(ValueError):
@@ -89,7 +91,11 @@ class Song:
         return f"{self.name}/{self.name}-{self.tone}-piano.pdf"
 
     def files(self) -> set[str]:
-        """Exactly what the song's folder holds."""
+        """List exactly what the song's folder holds.
+
+        Returns:
+            The folder's file paths.
+        """
         if self.orchestral:
             return {self.score_file, self.original_pdf}
         return {self.score_file, self.original_pdf, self.tone_pdf, self.piano_pdf}
@@ -101,7 +107,14 @@ CROSSING = 2.0
 
 
 def sources(folders: pathlib.Path) -> list[pathlib.Path]:
-    """Every source PDF of 1 folder, or of several joined by the path separator; a song name appears once."""
+    """Find every source PDF of 1 folder, or of several joined by the path separator; a song name appears once.
+
+    Returns:
+        The source PDFs, sorted by name.
+
+    Raises:
+        SongRefused: a song name repeats across the folders.
+    """
     found = sorted(
         (pdf for folder in str(folders).split(os.pathsep) for pdf in pathlib.Path(folder).glob("*.pdf")),
         key=lambda p: p.name,
@@ -115,7 +128,14 @@ def sources(folders: pathlib.Path) -> list[pathlib.Path]:
 
 
 def encoding(path: pathlib.Path) -> str:
-    """Which decoder reads this PDF, judged by its fonts and music glyphs; an unknown one is refused by name."""
+    """Pick which decoder reads this PDF, judged by its fonts and music glyphs; an unknown one is refused by name.
+
+    Returns:
+        The decoder's name.
+
+    Raises:
+        UnknownEncoding: no decoder knows the PDF's fonts or glyphs.
+    """
     doc = pymupdf.open(path)
     fonts = sorted({font[3] for page in doc for font in page.get_fonts()})
     if "Leland" in {name.split("+")[-1] for name in fonts}:
@@ -132,7 +152,11 @@ def encoding(path: pathlib.Path) -> str:
 
 
 def settle_chord_bars(score: Score) -> Score:
-    """A chord past every note and rest of its bar, whose name crosses the barline, serves the next bar's first note."""
+    """Move each chord past every note and rest of its bar, whose name crosses the barline, to the next bar's first note.
+
+    Returns:
+        The same score, its chords settled.
+    """
     for bar, following in zip(score.bars, score.bars[1:], strict=False):
         if following.new_system or following.new_page:
             continue
@@ -142,7 +166,7 @@ def settle_chord_bars(score: Score) -> Score:
                 len(chord.root)
                 + (1 if chord.root_alter else 0)
                 + len(chord.kind)
-                + (1 + len(chord.bass) if chord.bass else 0)
+                + (1 + len(chord.bass) if chord.bass is not None and chord.bass else 0)
             )
             taken = bool(following.chords) and min(c.x for c in following.chords) - following.left < PAST_EVENT
             if (
@@ -157,12 +181,23 @@ def settle_chord_bars(score: Score) -> Score:
 
 
 def is_orchestral(path: pathlib.Path) -> bool:
-    """Whether a source is a full score: the folder it sits in says so."""
+    """Tell whether a source is a full score: the folder it sits in says so.
+
+    Returns:
+        Whether the source sits in the full-score folder.
+    """
     return path.parent.name == orchestral.FOLDER
 
 
 def orchestra_of(path: pathlib.Path) -> Orchestra:
-    """A full score's every part, its mode from the source's file name."""
+    """Decode a full score's every part, its mode from the source's file name.
+
+    Returns:
+        The full score.
+
+    Raises:
+        SongRefused: the source is not in the full-score folder.
+    """
     if not is_orchestral(path):
         msg = f"{path.name}: not in the {orchestral.FOLDER} folder, so not a full score"
         raise SongRefused(msg)
@@ -186,7 +221,11 @@ def decode(path: pathlib.Path) -> Score:
 
 
 def target_of(root: str, minor: bool) -> tuple[str, int, str, int]:
-    """Nearest target key by semitones: name, fifths, direction, signed semitones."""
+    """Find the nearest target key by semitones.
+
+    Returns:
+        The target's name, fifths, direction and signed semitones.
+    """
     pitch = PITCH[root[0]] + {"": 0, "b": -1, "#": 1}[root[1:]]
     options = []
     for name, target_root, fifths in TARGETS[minor]:
@@ -197,13 +236,20 @@ def target_of(root: str, minor: bool) -> tuple[str, int, str, int]:
 
 
 def title_of(path: pathlib.Path) -> str:
-    """The largest text on page 1, title-cased when the sheet prints it in capitals."""
+    """Read the largest text on page 1, title-cased when the sheet prints it in capitals.
+
+    Returns:
+        The title.
+
+    Raises:
+        SongRefused: page 1 carries no title text.
+    """
     spans = []
     for block in pymupdf.open(path)[0].get_text("dict")["blocks"]:
         for line in block.get("lines", []):
             for span in line["spans"]:
                 name = span["font"].split("+")[-1]
-                has_letter = any(c.isalpha() and ord(c) < 0xE000 for c in span["text"])
+                has_letter = any(c.isalpha() and ord(c) < PRIVATE_USE.start for c in span["text"])
                 if has_letter and not name.startswith(MUSIC_FONTS):
                     spans.append((span["size"], span["text"].strip()))
     if not spans:
@@ -215,7 +261,7 @@ def title_of(path: pathlib.Path) -> str:
 
 def song_of(path: pathlib.Path, score: Score | None = None) -> Song:
     parts = path.stem.rsplit("-", 1)
-    found = KEY.fullmatch(parts[-1]) if len(parts) == 2 else None
+    found = KEY.fullmatch(parts[-1]) if len(parts) == NAME_AND_KEY else None
     if not found:
         msg = f"{path.name}: name must end in -<key>, such as Name-Cm"
         raise SongRefused(msg)
@@ -228,13 +274,7 @@ def song_of(path: pathlib.Path, score: Score | None = None) -> Song:
     if full:
         concert_key_problem(path, orchestra_of(path), table[root], parts[-1])
     else:
-        decoded = score or decode(path)
-        printed = decoded.bars[0].key if decoded.bars else None
-        if printed != table[root]:
-            msg = f"{path.name}: name says {parts[-1]} ({table[root]} fifths), the sheet prints {printed} fifths"
-            raise SongRefused(
-                msg,
-            )
+        _printed_key_problem(path, score, table[root], parts[-1])
     tone, fifths, direction, semis = target_of(root, minor)
     overrides_path = path.parent / OVERRIDES
     overrides = json.loads(overrides_path.read_text(encoding="utf-8")) if overrides_path.exists() else {}
@@ -242,8 +282,25 @@ def song_of(path: pathlib.Path, score: Score | None = None) -> Song:
     return Song(parts[0], parts[-1], table[root], tone, fifths, direction, semis, title, full)
 
 
+def _printed_key_problem(path: pathlib.Path, score: Score | None, fifths: int, named: str) -> None:
+    decoded = score or decode(path)
+    printed = decoded.bars[0].key if decoded.bars else None
+    if printed != fifths:
+        msg = f"{path.name}: name says {named} ({fifths} fifths), the sheet prints {printed} fifths"
+        raise SongRefused(
+            msg,
+        )
+
+
 def concert_key_problem(path: pathlib.Path, score: Orchestra, fifths: int, named: str) -> None:
-    """A full score's name states its concert key: each part sounding as written prints it, or no key at all as timpani do, and each transposing part prints it moved by its transposition."""
+    """Refuse a full score whose parts disagree with the concert key its name states.
+
+    Each part sounding as written prints that key, or no key at all as timpani do,
+    and each transposing part prints it moved by its transposition.
+
+    Raises:
+        SongRefused: a part prints another key, or no part prints the named one.
+    """
     wrong = [
         f"{part.name} {part.key}"
         for part in score.parts

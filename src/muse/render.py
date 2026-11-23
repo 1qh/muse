@@ -1,4 +1,7 @@
-"""MuseScore renders gathered from many threads into 1 job per round: a launch costs seconds, a render inside a job a fraction."""
+"""MuseScore renders gathered from many threads into 1 job per round.
+
+A launch costs seconds, a render inside a job a fraction.
+"""
 
 from __future__ import annotations
 
@@ -9,7 +12,6 @@ import subprocess
 import tempfile
 import threading
 import time
-from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any
 
 from muse import launch
@@ -53,11 +55,15 @@ class Batcher:
                 self.lock.notify_all()
 
     def render(self, score: pathlib.Path, outputs: list[pathlib.Path], transpose: dict[str, Any] | None = None) -> None:
-        """Write every output of 1 score, waiting for the job that carries it."""
+        """Write every output of 1 score, waiting for the job that carries it.
+
+        Raises:
+            RenderFailed: MuseScore wrote no output for this score.
+        """
         for out in outputs:
             out.unlink(missing_ok=True)
         entry: dict[str, Any] = {"in": str(score), "out": [str(out) for out in outputs]}
-        if transpose:
+        if transpose is not None and transpose:
             entry["transpose"] = transpose
         with self.lock:
             self.ticket += 1
@@ -87,11 +93,15 @@ class Batcher:
                 failure = self.done.pop(ticket)
             finally:
                 self.waiting -= 1
-        if failure:
+        if failure is not None and failure:
             raise RenderFailed(failure)
 
     def run(self, batch: list[dict[str, Any]]) -> dict[int, str | None]:
-        """1 MuseScore job for the batch; each render's verdict is whether its outputs exist."""
+        """1 MuseScore job for the batch; each render's verdict is whether its outputs exist.
+
+        Returns:
+            Each ticket's failure note, or None where every output exists.
+        """
         with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".json", delete=False) as handle:
             json.dump([item["entry"] for item in batch], handle)
             job = pathlib.Path(handle.name)

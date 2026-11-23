@@ -1,17 +1,39 @@
 """The calculated layout's own contracts."""
 
+import os
 import pathlib
 import types
+import zipfile
+from fractions import Fraction
 
 import pytest
 
-from muse import layout, port
+from muse import chordseat, layout, port
+from muse.model import Bar, Chord, Event, Head, Score, Text
+
+ROOM = 100.0
+
+
+class _StandInSheet(layout.Sheet):
+    """Stand in for a sheet with a given score, a folder its scores sit in and the bars that open its lines."""
+
+    def __init__(self, score: Score, folder: pathlib.Path, opening: list[int]) -> None:
+        self.score = score
+        self.folder = folder
+        self.opening = opening
+        self.shares = []
+
+    def path(self, label: str) -> pathlib.Path:
+        return self.folder / f"s-{label}.mscz"
+
+    def starts(self) -> list[int]:
+        return list(self.opening)
 
 
 def test_seated_render_refuses_a_missing_score(tmp_path: pathlib.Path) -> None:
-    sheet = types.SimpleNamespace(path=lambda label: tmp_path / f"s-{label}.mscz")
+    sheet = _StandInSheet(Score([], [], []), tmp_path, [1])
     with pytest.raises(port.DoesNotFit, match="edits would be lost"):
-        layout.render(sheet, "final", seated=True)  # type: ignore[arg-type]
+        layout.render(sheet, "final", seated=True)
 
 
 def test_clear_gap_is_the_chord_gap_in_staff_spaces() -> None:
@@ -20,28 +42,50 @@ def test_clear_gap_is_the_chord_gap_in_staff_spaces() -> None:
     assert pytest.approx(port.CHORD_GAP * chord_points / space_points) == layout.CLEAR_SPACES
 
 
-from fractions import Fraction as F  # ruff: ignore[module-import-not-at-top-of-file]
-
-from muse.model import Bar, Chord, Event, Head, Score, Text  # ruff: ignore[module-import-not-at-top-of-file]
-
-ROOM = 100.0
-
-
 def chord() -> Chord:
     return Chord(0.0, "C", 0, "")
 
 
-def noted(number: int, tie: bool = False, chords: bool = True, **kw: object) -> Bar:
+def noted(
+    number: int,
+    *,
+    tie: bool = False,
+    chords: bool = True,
+    rehearsal: list[str] | None = None,
+    texts: list[Text] | None = None,
+    new_system: bool = False,
+) -> Bar:
     head = Head(1.0, 0.0, "C", 5, tie_start=tie)
-    return Bar(number, 0, 0.0, 100.0, F(4), voices=[[Event(1.0, [head], F(4))]], chords=[chord()] if chords else [], **kw)  # type: ignore[arg-type]
+    return Bar(
+        number,
+        0,
+        0.0,
+        100.0,
+        Fraction(4),
+        voices=[[Event(1.0, [head], Fraction(4))]],
+        chords=[chord()] if chords else [],
+        rehearsal=rehearsal or [],
+        texts=texts or [],
+        new_system=new_system,
+    )
 
 
-def empty(number: int, **kw: object) -> Bar:
-    return Bar(number, 0, 0.0, 100.0, F(4), voices=[[Event(0.0, [], F(4), bar_rest=True)]], chords=[chord()], **kw)  # type: ignore[arg-type]
+def empty(number: int, *, rehearsal: list[str] | None = None, texts: list[Text] | None = None) -> Bar:
+    return Bar(
+        number,
+        0,
+        0.0,
+        100.0,
+        Fraction(4),
+        voices=[[Event(0.0, [], Fraction(4), bar_rest=True)]],
+        chords=[chord()],
+        rehearsal=rehearsal or [],
+        texts=texts or [],
+    )
 
 
 def lyric(label: str) -> Text:
-    return Text(0.0, 0.0, [(label + ": ", True, True), ("la la", False, True)], False)
+    return Text(0.0, 0.0, [(label + ": ", True, True), ("la la", False, True)], above=False)
 
 
 def lines(starts: set[int], total: int) -> list[int]:
@@ -102,35 +146,33 @@ def test_plan_prefers_the_even_split_of_as_many_lines() -> None:
     assert lines(layout.plan(score, [12.0] * 8, ROOM), 8) == [4, 4]
 
 
-def candidate(
-    size: float,
-    share: float = 0.0,
-    fill: float = 0.9,
-    good: bool = True,
-    lone: bool = False,
-    lines: int = 10,
-) -> dict[str, object]:
-    return {"size": size, "share": share, "fill": fill, "good": good, "lone": lone, "lines": lines}
+def candidate(size: float, **fields: object) -> dict[str, object]:
+    return {"size": size, "share": 0.0, "fill": 0.9, "good": True, "lone": False, "lines": 10, **fields}
 
 
 @pytest.fixture
-def strict_choice(monkeypatch) -> None:
-    """The choice rules at their strict values, whatever mode the run is in: these tests pin the rules, not the mode."""
+def strict_choice(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pin the choice rules at their strict values, whatever mode the run is in.
+
+    These tests pin the rules, not the mode.
+    """
     monkeypatch.setattr(port, "PAGE_FILL", 0.85)
     monkeypatch.setattr(port, "MAX_SHORT_SHARE", 0.15)
     monkeypatch.setattr(port, "RELAXED_SHORT_SHARE", 0.30)
 
 
-def test_choose_takes_the_largest_size_that_fills_its_pages_first(strict_choice: None) -> None:
+@pytest.mark.usefixtures("strict_choice")
+def test_choose_takes_the_largest_size_that_fills_its_pages_first() -> None:
     found = [candidate(2.0, fill=0.5), candidate(1.8, fill=0.9), candidate(1.6, fill=0.95)]
     assert layout.choose(found, port.ORIGINAL)[:2] == [1.8, 1.6]
 
 
-def test_choose_takes_the_wider_short_line_share_only_when_no_size_holds_the_base_share(strict_choice: None) -> None:
+@pytest.mark.usefixtures("strict_choice")
+def test_choose_takes_the_wider_short_line_share_only_when_no_size_holds_the_base_share() -> None:
     found = [candidate(2.0, share=0.25), candidate(1.6, share=0.10)]
-    assert layout.choose(found, port.ORIGINAL)[0] == 1.6
+    assert layout.choose(found, port.ORIGINAL)[0] == pytest.approx(1.6)
     found = [candidate(2.0, share=0.25), candidate(1.6, share=0.28)]
-    assert layout.choose(found, port.ORIGINAL)[0] == 2.0
+    assert layout.choose(found, port.ORIGINAL)[0] == pytest.approx(2.0)
     assert layout.choose([candidate(2.0, share=0.4)], port.ORIGINAL) == []
 
 
@@ -150,10 +192,6 @@ def test_plan_takes_a_bar_from_the_line_above_rather_than_leave_a_2_bar_line() -
 
 
 def test_space_points_reads_the_scores_own_staff_space(tmp_path: pathlib.Path) -> None:
-    import zipfile
-
-    from muse import chordseat
-
     score = tmp_path / "s.mscz"
     with zipfile.ZipFile(score, "w") as archive:
         archive.writestr("s.mscx", "<museScore><Score/></museScore>")
@@ -161,22 +199,24 @@ def test_space_points_reads_the_scores_own_staff_space(tmp_path: pathlib.Path) -
     assert chordseat.space_points(score) == pytest.approx(1.6 * 72 / 25.4)
 
 
-def test_choose_packs_a_piano_sheet_into_the_fewest_lines_then_the_largest_notes(strict_choice: None) -> None:
+@pytest.mark.usefixtures("strict_choice")
+def test_choose_packs_a_piano_sheet_into_the_fewest_lines_then_the_largest_notes() -> None:
     found = [candidate(2.0, lines=30), candidate(1.6, lines=22), candidate(1.5, lines=20), candidate(1.4, lines=20)]
-    assert layout.choose(found, port.PIANO)[0] == 1.5
-    assert layout.choose([candidate(1.5, lines=20, share=0.4), candidate(1.8, lines=24)], port.PIANO)[0] == 1.8
+    assert layout.choose(found, port.PIANO)[0] == pytest.approx(1.5)
+    found = [candidate(1.5, lines=20, share=0.4), candidate(1.8, lines=24)]
+    assert layout.choose(found, port.PIANO)[0] == pytest.approx(1.8)
 
 
 def test_every_size_of_a_sheet_shares_1_import(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
     score = Score([noted(1)], [], [])
-    monkeypatch.setattr(layout, "decode", lambda src: score)
-    monkeypatch.setattr(layout, "song_of", lambda src, decoded=None: types.SimpleNamespace(title="T", name="Song"))
-    monkeypatch.setattr(layout.port, "transpose_options", lambda info: None)
+    monkeypatch.setattr(layout, "decode", lambda *_, **__: score)
+    monkeypatch.setattr(layout, "song_of", lambda *_, **__: types.SimpleNamespace(title="T", name="Song"))
+    monkeypatch.setattr(layout.port, "transpose_options", lambda *_, **__: None)
     styles = []
     monkeypatch.setattr(
         layout.port,
         "imported",
-        lambda decoded, work, name, style, clear: styles.append(style.read_text()) or work / "import.mscz",
+        lambda _decoded, work, _name, style, _clear: styles.append(style.read_text()) or work / "import.mscz",
     )
     for size in (1.3, 1.8):
         layout.Sheet(tmp_path / "Song-Em.pdf", tmp_path, port.ORIGINAL, size).imported()
@@ -187,14 +227,8 @@ def test_every_size_of_a_sheet_shares_1_import(tmp_path: pathlib.Path, monkeypat
 def test_finish_widens_the_line_gap_while_text_meets_text(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
     tried = []
 
-    def finish_at(
-        src: object,
-        work: object,
-        variant: object,
-        size: float,
-        distance: float,
-        learned: object = None,
-    ) -> tuple[object, ...]:
+    def finish_at(*args: *tuple[object, object, object, float, float, object]) -> tuple[object, ...]:
+        _src, _work, _variant, size, distance, _learned = args
         tried.append(distance)
         if len(tried) < 3:
             msg = "s at 2.0: ['text on text: B']"
@@ -203,7 +237,7 @@ def test_finish_widens_the_line_gap_while_text_meets_text(monkeypatch: pytest.Mo
 
     monkeypatch.setattr(layout, "finish_at", finish_at)
     assert layout.finish(tmp_path, tmp_path, port.ORIGINAL, 2.0)[3] == port.BASE_DISTANCE + 2 * layout.GAP_STEP  # type: ignore[arg-type]
-    monkeypatch.setattr(layout, "finish_at", lambda *a: (_ for _ in ()).throw(port.DoesNotFit("lines still wrap")))
+    monkeypatch.setattr(layout, "finish_at", lambda *_: (_ for _ in ()).throw(port.DoesNotFit("lines still wrap")))
     with pytest.raises(port.DoesNotFit, match="wrap"):
         layout.finish(tmp_path, tmp_path, port.ORIGINAL, 2.0)
 
@@ -235,14 +269,8 @@ def test_every_line_gap_retry_starts_from_the_widths_the_last_one_learned(
 ) -> None:
     seen: list[object] = []
 
-    def finish_at(
-        src: object,
-        work: object,
-        variant: object,
-        size: float,
-        distance: float,
-        learned: list[list[float]] | None = None,
-    ) -> tuple[object, ...]:
+    def finish_at(*args: *tuple[object, object, object, float, float, list[list[float]] | None]) -> tuple[object, ...]:
+        _src, _work, _variant, size, distance, learned = args
         seen.append(learned)
         assert learned is not None
         learned.append([float(len(seen))])
@@ -258,51 +286,43 @@ def test_every_line_gap_retry_starts_from_the_widths_the_last_one_learned(
 
 
 def test_a_measured_gap_past_the_ink_limit_never_feeds_the_correction() -> None:
-    from muse import layout
-
     assert layout.next_bias([0.1, 0.2], [0.9, 16.0 * 4.5], [4.5, 4.5]) == [0.1 + 0.2, 0.2]
     assert layout.next_bias([], [None, -4.5], [4.5, 4.5]) == [0.0, -1.0]
 
 
-def test_a_line_printing_fewer_chords_than_the_score_holds_is_crowded(monkeypatch, tmp_path) -> None:
-    from fractions import Fraction as F
-
-    from muse import chordseat, layout
-    from muse.model import Bar, Chord, Score
-
-    def bar(number: int, names: int, new: bool) -> Bar:
-        made = Bar(number, 0, 0.0, 100.0, F(4), chords=[Chord(float(at), "C", 0, "") for at in range(names)])
+def test_a_line_printing_fewer_chords_than_the_score_holds_is_crowded(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: pathlib.Path,
+) -> None:
+    def bar(number: int, names: int, *, new: bool) -> Bar:
+        made = Bar(number, 0, 0.0, 100.0, Fraction(4), chords=[Chord(float(at), "C", 0, "") for at in range(names)])
         made.new_system = new
         return made
 
-    score = Score([bar(1, 2, False), bar(2, 1, False), bar(3, 2, True), bar(4, 2, False)], [], [])
-    monkeypatch.setattr(chordseat, "page_lines", lambda probe: [{"chords": [1.0, 2.0, 3.0]}, {"chords": [1.0, 2.0, 3.0]}])
+    score = Score([bar(1, 2, new=False), bar(2, 1, new=False), bar(3, 2, new=True), bar(4, 2, new=False)], [], [])
+    monkeypatch.setattr(
+        chordseat,
+        "page_lines",
+        lambda *_, **__: [{"chords": [1.0, 2.0, 3.0]}, {"chords": [1.0, 2.0, 3.0]}],
+    )
     assert layout.merged_rows(score, tmp_path / "p.pdf") == {3}
 
 
-def test_the_seated_overflow_check_reports_lines_whose_chords_merged(monkeypatch, tmp_path) -> None:
-    from fractions import Fraction as F
-    from types import SimpleNamespace
-
-    from muse import layout, port
-    from muse.model import Bar, Score
-
-    bars = [Bar(n, 0, 0.0, 100.0, F(4)) for n in range(1, 5)]
+def test_the_seated_overflow_check_reports_lines_whose_chords_merged(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: pathlib.Path,
+) -> None:
+    bars = [Bar(n, 0, 0.0, 100.0, Fraction(4)) for n in range(1, 5)]
     bars[2].new_system = True
-    sheet = SimpleNamespace(score=Score(bars, [], []), starts=lambda: [1, 3], shares=[])
-    monkeypatch.setattr(port, "system_starts", lambda probe: [1, 3])
-    monkeypatch.setattr(port, "crowded_rows", lambda probe, wanted: set())
-    monkeypatch.setattr(layout, "merged_rows", lambda score, probe: {3})
+    sheet = _StandInSheet(Score(bars, [], []), tmp_path, [1, 3])
+    monkeypatch.setattr(port, "system_starts", lambda *_, **__: [1, 3])
+    monkeypatch.setattr(port, "crowded_rows", lambda *_, **__: set())
+    monkeypatch.setattr(layout, "merged_rows", lambda *_, **__: {3})
     assert layout.overflowing(sheet, tmp_path / "p.pdf", seated=True) == {2, 3}
 
 
 def test_a_1_bar_section_shares_its_line_with_the_next_section_whatever_opens_it() -> None:
-    from fractions import Fraction as F
-
-    from muse import layout, port
-    from muse.model import Bar, Score
-
-    bars = [Bar(n, 0, 0.0, 100.0, F(4)) for n in range(1, 6)]
+    bars = [Bar(n, 0, 0.0, 100.0, Fraction(4)) for n in range(1, 6)]
     bars[2].rehearsal = ["A1"]
     bars[3].rehearsal = ["A2"]
     score = Score(bars, [], [])
@@ -310,27 +330,28 @@ def test_a_1_bar_section_shares_its_line_with_the_next_section_whatever_opens_it
     assert layout.blocks_of(score, port.ORIGINAL) == [[0, 1], [2, 3, 4]]
 
 
-def test_the_seating_rounds_count_gaps_in_the_scores_own_staff_space(monkeypatch, tmp_path) -> None:
-    from muse import chordseat
-
+def test_the_seating_rounds_count_gaps_in_the_scores_own_staff_space(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: pathlib.Path,
+) -> None:
     tags: list[dict[str, str]] = []
-    monkeypatch.setattr(layout, "set_tags", lambda path, values: tags.append(dict(values)))
-    monkeypatch.setattr(layout, "run_extension", lambda source, target: None)
-    monkeypatch.setattr(chordseat, "score_text", lambda path: ("s.mscx", ""))
-    monkeypatch.setattr(chordseat, "rows_of", lambda text: [[(0, True)]])
+    monkeypatch.setattr(layout, "set_tags", lambda _path, values: tags.append(dict(values)))
+    monkeypatch.setattr(layout, "run_extension", lambda *_, **__: None)
+    monkeypatch.setattr(chordseat, "score_text", lambda *_, **__: ("s.mscx", ""))
+    monkeypatch.setattr(chordseat, "rows_of", lambda *_, **__: [[(0, True)]])
     monkeypatch.setattr(
         chordseat,
         "matched",
-        lambda text, pdf: [{"chords": [50.0], "lefts": [50.0], "rights": [60.0], "space": 5.0}],
+        lambda *_, **__: [{"chords": [50.0], "lefts": [50.0], "rights": [60.0], "space": 5.0}],
     )
-    monkeypatch.setattr(chordseat, "gaps", lambda rows, lines: [0.9])
-    monkeypatch.setattr(chordseat, "space_points", lambda path: 4.5)
-    monkeypatch.setattr(layout.pdfcheck, "chord_collisions", lambda pdf: [])
-    monkeypatch.setattr(layout.pdfcheck, "sign_word_overlaps", lambda pdf: [])
-    monkeypatch.setattr(layout.chordseat, "jump_crossings", lambda score, pdf: [])
+    monkeypatch.setattr(chordseat, "gaps", lambda *_, **__: [0.9])
+    monkeypatch.setattr(chordseat, "space_points", lambda *_, **__: 4.5)
+    monkeypatch.setattr(layout.pdfcheck, "chord_collisions", lambda *_, **__: [])
+    monkeypatch.setattr(layout.pdfcheck, "sign_word_overlaps", lambda *_, **__: [])
+    monkeypatch.setattr(layout.chordseat, "jump_crossings", lambda *_, **__: [])
     (tmp_path / "s.mscz").write_text("score")
     (tmp_path / "s.pdf").write_text("render")
-    layout.seat_inked(tmp_path / "s.mscz", lambda: tmp_path / "s.pdf", lambda probe: True)
+    layout.seat_inked(tmp_path / "s.mscz", lambda: tmp_path / "s.pdf", lambda *_, **__: True)
     second = next(values for values in tags[1:] if "museInkBias" in values)
     assert second["museInkBias"] == f"{0.9 / 4.5:.4f}"
 
@@ -344,10 +365,11 @@ def test_a_line_of_1_bar_breaks_the_line_rules_on_any_sheet() -> None:
     assert port.line_rule_breaks(score, port.PIANO) == [3]
 
 
-def test_the_line_gap_widens_past_any_fixed_count_until_the_checks_pass(monkeypatch) -> None:
+def test_the_line_gap_widens_past_any_fixed_count_until_the_checks_pass(monkeypatch: pytest.MonkeyPatch) -> None:
     tried: list[float] = []
 
-    def finish_at(src, work, variant, size, distance, learned=None):
+    def finish_at(*args: *tuple[object, object, object, float, float, object]) -> tuple[object, ...]:
+        _src, _work, _variant, size, distance, _learned = args
         tried.append(distance)
         if distance < port.BASE_DISTANCE + 12:
             msg = "text on text: a cue below sits too close"
@@ -379,50 +401,53 @@ def test_the_layout_refuses_a_line_break_inside_a_short_tie() -> None:
     assert port.line_rule_reasons(score) == ["tie over line end into bar 4 (tied run of 2 bars)"]
 
 
-def test_the_layout_judges_even_empty_bars_in_strict_mode(monkeypatch, tmp_path) -> None:
+def test_the_layout_judges_even_empty_bars_in_strict_mode(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
     monkeypatch.setattr(layout.mode, "PRINT", False)
     seen = []
     monkeypatch.setattr(
         layout.chordseat,
         "uneven",
-        lambda mscz, pdf, noted: seen.append(noted) or ["bar 2: 30.0 pt wide, line mean 20.0"],
+        lambda _mscz, _pdf, noted: seen.append(noted) or ["bar 2: 30.0 pt wide, line mean 20.0"],
     )
-    sheet = types.SimpleNamespace(score=Score([noted(1), empty(2)], [], []))
+    sheet = _StandInSheet(Score([noted(1), empty(2)], [], []), tmp_path, [1])
     assert layout.uneven_empty_bars(sheet, tmp_path / "s.mscz", tmp_path / "s.pdf") == [
         "bar 2: 30.0 pt wide, line mean 20.0",
-    ]  # type: ignore[arg-type]
+    ]
     assert seen == [{1}]
 
 
-def test_a_lines_empty_bars_are_evened_to_the_widest(monkeypatch, tmp_path) -> None:
+def test_a_lines_empty_bars_are_evened_to_the_widest(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
     """An empty bar widens for its own chords, and the rest of its line's empty bars follow it, so they stay equal."""
     set_to: dict[int, float] = {}
-    monkeypatch.setattr(layout.chordseat, "score_text", lambda _: ("s", ""))
-    monkeypatch.setattr(layout.chordseat, "matched", lambda text, pdf: [])
-    monkeypatch.setattr(layout.chordseat, "empty_lines", lambda text, lines, noted: [[(2, 20.0), (3, 40.0), (4, 20.0)]])
-    monkeypatch.setattr(layout.chordseat, "set_stretch", lambda mscz, off: set_to.update(off))
+    monkeypatch.setattr(layout.chordseat, "score_text", lambda *_, **__: ("s", ""))
+    monkeypatch.setattr(layout.chordseat, "matched", lambda *_, **__: [])
+    monkeypatch.setattr(layout.chordseat, "empty_lines", lambda *_, **__: [[(2, 20.0), (3, 40.0), (4, 20.0)]])
+    monkeypatch.setattr(layout.chordseat, "set_stretch", lambda _mscz, off: set_to.update(off))
     assert layout.chordseat.equalize(tmp_path / "s.mscz", tmp_path / "s.pdf", set())
     assert set_to == {2: 2.0, 4: 2.0}
 
 
-def test_a_sheet_whose_pages_are_not_balanced_is_refused(monkeypatch, tmp_path) -> None:
-    """A line pushed onto a page of its own, as 10, 1 and 11 lines, is refused; the balanced split of the same lines passes."""
+def test_a_sheet_whose_pages_are_not_balanced_is_refused(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
+    """A line pushed onto a page of its own, as 10, 1 and 11 lines, is refused.
+
+    The balanced split of the same lines passes.
+    """
     score = Score([noted(n, new_system=True) for n in range(1, 23)], [], [])
-    monkeypatch.setattr(port, "line_heights", lambda pdf, firsts: ([10.0] * 22, 3))
+    monkeypatch.setattr(port, "line_heights", lambda *_, **__: ([10.0] * 22, 3))
     balanced = [
         b - a
         for a, b in zip([0, *port.balanced_pages([10.0] * 22, 3)], [*port.balanced_pages([10.0] * 22, 3), 22], strict=True)
     ]
-    monkeypatch.setattr(port, "lines_per_page", lambda pdf, firsts: [10, 1, 11])
+    monkeypatch.setattr(port, "lines_per_page", lambda *_, **__: [10, 1, 11])
     assert port.page_problems(score, tmp_path / "s.pdf") == [f"pages hold [10, 1, 11] lines, balanced {balanced}"]
-    monkeypatch.setattr(port, "lines_per_page", lambda pdf, firsts: balanced)
+    monkeypatch.setattr(port, "lines_per_page", lambda *_, **__: balanced)
     assert port.page_problems(score, tmp_path / "s.pdf") == []
 
 
-def test_balancing_replaces_every_earlier_page_break(monkeypatch, tmp_path) -> None:
+def test_balancing_replaces_every_earlier_page_break(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
     score = Score([noted(n, new_system=True) for n in range(1, 7)], [], [])
     score.bars[4].new_page = True
-    monkeypatch.setattr(port, "line_heights", lambda pdf, firsts: ([10.0] * 6, 2))
+    monkeypatch.setattr(port, "line_heights", lambda *_, **__: ([10.0] * 6, 2))
     assert port.balance(score, tmp_path / "s.pdf")
     assert [bar.number for bar in score.bars if bar.new_page] == [4]
 
@@ -435,12 +460,10 @@ def test_every_sheet_takes_the_size_giving_the_fewest_lines() -> None:
         {"size": 1.2, "lines": 17, "fill": 0.9},
     ]
     assert layout.ranked(fit) == [1.25, 1.2, 1.3, 1.8]
-    assert layout.ranked([*fit, {"size": 1.15, "lines": 15, "fill": 0.9}])[-1] == 1.15
+    assert layout.ranked([*fit, {"size": 1.15, "lines": 15, "fill": 0.9}])[-1] == pytest.approx(1.15)
 
 
-def test_a_score_written_after_its_render_is_rendered_again(tmp_path) -> None:
-    import os
-
+def test_a_score_written_after_its_render_is_rendered_again(tmp_path: pathlib.Path) -> None:
     score, probe = tmp_path / "s.mscz", tmp_path / "s.pdf"
     probe.write_text("render")
     score.write_text("score")
@@ -452,7 +475,7 @@ def test_a_score_written_after_its_render_is_rendered_again(tmp_path) -> None:
     assert layout.current_render(score, probe, lambda: fresh) == probe
 
 
-def test_the_size_is_chosen_on_finished_sheets(monkeypatch, tmp_path) -> None:
+def test_the_size_is_chosen_on_finished_sheets(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
     """The best plan can finish with more lines than a plan ranked after it; the finished counts decide."""
 
     def sheet_of(lines: int) -> Score:
@@ -464,7 +487,7 @@ def test_the_size_is_chosen_on_finished_sheets(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
         layout,
         "candidate",
-        lambda src, work, variant, size: {
+        lambda _src, _work, _variant, size: {
             "size": size,
             "lines": planned.get(size, 99),
             "fill": 0.9,
@@ -474,13 +497,13 @@ def test_the_size_is_chosen_on_finished_sheets(monkeypatch, tmp_path) -> None:
             "lone": False,
         },
     )
-    monkeypatch.setattr(layout, "choose", lambda found, variant: [1.5, 1.3, 1.2])
+    monkeypatch.setattr(layout, "choose", lambda *_, **__: [1.5, 1.3, 1.2])
     monkeypatch.setattr(
         layout,
         "finish",
-        lambda src, work, variant, size: (sheet_of(finished[size]), tmp_path / f"{size}.mscz", size, 1.0, 1),
+        lambda _src, _work, _variant, size: (sheet_of(finished[size]), tmp_path / f"{size}.mscz", size, 1.0, 1),
     )
-    assert layout.lay(tmp_path / "s.pdf", tmp_path, port.ORIGINAL)[2] == 1.3
+    assert layout.lay(tmp_path / "s.pdf", tmp_path, port.ORIGINAL)[2] == pytest.approx(1.3)
 
 
 def test_a_finished_sheet_past_the_widest_short_line_share_is_refused() -> None:

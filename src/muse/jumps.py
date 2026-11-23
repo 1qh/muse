@@ -1,4 +1,7 @@
-"""Jump signs and words that a MusicXML import leaves as staff text, rewritten as MuseScore's own playable marker and jump elements."""
+"""Jump signs and words that a MusicXML import leaves as staff text.
+
+They are rewritten as MuseScore's own playable marker and jump elements.
+"""
 
 from __future__ import annotations
 
@@ -12,23 +15,48 @@ SIGN_SIZE = 25
 LABELS = {"segno": "segno", "coda": "codab"}
 
 WORDS = {
-    "To Coda": f"<Marker><style>repeat_right</style><text><sym>coda</sym></text><label>coda</label><markerType>coda</markerType><markerCenterOnSymbol>0</markerCenterOnSymbol><musicSymbolSize>{SIGN_SIZE}</musicSymbolSize></Marker>",
-    "D.S. al Coda": f"<Jump><musicSymbolSize>{SIGN_SIZE}</musicSymbolSize><text><sym>segno</sym></text><jumpTo>segno</jumpTo><playUntil>coda</playUntil><continueAt>codab</continueAt></Jump>",
+    "To Coda": (
+        "<Marker><style>repeat_right</style><text><sym>coda</sym></text><label>coda</label>"
+        "<markerType>coda</markerType><markerCenterOnSymbol>0</markerCenterOnSymbol>"
+        f"<musicSymbolSize>{SIGN_SIZE}</musicSymbolSize></Marker>"
+    ),
+    "D.S. al Coda": (
+        f"<Jump><musicSymbolSize>{SIGN_SIZE}</musicSymbolSize><text><sym>segno</sym></text>"
+        "<jumpTo>segno</jumpTo><playUntil>coda</playUntil><continueAt>codab</continueAt></Jump>"
+    ),
 }
 
 
 def sign_marker(sym: str) -> str:
-    """A visible marker: both the printed sign and the jump target; the style sizes it."""
-    return f"<Marker><style>repeat_left</style><text><sym>{sym}</sym></text><label>{LABELS[sym]}</label><markerType>{LABELS[sym]}</markerType><markerCenterOnSymbol>0</markerCenterOnSymbol><musicSymbolSize>{SIGN_SIZE}</musicSymbolSize></Marker>"
+    """Build a visible marker: both the printed sign and the jump target; the style sizes it.
+
+    Returns:
+        The marker element.
+    """
+    return (
+        f"<Marker><style>repeat_left</style><text><sym>{sym}</sym></text><label>{LABELS[sym]}</label>"
+        f"<markerType>{LABELS[sym]}</markerType><markerCenterOnSymbol>0</markerCenterOnSymbol>"
+        f"<musicSymbolSize>{SIGN_SIZE}</musicSymbolSize></Marker>"
+    )
 
 
 def staff_text(inner: str) -> re.Pattern[str]:
-    """A staff text whose whole text is exactly this."""
+    """Match a staff text whose whole text is exactly this.
+
+    Returns:
+        The compiled pattern.
+    """
     return re.compile(r"\s*<StaffText>(?:(?!</StaffText>).)*?<text>" + inner + r"</text>\s*</StaffText>", re.DOTALL)
 
 
 def rewrite(text: str, words: dict[str, str], sign: Callable[[str], str], clearance: float | None = None) -> str:
-    """Every jump word and sign as a playable element at the start of its measure; with a clearance, a chord beside a sign moves right off it."""
+    """Every jump word and sign as a playable element at the start of its measure.
+
+    With a clearance, a chord beside a sign moves right off it.
+
+    Returns:
+        The rewritten text.
+    """
     for word, element in words.items():
         pattern = staff_text(re.escape(word))
         while found := pattern.search(text):

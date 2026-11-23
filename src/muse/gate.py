@@ -51,7 +51,11 @@ def line_lengths(starts: list[int], bars: int) -> list[int]:
 
 
 def musicxml_letters(path: pathlib.Path) -> list[str]:
-    """Note letters of a MusicXML file in file order, a chord counted by its last note, grace notes skipped."""
+    """Note letters of a MusicXML file in file order, a chord counted by its last note, grace notes skipped.
+
+    Returns:
+        The note letters in file order.
+    """
     letters: list[str] = []
     for note in ET.parse(path).getroot().iter("note"):
         step = note.findtext("pitch/step")
@@ -65,7 +69,11 @@ def musicxml_letters(path: pathlib.Path) -> list[str]:
 
 
 def agreement(ours: list[str], where: list[int], theirs: list[str]) -> tuple[float, list[int]]:
-    """Share of our notes the other reading agrees with, and the bars where they part."""
+    """Share of our notes the other reading agrees with, and the bars where they part.
+
+    Returns:
+        The agreeing share and the sorted bars where the readings part.
+    """
     matcher = difflib.SequenceMatcher(None, ours, theirs, autojunk=False)
     matched = sum(block.size for block in matcher.get_matching_blocks())
     bars = {where[min(a, len(where) - 1)] for tag, a, _, _, _ in matcher.get_opcodes() if tag != "equal" and where}
@@ -77,7 +85,11 @@ def homr_command() -> str | None:
 
 
 def homr_reading(src: pathlib.Path, page_no: int, work: pathlib.Path, command: str) -> pathlib.Path:
-    """Homr's reading of 1 source page, cached by the source's own bytes."""
+    """Homr's reading of 1 source page, cached by the source's own bytes.
+
+    Returns:
+        The path of the MusicXML reading.
+    """
     digest = hashlib.sha256(src.read_bytes()).hexdigest()[:16]
     folder = work / "homr" / digest
     folder.mkdir(parents=True, exist_ok=True)
@@ -91,7 +103,7 @@ def homr_reading(src: pathlib.Path, page_no: int, work: pathlib.Path, command: s
 
 def homr_findings(src: pathlib.Path, score: Score, work: pathlib.Path) -> tuple[list[str], str]:
     command = homr_command()
-    if not command:
+    if command is None:
         return ["homr not found: install it or set MUSE_HOMR"], ""
     ours: list[str] = []
     where: list[int] = []
@@ -109,7 +121,11 @@ def homr_findings(src: pathlib.Path, score: Score, work: pathlib.Path) -> tuple[
 
 
 def folder_problems(out: pathlib.Path, songs: list[Song]) -> list[str]:
-    """The sheets repo holds exactly the songs' folders, and each folder exactly its files."""
+    """Check that the sheets repo holds exactly the songs' folders, and each folder exactly its files.
+
+    Returns:
+        Every missing and every stray file.
+    """
     wanted: set[str] = set()
     for song in songs:
         wanted |= song.files()
@@ -122,7 +138,11 @@ def folder_problems(out: pathlib.Path, songs: list[Song]) -> list[str]:
 
 
 def piano_problems(src: pathlib.Path, sheet: pathlib.Path) -> list[str]:
-    """1 staff, notes only in the kept parts, every other rest hidden, every chord present."""
+    """1 staff, notes only in the kept parts, every other rest hidden, every chord present.
+
+    Returns:
+        Every way the piano sheet departs from that.
+    """
     original = decode(src)
     parts = piano.kept_parts(original)
     kept = {n for part in parts for n in range(part.first, part.last + 1)}
@@ -142,23 +162,19 @@ def piano_problems(src: pathlib.Path, sheet: pathlib.Path) -> list[str]:
     return problems
 
 
-def check_song(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> tuple[list[str], list[str]]:
-    failures: list[str] = []
-    notes: list[str] = []
+def _guarded(failures: list[str], label: str, step: Callable[[], list[str]]) -> None:
+    try:
+        failures.extend(f"{label}: {problem}" for problem in step())
+    except launch.MachineUnavailable:
+        raise
+    except Exception as error:
+        failures.append(f"{label}: could not run: {str(error)[:160]}")
 
-    def guarded(label: str, step: Callable[[], list[str]]) -> None:
-        try:
-            failures.extend(f"{label}: {problem}" for problem in step())
-        except launch.MachineUnavailable:
-            raise
-        except Exception as error:
-            failures.append(f"{label}: could not run: {str(error)[:160]}")
 
-    info = song_of(src)
-    if info.orchestral:
-        return fullcheck.problems(src, out, work, info)
-    score = decode(src)
-    song = song_of(src, score)
+type Guard = Callable[[str, Callable[[], list[str]]], None]
+
+
+def _score_file_checks(guarded: Guard, src: pathlib.Path, out: pathlib.Path, work: pathlib.Path, song: Song) -> None:
     guarded("verify", lambda: verify.check(src, out, work))
     guarded("navigate", lambda: navigate.check(src, out, work)[2])
     guarded("tone", lambda: inverse.check(src, out, work))
@@ -166,51 +182,55 @@ def check_song(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> tupl
     guarded("signs built in", lambda: scorefile.builtin_sign_problems(out / song.score_file))
     guarded("empty texts", lambda: scorefile.empty_text_problems(out / song.score_file))
     guarded("chord file", lambda: chordnames.chord_path_problems(out / song.score_file))
-    wanted = sum(bar.segno or bar.coda for bar in score.bars)
 
-    def judge_pdf(final: pathlib.Path) -> None:
-        short = final.stem.rsplit("-", 1)[-1]
 
-        def signs() -> list[str]:
-            printed = len(pdfcheck.sign_sizes(final)[0])
-            return [f"{wanted} signs in the score, {printed} printed"] if printed < wanted else []
+def _judge_pdf(guarded: Guard, notes: list[str], final: pathlib.Path, song: Song, wanted: int) -> None:
+    short = final.stem.rsplit("-", 1)[-1]
 
-        guarded(f"pdf {short}", lambda: pdfcheck.all_problems(final, song.title))
-        guarded(f"words {short}", lambda: verify.pdf_words_problems(final, song.title))
-        guarded(f"pages {short}", lambda: port.balance_problems(final, line_starts(final)))
-        guarded(f"signs {short}", signs)
-        notes.append(f"{final.name}: {len(pymupdf.open(final))} pages")
+    def signs() -> list[str]:
+        printed = len(pdfcheck.sign_sizes(final)[0])
+        return [f"{wanted} signs in the score, {printed} printed"] if printed < wanted else []
 
-    for final in sorted({out / song.original_pdf, out / song.tone_pdf, out / song.piano_pdf}):
-        guarded(f"bass {final.name}", partial(pdfcheck.bass_problems, final))
-        judge_pdf(final)
+    guarded(f"pdf {short}", lambda: pdfcheck.all_problems(final, song.title))
+    guarded(f"words {short}", lambda: verify.pdf_words_problems(final, song.title))
+    guarded(f"pages {short}", lambda: port.balance_problems(final, line_starts(final)))
+    guarded(f"signs {short}", signs)
+    notes.append(f"{final.name}: {len(pymupdf.open(final))} pages")
 
-    def ties() -> list[str]:
-        wrong: list[str] = []
-        for final in sorted({out / song.original_pdf, out / song.tone_pdf}):
-            starts = line_starts(final)
-            bad, long_runs = port.tie_findings(starts, [port.tied_out(bar) for bar in score.bars])
-            lengths = line_lengths(starts, len(score.bars))
-            short = sum(1 for length in lengths if length <= 2)
-            notes.append(f"{final.name}: {short} of {len(lengths)} lines hold 2 bars or fewer")
-            wrong += port.short_line_problems([
-                list(range(first, first + length)) for first, length in zip(starts, lengths, strict=True)
-            ])
-            notes.extend(long_runs)
-            wrong += bad
-        return wrong
 
-    guarded("lines", ties)
+def _ties(notes: list[str], out: pathlib.Path, song: Song, score: Score) -> list[str]:
+    wrong: list[str] = []
+    for final in sorted({out / song.original_pdf, out / song.tone_pdf}):
+        starts = line_starts(final)
+        bad, long_runs = port.tie_findings(starts, [port.tied_out(bar) for bar in score.bars])
+        lengths = line_lengths(starts, len(score.bars))
+        short = sum(1 for length in lengths if length <= port.SHORT_LINE_BARS)
+        notes.append(f"{final.name}: {short} of {len(lengths)} lines hold 2 bars or fewer")
+        wrong += port.short_line_problems([
+            list(range(first, first + length)) for first, length in zip(starts, lengths, strict=True)
+        ])
+        notes.extend(long_runs)
+        wrong += bad
+    return wrong
+
+
+def _even_bar_checks(guarded: Guard, src: pathlib.Path, out: pathlib.Path, work: pathlib.Path, song: Song) -> None:
     sheet = work / f"{song.name}-piano-final.mscz"
     guarded("piano", lambda: piano_problems(src, sheet))
-    guarded("even bars piano", lambda: even_bars(src, sheet, out / song.piano_pdf, work, True))
-    guarded("even bars original", lambda: even_bars(src, out / song.score_file, out / song.original_pdf, work, False))
+    guarded("even bars piano", lambda: even_bars(src, sheet, out / song.piano_pdf, work, reduced=True))
+    guarded(
+        "even bars original",
+        lambda: even_bars(src, out / song.score_file, out / song.original_pdf, work, reduced=False),
+    )
     if song.direction:
         guarded(
             "even bars tone",
-            lambda: even_bars(src, work / f"{song.name}-{port.TONE}.mscz", out / song.tone_pdf, work, False),
+            lambda: even_bars(src, work / f"{song.name}-{port.TONE}.mscz", out / song.tone_pdf, work, reduced=False),
         )
-    port.transpose_options(song)
+
+
+def _line_checks(guarded: Guard, out: pathlib.Path, work: pathlib.Path, song: Song, score: Score) -> None:
+    sheet = work / f"{song.name}-piano-final.mscz"
     guarded("line start piano", lambda: port.chord_starts(sheet, score))
     guarded("line start original", lambda: port.chord_starts(out / song.score_file, score))
     if song.direction:
@@ -226,18 +246,45 @@ def check_song(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> tupl
             lambda: chordseat.problems(work / f"{song.name}-{port.TONE}.mscz", measured(out / song.tone_pdf, work)),
         )
 
-    def homr() -> list[str]:
-        wrong, note = homr_findings(src, score, work)
-        if note:
-            notes.append(note)
-        return wrong
 
-    guarded("homr", homr)
+def _homr(notes: list[str], src: pathlib.Path, score: Score, work: pathlib.Path) -> list[str]:
+    wrong, note = homr_findings(src, score, work)
+    if note:
+        notes.append(note)
+    return wrong
+
+
+def check_song(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> tuple[list[str], list[str]]:
+    failures: list[str] = []
+    notes: list[str] = []
+    guarded = partial(_guarded, failures)
+    info = song_of(src)
+    if info.orchestral:
+        return fullcheck.problems(src, out, work, info)
+    score = decode(src)
+    song = song_of(src, score)
+    _score_file_checks(guarded, src, out, work, song)
+    wanted = sum(bar.segno or bar.coda for bar in score.bars)
+    for final in sorted({out / song.original_pdf, out / song.tone_pdf, out / song.piano_pdf}):
+        guarded(f"bass {final.name}", partial(pdfcheck.bass_problems, final))
+        _judge_pdf(guarded, notes, final, song, wanted)
+    guarded("lines", partial(_ties, notes, out, song, score))
+    _even_bar_checks(guarded, src, out, work, song)
+    port.transpose_options(song)
+    _line_checks(guarded, out, work, song, score)
+    guarded("homr", partial(_homr, notes, src, score, work))
     return failures, notes
 
 
 def measured(pdf: pathlib.Path, work: pathlib.Path) -> pathlib.Path:
-    """A copy of a final PDF beside the program's measure positions for it, outside the sheets folder."""
+    """Copy a final PDF beside the program's measure positions for it, outside the sheets folder.
+
+    Returns:
+        The path of the copy.
+
+    Raises:
+        DoesNotFit: No render that drew the PDF left measure positions for it.
+    """
     folder = work / "measured"
     folder.mkdir(parents=True, exist_ok=True)
     copy = folder / pdf.name
@@ -258,7 +305,11 @@ def even_bars(
     work: pathlib.Path,
     reduced: bool,
 ) -> list[str]:
-    """Empty bars of 1 line are equal on every sheet: chord text never sets a width."""
+    """Empty bars of 1 line are equal on every sheet: chord text never sets a width.
+
+    Returns:
+        Every uneven-bar problem.
+    """
     score = decode(src)
     if reduced:
         piano.reduce(score)
@@ -275,7 +326,14 @@ BARLINE_LEAD = 2.0
 
 
 def chord_bound_bars(score_path: pathlib.Path, pdf: pathlib.Path) -> set[int]:
-    """1-based bars whose chords leave a gap within the even-bars tolerance of the clear chord gap, between 2 of their own chords or before the next bar's first: the chords, never the line, set their width."""
+    """Find 1-based bars whose chords, never the line, set their width.
+
+    A bar is found when its chords leave a gap within the even-bars tolerance of the clear chord gap,
+    between 2 of their own chords or before the next bar's first.
+
+    Returns:
+        The 1-based numbers of those bars.
+    """
     text = chordseat.score_text(score_path)[1]
     rows = [row for row, chords in zip(chordseat.bar_rows(text), chordseat.rows_of(text), strict=True) if chords]
     found = set()
@@ -296,7 +354,11 @@ def chord_bound_bars(score_path: pathlib.Path, pdf: pathlib.Path) -> set[int]:
 
 
 def gate_key(src: pathlib.Path) -> str:
-    """The key a gate pass is recorded under: the source, the code and the private lists it judges against."""
+    """Build the key a gate pass is recorded under: the source, the code and the private lists it judges against.
+
+    Returns:
+        The cache key.
+    """
     private = pathlib.Path(os.environ["MUSE_PRIVATE"])
     lists = "".join(
         buildcache.file_digest(path)
@@ -307,7 +369,14 @@ def gate_key(src: pathlib.Path) -> str:
 
 
 def cached_check(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> tuple[list[str], list[str], bool]:
-    """A pass stays valid while the source, code, style, private lists and every checked file are unchanged; a failure is always re-run."""
+    """Check 1 song, reusing a recorded pass.
+
+    A pass stays valid while the source, code, style, private lists and every checked file are unchanged;
+    a failure is always re-run.
+
+    Returns:
+        The failures, the notes, and whether the recorded pass was reused.
+    """
     info = song_of(src)
     outputs = sorted(path for path in (out / info.name).iterdir() if path.is_file()) + (
         [] if info.orchestral else [work / f"{info.name}-piano-final.mscz"]
@@ -326,7 +395,11 @@ def cached_check(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> tu
 
 
 def chord_name_problems(work: pathlib.Path) -> list[str]:
-    """Every short spelling plays as proved, and transposes, with the sheets' own style."""
+    """Every short spelling plays as proved, and transposes, with the sheets' own style.
+
+    Returns:
+        Every playback and transposition problem.
+    """
     style = port.styled(work, "chord-check.mss", "x", 1.5, 11.0)
     program = shutil.which("mscore") or "mscore"
     return [
@@ -341,7 +414,11 @@ def verdicts(
     work: pathlib.Path,
     names: tuple[str, ...] = (),
 ) -> dict[str, list[str]]:
-    """Each song folder's own failures, its files included."""
+    """Each song folder's own failures, its files included.
+
+    Returns:
+        The failures of each song folder, by song name.
+    """
     work.mkdir(parents=True, exist_ok=True)
     found: dict[str, list[str]] = {}
     chord_trouble = chord_name_problems(work)
@@ -364,7 +441,8 @@ def verdicts(
                 found[info.name] = chord_trouble + cached_check(src, out, work)[0]
             except Exception as error:
                 found[info.name] = [f"refused: {error}"]
-        print(f"{info.name}: {len(found[info.name])} failures", flush=True)
+        sys.stdout.write(f"{info.name}: {len(found[info.name])} failures\n")
+        sys.stdout.flush()
     return found
 
 
@@ -376,7 +454,7 @@ def main() -> None:
     found = [src for src in sources(src_dir) if not wanted or src.stem.split("-")[0] in wanted]
     trouble = folder_problems(out, [song_of(src) for src in sources(src_dir)])
     for problem in trouble:
-        print("  FAIL: folders:", problem)
+        sys.stdout.write(f"  FAIL: folders: {problem}\n")
     total += len(trouble)
     for src in found:
         began = time.monotonic()
@@ -384,13 +462,14 @@ def main() -> None:
             failures, notes, cached = cached_check(src, out, work)
         except Exception as error:
             failures, notes, cached = [f"refused: {error}"], [], False
-        print(f"{src.stem}: {len(failures)} failures {time.monotonic() - began:.1f}s{' cached' if cached else ''}")
+        elapsed = time.monotonic() - began
+        sys.stdout.write(f"{src.stem}: {len(failures)} failures {elapsed:.1f}s{' cached' if cached else ''}\n")
         for note in notes:
-            print("  note:", note)
+            sys.stdout.write(f"  note: {note}\n")
         for failure in failures:
-            print("  FAIL:", failure)
+            sys.stdout.write(f"  FAIL: {failure}\n")
         total += len(failures)
-    print("failures", total)
+    sys.stdout.write(f"failures {total}\n")
     raise SystemExit(1 if total else 0)
 
 

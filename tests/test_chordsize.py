@@ -5,7 +5,7 @@ import pathlib
 import pymupdf
 import pytest
 
-from muse import chordseat
+from muse import chordseat, pdfcheck
 
 
 def page_with(path: pathlib.Path, words: list[tuple[str, float]]) -> pathlib.Path:
@@ -22,7 +22,7 @@ def test_chord_size_ignores_larger_text(tmp_path: pathlib.Path) -> None:
         tmp_path / "s.pdf",
         [("Title of the song", 22.9), ("B", 16.0), ("Em", 12.8), ("Bm7", 12.8), ("Am/C", 12.8), ("Tacet", 8.2)],
     )
-    assert chordseat.chord_size(pdf) == 12.8
+    assert chordseat.chord_size(pdf) == pytest.approx(12.8)
 
 
 def test_chord_size_refuses_a_page_without_chords(tmp_path: pathlib.Path) -> None:
@@ -32,8 +32,6 @@ def test_chord_size_refuses_a_page_without_chords(tmp_path: pathlib.Path) -> Non
 
 
 def test_collisions_judge_chords_beside_a_larger_mark(tmp_path: pathlib.Path) -> None:
-    from muse import pdfcheck
-
     document = pymupdf.open()
     page = document.new_page()
     page.insert_text((40, 40), "B", fontsize=16.0)
@@ -46,8 +44,6 @@ def test_collisions_judge_chords_beside_a_larger_mark(tmp_path: pathlib.Path) ->
 
 
 def test_text_past_any_page_edge_is_found(tmp_path: pathlib.Path) -> None:
-    from muse import pdfcheck
-
     document = pymupdf.open()
     page = document.new_page()
     page.insert_text((40, 6), "Tempo", fontsize=12)
@@ -58,8 +54,6 @@ def test_text_past_any_page_edge_is_found(tmp_path: pathlib.Path) -> None:
 
 
 def test_a_triplet_number_low_on_a_page_is_no_page_number(tmp_path: pathlib.Path) -> None:
-    from muse import pdfcheck
-
     document = pymupdf.open()
     for _ in range(3):
         document.new_page()

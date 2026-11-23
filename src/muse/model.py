@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
-from fractions import Fraction as F
+from fractions import Fraction
 
 LETTERS = "CDEFGAB"
 
@@ -35,7 +35,7 @@ class Head:
 class Event:
     x: float
     heads: list[Head]
-    nominal: F
+    nominal: Fraction
     dots: int = 0
     stem: str | None = None
     tuplet: bool = False
@@ -49,14 +49,14 @@ class Event:
     grace: bool = False
     beam_state: str | None = None
     tuplet_state: str | None = None
-    onset: F = F(0)
-    ratio: F = F(2, 3)
+    onset: Fraction = Fraction(0)
+    ratio: Fraction = Fraction(2, 3)
     staff: int | None = None
 
     @property
-    def length(self) -> F:
+    def length(self) -> Fraction:
         if self.grace:
-            return F(0)
+            return Fraction(0)
         return self.nominal * self.ratio if self.tuplet else self.nominal
 
 
@@ -89,7 +89,7 @@ class Bar:
     page: int
     left: float
     right: float
-    length: F
+    length: Fraction
     time: tuple[int, int] | None = None
     time_symbol: str | None = None
     key: int | None = None
@@ -118,7 +118,7 @@ class Bar:
     simile: bool = False
     clef_octave: int = 0
     base: float = 0.0
-    clefs: list[tuple[int, F, Clef]] = dataclasses.field(default_factory=list)
+    clefs: list[tuple[int, Fraction, Clef]] = dataclasses.field(default_factory=list)
 
 
 @dataclasses.dataclass
@@ -128,7 +128,13 @@ class Issue:
 
 
 def bar_at(bars: list[Bar], x: float, lead: float) -> Bar:
-    """The bar a mark printed at x belongs to: the last bar whose lead-in has begun, so a mark starting just before a barline goes to the bar it runs into; the first bar for a mark left of every lead-in."""
+    """Find the bar a mark printed at x belongs to: the last bar whose lead-in has begun.
+
+    A mark starting just before a barline goes to the bar it runs into; the first bar for a mark left of every lead-in.
+
+    Returns:
+        The bar the mark belongs to.
+    """
     begun = [bar for bar in bars if bar.left - lead <= x]
     return begun[-1] if begun else bars[0]
 
@@ -137,7 +143,14 @@ MARK_REACH = 6.0
 
 
 def mark_bar(bars: list[Bar], left: float, right: float) -> Bar:
-    """The bar a section label marks: of the barlines under the label or within a few points of it, the one nearest its middle, since an engraver sets a section box on, just before or just after the barline it opens; else the bar it sits in."""
+    """Find the bar a section label marks.
+
+    Of the barlines under the label or within a few points of it, the one nearest its middle,
+    since an engraver sets a section box on, just before or just after the barline it opens; else the bar it sits in.
+
+    Returns:
+        The bar the label marks.
+    """
     middle = (left + right) / 2
     near = [bar for bar in bars[1:] if left - MARK_REACH <= bar.left <= right + MARK_REACH]
     if near:

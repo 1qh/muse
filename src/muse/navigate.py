@@ -14,9 +14,18 @@ from muse.verify import midi
 if TYPE_CHECKING:
     from muse.model import Bar, Score
 
+WALK_STEP_LIMIT = 5000
+
 
 def expected_order(score: Score) -> list[int]:
-    """Walk bar numbers by the signs alone: repeats, voltas, then D.S. and To Coda without repeats."""
+    """Walk bar numbers by the signs alone: repeats, voltas, then D.S. and To Coda without repeats.
+
+    Returns:
+        The bar numbers in playing order.
+
+    Raises:
+        RuntimeError: the walk never reaches the last bar.
+    """
     bars = score.bars
     by_number: dict[int, Bar] = {b.number: b for b in bars}
     order: list[int] = []
@@ -29,7 +38,7 @@ def expected_order(score: Score) -> list[int]:
     guard = 0
     while i <= len(bars):
         guard += 1
-        if guard > 5000:
+        if guard > WALK_STEP_LIMIT:
             msg = "no end to the walk"
             raise RuntimeError(msg)
         bar = by_number[i]
@@ -42,7 +51,7 @@ def expected_order(score: Score) -> list[int]:
             i += 1
             continue
         order.append(i)
-        if after_jump and bar.to_coda and coda:
+        if after_jump and bar.to_coda and coda is not None and coda != 0:
             i = coda
             after_jump = False
             continue
@@ -50,7 +59,7 @@ def expected_order(score: Score) -> list[int]:
             passed.add(repeat_from)
             i = repeat_from
             continue
-        if bar.dal_segno and not after_jump and segno:
+        if bar.dal_segno and not after_jump and segno is not None and segno != 0:
             after_jump = True
             i = segno
             continue
@@ -98,9 +107,9 @@ def main() -> None:
     bad = 0
     for src in sources(src_dir):
         implied, played, problems = check(src, out, work)
-        print(f"{src.stem}: implied {implied} played {played} problems {len(problems)}")
+        sys.stdout.write(f"{src.stem}: implied {implied} played {played} problems {len(problems)}\n")
         for p in problems:
-            print("  ", p)
+            sys.stdout.write("   " + p + "\n")
         bad += len(problems)
     raise SystemExit(1 if bad else 0)
 

@@ -1,15 +1,20 @@
-"""The seating extension inside MuseScore, on scores built in code: it measures chord room and fits, evens and seats chords."""
+"""Test the seating extension inside MuseScore on scores built in code.
 
+It measures chord room and fits, evens and seats chords.
+"""
+
+import concurrent.futures
 import pathlib
 import re
 import shutil
-from fractions import Fraction as F
+import zipfile
+from fractions import Fraction
 
 import pymupdf
 import pytest
 
-from muse import chordseat, layout, pdfcheck, port
-from muse.model import Bar, Chord, Event, Head, Score
+from muse import chordseat, layout, pdfcheck, pdftext, port
+from muse.model import Bar, Chord, Event, Head, Score, Text
 from muse.render import BATCHER
 
 pytestmark = [
@@ -23,10 +28,22 @@ def chord(root: str, kind: str = "") -> Chord:
 
 
 def held(number: int, chords: list[Chord]) -> Bar:
-    """A bar of 1 whole note carrying the given chords, the later ones on beats 2 to 4."""
+    """Build a bar of 1 whole note carrying the given chords, the later ones on beats 2 to 4.
+
+    Returns:
+        The bar.
+    """
     for at, item in enumerate(chords):
         item.x = 10.0 + at * 20.0
-    return Bar(number, 0, 0.0, 100.0, F(4), voices=[[Event(10.0, [Head(10.0, 0.0, "C", 5)], F(4))]], chords=chords)
+    return Bar(
+        number,
+        0,
+        0.0,
+        100.0,
+        Fraction(4),
+        voices=[[Event(10.0, [Head(10.0, 0.0, "C", 5)], Fraction(4))]],
+        chords=chords,
+    )
 
 
 def imported(tmp_path: pathlib.Path, bars: list[Bar], lines: set[int]) -> pathlib.Path:
@@ -34,7 +51,7 @@ def imported(tmp_path: pathlib.Path, bars: list[Bar], lines: set[int]) -> pathli
     for bar in score.bars:
         bar.new_system = bar.number in lines and bar.number != 1
     style = port.styled(tmp_path, "s.mss", "Fixture", 1.6, port.BASE_DISTANCE)
-    source = port.imported(score, tmp_path, "fixture", style, False)
+    source = port.imported(score, tmp_path, "fixture", style, clear=False)
     target = tmp_path / "fixture.mscz"
     port.edited(source, target, 1.6, port.BASE_DISTANCE, score)
     layout.rewrite(target, layout.placed)
@@ -65,8 +82,8 @@ def test_seat_mode_widens_a_crowded_bar_from_its_neighbours_and_seats_beat_1_cho
         BATCHER.render(score_path, [pdf, pdf.with_suffix(".mpos")], None)
         return pdf
 
-    layout.seat_inked(score_path, rendered, lambda probe: True)
-    assert layout.read_tag(score_path, "museSeatError") == ""
+    layout.seat_inked(score_path, rendered, lambda _probe: True)
+    assert not layout.read_tag(score_path, "museSeatError")
     assert pdfcheck.chord_collisions(pdf) == []
     assert chordseat.problems(score_path, pdf) == []
 
@@ -78,12 +95,14 @@ def test_the_extension_refuses_without_its_gap(tmp_path: pathlib.Path) -> None:
 
 
 def chord_heights(pdf: pathlib.Path) -> list[list[float]]:
-    """Per page, per staff in order, how far its chords' baseline sits above its staff top, in points."""
-    from muse import pdftext
+    """Measure, per page and per staff in order, how far its chords' baseline sits above its staff top, in points.
 
-    found = []
+    Returns:
+        Per page, the height of each staff's chords in points.
+    """
+    found: list[list[float]] = []
     for page in pdftext.open(pdf):
-        staves = chordseat.staves_of(chordseat.segments(page))
+        staves = chordseat.staves_of(chordseat.segments(page.page))
         size = chordseat.chord_size(pdf)
         bases = [
             span["origin"][1]
@@ -92,7 +111,7 @@ def chord_heights(pdf: pathlib.Path) -> list[list[float]]:
             for span in line["spans"]
             if abs(span["size"] - size) < 0.05 and span["text"].strip()
         ]
-        heights = []
+        heights: list[float] = []
         for at, staff in enumerate(staves):
             floor = staves[at - 1][-1] if at else 0.0
             mine = [base for base in bases if floor < base < staff[0]]
@@ -105,7 +124,7 @@ def test_a_high_note_lifts_only_its_own_line_never_a_line_at_the_same_height_on_
     tmp_path: pathlib.Path,
 ) -> None:
     bars = [held(n, [chord("C")]) for n in range(1, 41)]
-    bars[0].voices = [[Event(10.0, [Head(10.0, 0.0, "A", 6)], F(4))]]
+    bars[0].voices = [[Event(10.0, [Head(10.0, 0.0, "A", 6)], Fraction(4))]]
     score_path = imported(tmp_path, bars, set(range(1, 41, 2)))
     layout.set_tags(score_path, {"museChordGap": f"{layout.CLEAR_SPACES:.4f}"})
     layout.run_extension(score_path, score_path)
@@ -132,24 +151,26 @@ def test_each_version_installs_apart(tmp_path: pathlib.Path, monkeypatch: pytest
     assert all(name.startswith(layout.EXTENSION_FOLDER + "-") for name in held)
 
 
-def resting(number: int, chords: list[Chord], texts: list[object] | None = None) -> Bar:
-    """A bar holding only a whole rest, carrying the given chords and cues."""
+def resting(number: int, chords: list[Chord], texts: list[Text] | None = None) -> Bar:
+    """Build a bar holding only a whole rest, carrying the given chords and cues.
+
+    Returns:
+        The bar.
+    """
     return Bar(
         number,
         0,
         0.0,
         100.0,
-        F(4),
-        voices=[[Event(0.0, [], F(4), bar_rest=True)]],
+        Fraction(4),
+        voices=[[Event(0.0, [], Fraction(4), bar_rest=True)]],
         chords=chords,
         texts=texts or [],
-    )  # type: ignore[arg-type]
+    )
 
 
 def test_a_cue_rises_above_the_chords_and_the_chords_stay_close_to_an_empty_staff(tmp_path: pathlib.Path) -> None:
-    from muse.model import Text
-
-    cue = Text(10.0, -20.0, [("Only Piano", True, True)], True, "cue", 10.0)
+    cue = Text(10.0, -20.0, [("Only Piano", True, True)], above=True, kind="cue", size=10.0)
     bars = [
         resting(1, [chord("C", "maj7")], [cue]),
         resting(2, [chord("A", "m")]),
@@ -163,16 +184,15 @@ def test_a_cue_rises_above_the_chords_and_the_chords_stay_close_to_an_empty_staf
         BATCHER.render(score_path, [pdf, pdf.with_suffix(".mpos")], None)
         return pdf
 
-    layout.seat_inked(score_path, rendered, lambda probe: True)
+    layout.seat_inked(score_path, rendered, lambda _probe: True)
     assert pdfcheck.seating_problems(pdf) == []
     assert pdfcheck.text_collisions(pdf) == []
 
 
 def test_cues_sharing_a_place_stack_above_the_chords_and_never_overprint(tmp_path: pathlib.Path) -> None:
-    from muse.model import Text
-
     cues = [
-        Text(10.0, -20.0, [(words, True, True)], True, "cue", 10.0) for words in ("PIANO ONLY", "Slow Strings", "BAND IN")
+        Text(10.0, -20.0, [(words, True, True)], above=True, kind="cue", size=10.0)
+        for words in ("PIANO ONLY", "Slow Strings", "BAND IN")
     ]
     bars = [
         resting(1, [chord("C", "maj7")], cues),
@@ -187,15 +207,16 @@ def test_cues_sharing_a_place_stack_above_the_chords_and_never_overprint(tmp_pat
         BATCHER.render(score_path, [pdf, pdf.with_suffix(".mpos")], None)
         return pdf
 
-    layout.seat_inked(score_path, rendered, lambda probe: True)
+    layout.seat_inked(score_path, rendered, lambda _probe: True)
     assert pdfcheck.text_collisions(pdf) == []
     assert pdfcheck.seating_problems(pdf) == []
 
 
 def test_cues_over_the_first_line_stay_on_the_page(tmp_path: pathlib.Path) -> None:
-    from muse.model import Text
-
-    cues = [Text(10.0, -20.0, [(words, True, True)], True, "cue", 10.0) for words in ("PIANO ONLY", "Ballad", "BAND IN")]
+    cues = [
+        Text(10.0, -20.0, [(words, True, True)], above=True, kind="cue", size=10.0)
+        for words in ("PIANO ONLY", "Ballad", "BAND IN")
+    ]
     bars = [resting(1, [chord("C", "maj7")], cues), resting(2, [chord("A", "m")])] + [
         resting(n, [chord("F")]) for n in range(3, 9)
     ]
@@ -206,15 +227,13 @@ def test_cues_over_the_first_line_stay_on_the_page(tmp_path: pathlib.Path) -> No
         BATCHER.render(score_path, [pdf, pdf.with_suffix(".mpos")], None)
         return pdf
 
-    layout.seat_inked(score_path, rendered, lambda probe: True)
+    layout.seat_inked(score_path, rendered, lambda _probe: True)
     rendered()
     assert pdfcheck.off_page(pdf) == []
     assert pdfcheck.text_collisions(pdf) == []
 
 
 def test_many_threads_install_1_copy_without_colliding(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    import concurrent.futures
-
     monkeypatch.setenv("MUSE_EXTENSIONS", str(tmp_path))
     with concurrent.futures.ThreadPoolExecutor(16) as pool:
         uris = set(pool.map(lambda _: layout.install_extension(), range(64)))
@@ -225,9 +244,7 @@ def test_many_threads_install_1_copy_without_colliding(tmp_path: pathlib.Path, m
 
 
 def test_a_cue_on_a_lines_last_bar_ends_inside_the_margin(tmp_path: pathlib.Path) -> None:
-    from muse.model import Text
-
-    cue = Text(90.0, -20.0, [("PIANO ONLY FROM HERE", True, True)], True, "cue", 10.0)
+    cue = Text(90.0, -20.0, [("PIANO ONLY FROM HERE", True, True)], above=True, kind="cue", size=10.0)
     bars = [
         resting(1, [chord("C")]),
         resting(2, [chord("A", "m")]),
@@ -241,14 +258,17 @@ def test_a_cue_on_a_lines_last_bar_ends_inside_the_margin(tmp_path: pathlib.Path
         BATCHER.render(score_path, [pdf, pdf.with_suffix(".mpos")], None)
         return pdf
 
-    layout.seat_inked(score_path, rendered, lambda probe: True)
+    layout.seat_inked(score_path, rendered, lambda _probe: True)
     assert pdfcheck.past_margin(pdf) == []
     assert pdfcheck.text_collisions(pdf) == []
 
 
 def test_the_clef_and_signatures_opening_a_line_never_lift_its_chords(tmp_path: pathlib.Path) -> None:
     layout.install_extension()
-    bars = [Bar(n, 0, 0.0, 100.0, F(4), voices=[[Event(10.0, [], F(4))]], chords=[chord("F", "m")]) for n in range(1, 5)]
+    bars = [
+        Bar(n, 0, 0.0, 100.0, Fraction(4), voices=[[Event(10.0, [], Fraction(4))]], chords=[chord("F", "m")])
+        for n in range(1, 5)
+    ]
     for bar in bars:
         bar.chords[0].x = 10.0
         bar.chords[0].root_alter = 1
@@ -262,13 +282,18 @@ def test_the_clef_and_signatures_opening_a_line_never_lift_its_chords(tmp_path: 
 
 
 def test_italic_cues_below_the_staff_stack_rather_than_overprint(tmp_path: pathlib.Path) -> None:
-    from muse.model import Text
-
     bars = [held(n, [chord("C")]) for n in range(1, 9)]
     bars[0].texts = [
-        Text(10.0, 60.0, [("Chorus: a long italic cue running well past the next bar", False, True)], False, "cue", 10.0),
+        Text(
+            10.0,
+            60.0,
+            [("Chorus: a long italic cue running well past the next bar", False, True)],
+            above=False,
+            kind="cue",
+            size=10.0,
+        ),
     ]
-    bars[1].texts = [Text(10.0, 60.0, [("(Fill)", False, True)], False, "cue", 10.0)]
+    bars[1].texts = [Text(10.0, 60.0, [("(Fill)", False, True)], above=False, kind="cue", size=10.0)]
     score_path = imported(tmp_path, bars, {1})
     pdf = score_path.with_suffix(".pdf")
     BATCHER.render(score_path, [pdf], None)
@@ -297,7 +322,7 @@ def test_a_sign_opening_a_line_clears_its_bar_number_and_its_chord_follows_it(tm
         BATCHER.render(score_path, [pdf, pdf.with_suffix(".mpos")], None)
         return pdf
 
-    layout.seat_inked(score_path, rendered, lambda probe: True)
+    layout.seat_inked(score_path, rendered, lambda _probe: True)
     assert pdfcheck.sign_text_overlaps(pdf) == []
     assert chordseat.problems(score_path, pdf) == []
 
@@ -313,7 +338,7 @@ def test_a_chord_after_a_sign_mid_line_starts_past_its_box(tmp_path: pathlib.Pat
         BATCHER.render(score_path, [pdf, pdf.with_suffix(".mpos")], None)
         return pdf
 
-    layout.seat_inked(score_path, rendered, lambda probe: True)
+    layout.seat_inked(score_path, rendered, lambda _probe: True)
     assert pdfcheck.sign_text_overlaps(pdf) == []
     assert [p for p in chordseat.problems(score_path, pdf) if "wanted" in p] == []
 
@@ -330,18 +355,17 @@ def test_a_jump_ending_its_bar_keeps_its_box_off_the_next_bars_chord(tmp_path: p
         BATCHER.render(score_path, [pdf, pdf.with_suffix(".mpos")], None)
         return pdf
 
-    layout.seat_inked(score_path, rendered, lambda probe: True)
+    layout.seat_inked(score_path, rendered, lambda _probe: True)
     assert pdfcheck.sign_text_overlaps(pdf) == []
 
 
 def test_raised_cues_reserve_their_height_so_they_never_reach_the_line_above(tmp_path: pathlib.Path) -> None:
-    from muse.model import Text
-
     layout.install_extension()
     bars = [held(n, [chord("C", "maj7")]) for n in range(1, 9)]
-    bars[1].texts = [Text(10.0, 60.0, [("Below line 1: a long cue", False, True)], False, "cue", 10.0)]
+    bars[1].texts = [Text(10.0, 60.0, [("Below line 1: a long cue", False, True)], above=False, kind="cue", size=10.0)]
     bars[5].texts = [
-        Text(10.0, -60.0, [(f"Cue {at} stacked over line 2", True, False)], True, "cue", 14.0) for at in range(1, 7)
+        Text(10.0, -60.0, [(f"Cue {at} stacked over line 2", True, False)], above=True, kind="cue", size=14.0)
+        for at in range(1, 7)
     ]
     score_path = imported(tmp_path, bars, {1, 5})
     pdf = score_path.with_suffix(".pdf")
@@ -350,7 +374,7 @@ def test_raised_cues_reserve_their_height_so_they_never_reach_the_line_above(tmp
         BATCHER.render(score_path, [pdf, pdf.with_suffix(".mpos")], None)
         return pdf
 
-    layout.seat_inked(score_path, rendered, lambda probe: True)
+    layout.seat_inked(score_path, rendered, lambda _probe: True)
     assert pdfcheck.text_collisions(pdf) == []
 
 
@@ -361,7 +385,7 @@ def test_a_word_over_a_dynamic_is_text_on_text(tmp_path: pathlib.Path) -> None:
     font = binary.parent.parent / "Resources" / "fonts" / "BravuraText.otf"
     assert font.exists(), font
 
-    def sheet(over: bool) -> pathlib.Path:
+    def sheet(*, over: bool) -> pathlib.Path:
         doc = pymupdf.open()
         page = doc.new_page()
         page.insert_font(fontname="bravura", fontfile=str(font))
@@ -371,13 +395,16 @@ def test_a_word_over_a_dynamic_is_text_on_text(tmp_path: pathlib.Path) -> None:
         doc.save(path)
         return path
 
-    assert pdfcheck.symbol_text_overlaps(sheet(True)) == ["text on text: p1: dynamic or tempo note over 'Coda'"]
-    assert pdfcheck.symbol_text_overlaps(sheet(False)) == []
+    assert pdfcheck.symbol_text_overlaps(sheet(over=True)) == ["text on text: p1: dynamic or tempo note over 'Coda'"]
+    assert pdfcheck.symbol_text_overlaps(sheet(over=False)) == []
 
 
 def test_a_volta_number_never_prints_on_a_chord(tmp_path: pathlib.Path) -> None:
     layout.install_extension()
-    bars = [Bar(n, 0, 0.0, 100.0, F(4), voices=[[Event(10.0, [], F(4))]], chords=[chord("F", "m")]) for n in range(1, 5)]
+    bars = [
+        Bar(n, 0, 0.0, 100.0, Fraction(4), voices=[[Event(10.0, [], Fraction(4))]], chords=[chord("F", "m")])
+        for n in range(1, 5)
+    ]
     for bar in bars:
         bar.chords[0].x = 10.0
     bars[1].volta, bars[1].volta_stop = "1", "1"
@@ -397,13 +424,13 @@ def test_a_volta_number_never_prints_on_a_chord(tmp_path: pathlib.Path) -> None:
 def test_a_slur_far_above_the_staff_lifts_its_line_chords_over_it(tmp_path: pathlib.Path) -> None:
     layout.install_extension()
 
-    def seated(slurred: bool) -> float:
+    def seated(*, slurred: bool) -> float:
         home = tmp_path / str(slurred)
         home.mkdir()
         bars = [held(n, [chord("C")]) for n in range(1, 5)]
         first, second = Head(10.0, 0.0, "C", 8), Head(30.0, 0.0, "C", 8)
         first.slur_start, second.slur_stop = slurred, slurred
-        bars[0].voices = [[Event(10.0, [first], F(2)), Event(30.0, [second], F(2))]]
+        bars[0].voices = [[Event(10.0, [first], Fraction(2)), Event(30.0, [second], Fraction(2))]]
         score_path = imported(home, bars, {1})
         layout.set_tags(score_path, {"museChordGap": f"{layout.CLEAR_SPACES:.4f}"})
         layout.run_extension(score_path, score_path)
@@ -411,7 +438,7 @@ def test_a_slur_far_above_the_staff_lifts_its_line_chords_over_it(tmp_path: path
         BATCHER.render(score_path, [pdf, pdf.with_suffix(".mpos")], None)
         return chord_heights(pdf)[0][0]
 
-    assert seated(True) > seated(False) + 1.0
+    assert seated(slurred=True) > seated(slurred=False) + 1.0
 
 
 def test_a_bar_opens_past_its_sign_only_where_the_score_holds_a_target(
@@ -431,7 +458,7 @@ def test_a_bar_opens_past_its_sign_only_where_the_score_holds_a_target(
         "signed": [111.0, 222.0, 333.0, 444.0, 555.0],
         "crossings": [0.0] * 5,
     }
-    monkeypatch.setattr(chordseat, "page_lines", lambda pdf: [dict(line)])
+    monkeypatch.setattr(chordseat, "page_lines", lambda _pdf: [dict(line)])
     lines = chordseat.matched(text, tmp_path / "unused.pdf")
     assert lines[0]["openings"] == [100.0, 222.0, 300.0, 400.0, 500.0]
 
@@ -451,7 +478,7 @@ def test_a_grown_sign_reach_never_moves_the_chord_after_a_target(
         BATCHER.render(score_path, [pdf, pdf.with_suffix(".mpos")], None)
         return pdf
 
-    layout.seat_inked(score_path, rendered, lambda probe: True)
+    layout.seat_inked(score_path, rendered, lambda _probe: True)
     assert [p for p in chordseat.problems(score_path, pdf) if "wanted" in p] == []
 
 
@@ -470,7 +497,7 @@ def test_a_box_crossing_into_a_bar_without_a_target_is_a_jump_past_its_barline(
         "signed": [100.0] * 5,
         "crossings": [0.0, 6.0, 0.0, 9.0, 0.3],
     }
-    monkeypatch.setattr(chordseat, "page_lines", lambda pdf: [dict(line)])
+    monkeypatch.setattr(chordseat, "page_lines", lambda _pdf: [dict(line)])
     assert chordseat.matched(text, tmp_path / "unused.pdf")[0]["crossed"] == [(5, 9.0)]
 
 
@@ -478,13 +505,11 @@ def test_a_jump_moved_into_a_cues_span_stays_below_the_cue(
     tmp_path: pathlib.Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from muse.model import Text
-
     layout.install_extension()
     monkeypatch.setattr(layout, "SIGN_REACH", 6.0)
     bars = [held(n, [chord("A", "maj7")]) for n in range(1, 9)]
     bars[2].to_coda = True
-    bars[2].texts = [Text(80.0, 0.0, [("Band in with strings and all", False, True)], True)]
+    bars[2].texts = [Text(80.0, 0.0, [("Band in with strings and all", False, True)], above=True)]
     score_path = imported(tmp_path, bars, {1, 5})
     pdf = score_path.with_suffix(".pdf")
 
@@ -492,7 +517,7 @@ def test_a_jump_moved_into_a_cues_span_stays_below_the_cue(
         BATCHER.render(score_path, [pdf, pdf.with_suffix(".mpos")], None)
         return pdf
 
-    layout.seat_inked(score_path, rendered, lambda probe: True)
+    layout.seat_inked(score_path, rendered, lambda _probe: True)
     page = pymupdf.open(pdf)[0]
     frames = [
         d["rect"]
@@ -508,8 +533,6 @@ def test_a_jump_moved_into_a_cues_span_stays_below_the_cue(
 
 
 def text_lifts(score_path: pathlib.Path) -> list[float]:
-    import zipfile
-
     with zipfile.ZipFile(score_path) as archive:
         text = archive.read(next(n for n in archive.namelist() if n.endswith(".mscx") and "/" not in n)).decode()
     return [float(y) for y in re.findall(r'<(?:StaffText|Harmony)>.*?<offset x="[^"]*" y="([^"]*)"', text, re.DOTALL)]
@@ -517,9 +540,10 @@ def text_lifts(score_path: pathlib.Path) -> list[float]:
 
 def test_raising_a_text_again_never_lifts_it_or_its_chords_further(tmp_path: pathlib.Path) -> None:
     """The extension runs many times per sheet; a lift that stacks run after run pushes the line's staff down the page."""
-    from muse.model import Text
-
-    cues = [Text(10.0, -20.0, [(words, True, True)], True, "cue", 10.0) for words in ("PIANO ONLY", "Ballad", "BAND IN")]
+    cues = [
+        Text(10.0, -20.0, [(words, True, True)], above=True, kind="cue", size=10.0)
+        for words in ("PIANO ONLY", "Ballad", "BAND IN")
+    ]
     bars = [resting(1, [chord("C", "maj7")], cues), resting(2, [chord("A", "m")])] + [
         resting(n, [chord("F")]) for n in range(3, 9)
     ]
@@ -530,7 +554,7 @@ def test_raising_a_text_again_never_lifts_it_or_its_chords_further(tmp_path: pat
         BATCHER.render(score_path, [pdf, pdf.with_suffix(".mpos")], None)
         return pdf
 
-    layout.seat_inked(score_path, rendered, lambda probe: True)
+    layout.seat_inked(score_path, rendered, lambda _probe: True)
     first = text_lifts(score_path)
     assert first, "no cue was raised: the guard would judge nothing"
     for _ in range(3):
@@ -539,9 +563,11 @@ def test_raising_a_text_again_never_lifts_it_or_its_chords_further(tmp_path: pat
 
 
 def score_body(path: pathlib.Path) -> list[str]:
-    """The saved score's lines, every number rounded to 0.01 and the raise record left out: what a 2nd run may not move."""
-    import zipfile
+    """Read the saved score's lines, every number rounded to 0.01 and the raise record left out.
 
+    Returns:
+        The lines: what a 2nd run may not move.
+    """
     with zipfile.ZipFile(path) as archive:
         name = next(item for item in archive.namelist() if item.endswith(".mscx") and "/" not in item)
         text = archive.read(name).decode()
@@ -550,10 +576,14 @@ def score_body(path: pathlib.Path) -> list[str]:
 
 
 def test_running_the_extension_again_changes_nothing(tmp_path: pathlib.Path) -> None:
-    """Every edit the extension makes is set from the score's own state, never added to it: run after run lands the same file."""
-    from muse.model import Text
+    """Every edit the extension makes is set from the score's own state, never added to it.
 
-    cues = [Text(10.0, -20.0, [(words, True, True)], True, "cue", 10.0) for words in ("PIANO ONLY", "Ballad", "BAND IN")]
+    Run after run lands the same file.
+    """
+    cues = [
+        Text(10.0, -20.0, [(words, True, True)], above=True, kind="cue", size=10.0)
+        for words in ("PIANO ONLY", "Ballad", "BAND IN")
+    ]
     bars = [
         resting(1, [chord("C", "maj7"), chord("G", "7")], cues),
         resting(2, [chord("A", "m")]),
@@ -566,7 +596,7 @@ def test_running_the_extension_again_changes_nothing(tmp_path: pathlib.Path) -> 
         BATCHER.render(score_path, [pdf, pdf.with_suffix(".mpos")], None)
         return pdf
 
-    layout.seat_inked(score_path, rendered, lambda probe: True)
+    layout.seat_inked(score_path, rendered, lambda _probe: True)
     once = score_body(score_path)
     for _ in range(3):
         layout.run_extension(score_path, score_path)

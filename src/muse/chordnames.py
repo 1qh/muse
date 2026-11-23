@@ -1,4 +1,7 @@
-"""Short chord names: each stored as a spelling the score programs parse, so it prints short and plays like the long form."""
+"""Short chord names: each stored as a spelling the score programs parse.
+
+Each prints short and plays like the long form.
+"""
 
 from __future__ import annotations
 
@@ -44,10 +47,17 @@ PLAYS = {
 }
 CHORD_FILE = pathlib.Path(__file__).with_name("chords.xml")
 Runner = Callable[..., None]
+MIDI_STATUS_BIT = 128
+MIDI_META_EVENT = 255
+MIDI_NOTE_ON = 9
 
 
 def stored(kind: str) -> str:
-    """The spelling a chord kind is written with."""
+    """Spell a chord kind the way it is written.
+
+    Returns:
+        The stored spelling of the chord kind.
+    """
     return SHORT.get(kind, kind)
 
 
@@ -65,7 +75,11 @@ def drop_chord_path(mscz: pathlib.Path) -> None:
 
 
 def chord_path_problems(mscz: pathlib.Path) -> list[str]:
-    """Any style in a score that names a chord file by anything but the embedded list."""
+    """Any style in a score that names a chord file by anything but the embedded list.
+
+    Returns:
+        A problem line per chord file a style names other than the embedded list.
+    """
     with zipfile.ZipFile(mscz) as source:
         found = [
             m
@@ -77,7 +91,11 @@ def chord_path_problems(mscz: pathlib.Path) -> list[str]:
 
 
 def chord_file(work: pathlib.Path) -> pathlib.Path:
-    """The pipeline's own chord description, copied where a style names it."""
+    """Copy the pipeline's own chord description where a style names it.
+
+    Returns:
+        The path of the copied chord description.
+    """
     path = work / "chords_short.xml"
     work.mkdir(parents=True, exist_ok=True)
     text = CHORD_FILE.read_text(encoding="utf-8")
@@ -87,37 +105,54 @@ def chord_file(work: pathlib.Path) -> pathlib.Path:
 
 
 def bars_xml(kinds: list[str]) -> str:
-    """1 bar of A per chord kind."""
+    """1 bar of A per chord kind.
+
+    Returns:
+        A MusicXML score holding 1 bar per chord kind.
+    """
     bars = []
     for number, kind in enumerate(kinds, 1):
         head = (
-            "<attributes><divisions>1</divisions><key><fifths>0</fifths></key><time><beats>4</beats><beat-type>4</beat-type></time><clef><sign>G</sign><line>2</line></clef></attributes>"
+            "<attributes><divisions>1</divisions><key><fifths>0</fifths></key>"
+            "<time><beats>4</beats><beat-type>4</beat-type></time>"
+            "<clef><sign>G</sign><line>2</line></clef></attributes>"
             if number == 1
             else ""
         )
         bars.append(
-            f'<measure number="{number}">{head}<harmony><root><root-step>A</root-step></root><kind text="{kind}">other</kind></harmony><note><rest measure="yes"/><duration>4</duration></note></measure>',
+            f'<measure number="{number}">{head}<harmony><root><root-step>A</root-step></root>'
+            f'<kind text="{kind}">other</kind></harmony>'
+            '<note><rest measure="yes"/><duration>4</duration></note></measure>',
         )
     return (
-        '<?xml version="1.0" encoding="UTF-8"?><score-partwise version="3.1"><part-list><score-part id="P1"><part-name>x</part-name></score-part></part-list><part id="P1">'
+        '<?xml version="1.0" encoding="UTF-8"?><score-partwise version="3.1">'
+        '<part-list><score-part id="P1"><part-name>x</part-name></score-part></part-list><part id="P1">'
         + "".join(bars)
         + "</part></score-partwise>"
     )
 
 
 def variable_length(track: bytes, at: int) -> tuple[int, int]:
-    """A MIDI variable-length number and the position after it."""
+    """Read a MIDI variable-length number and the position after it.
+
+    Returns:
+        The number and the position after it.
+    """
     value = 0
     while True:
         byte = track[at]
         at += 1
         value = value << 7 | byte & 127
-        if byte < 128:
+        if byte < MIDI_STATUS_BIT:
             return value, at
 
 
 def sounding(mid: pathlib.Path) -> dict[int, list[int]]:
-    """Pitch classes sounding per 4-quarter bar, from a standard MIDI file."""
+    """Pitch classes sounding per 4-quarter bar, from a standard MIDI file.
+
+    Returns:
+        The sorted pitch classes sounding in each bar.
+    """
     data = mid.read_bytes()
     division = struct.unpack(">H", data[12:14])[0]
     at = 14
@@ -130,10 +165,10 @@ def sounding(mid: pathlib.Path) -> dict[int, list[int]]:
         while i < len(track):
             delta, i = variable_length(track, i)
             now += delta
-            if track[i] >= 128:
+            if track[i] >= MIDI_STATUS_BIT:
                 status = track[i]
                 i += 1
-            if status == 255:
+            if status == MIDI_META_EVENT:
                 length, i = variable_length(track, i + 1)
                 i += length
             elif status in {240, 247}:
@@ -144,13 +179,17 @@ def sounding(mid: pathlib.Path) -> dict[int, list[int]]:
             else:
                 pitch, velocity = track[i], track[i + 1]
                 i += 2
-                if status >> 4 == 9 and velocity:
+                if status >> 4 == MIDI_NOTE_ON and velocity:
                     found.setdefault(now // (division * 4), set()).add(pitch % 12)
     return {bar: sorted(pitches) for bar, pitches in found.items()}
 
 
 def wrong_playback(kinds: list[str], heard: dict[int, list[int]]) -> list[str]:
-    """Kinds whose bar does not sound as proved."""
+    """Kinds whose bar does not sound as proved.
+
+    Returns:
+        A problem line per kind whose bar sounds wrong.
+    """
     return [
         f"{kind}: plays {heard.get(bar)}, wanted {PLAYS[kind]}"
         for bar, kind in enumerate(kinds)
@@ -159,7 +198,13 @@ def wrong_playback(kinds: list[str], heard: dict[int, list[int]]) -> list[str]:
 
 
 def playback_problems(command: str, style: pathlib.Path, work: pathlib.Path, run: Runner) -> list[str]:
-    """Build 1 bar per stored spelling in the given program with the sheets' own style, and compare its MIDI with the proved pitch classes."""
+    """Build 1 bar per stored spelling in the given program with the sheets' own style.
+
+    Its MIDI is compared with the proved pitch classes.
+
+    Returns:
+        A problem line per kind whose bar sounds wrong.
+    """
     kinds = sorted(set(SHORT.values()))
     folder = work / "playback"
     folder.mkdir(parents=True, exist_ok=True)
@@ -173,7 +218,13 @@ def playback_problems(command: str, style: pathlib.Path, work: pathlib.Path, run
 
 
 def transposes(command: str, style: pathlib.Path, work: pathlib.Path, run: Runner) -> list[str]:
-    """With the custom chord file, a moved score keeps every name, moves every root and still sounds as proved a tone up."""
+    """Check that with the custom chord file a moved score keeps every name and moves every root.
+
+    It still sounds as proved a tone up.
+
+    Returns:
+        A problem line per kind that does not sound as proved a tone up.
+    """
     folder = work / "playback4"
     folder.mkdir(parents=True, exist_ok=True)
     kinds = sorted(set(SHORT.values()))

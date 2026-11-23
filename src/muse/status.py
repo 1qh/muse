@@ -4,15 +4,21 @@ from __future__ import annotations
 
 import hashlib
 import pathlib
+import shutil
 import subprocess
 import sys
 
 from muse import build, buildcache, gate
 from muse.song import song_of, sources
 
+SONG_COLUMN = 22
+
 
 def blob(out: pathlib.Path, name: str) -> bytes | None:
-    done = subprocess.run(["git", "-C", str(out), "show", f"HEAD:{name}"], capture_output=True, check=False)
+    git = shutil.which("git")
+    if git is None:
+        raise FileNotFoundError(2, "No such file or directory", "git")
+    done = subprocess.run([git, "-C", str(out), "show", f"HEAD:{name}"], capture_output=True, check=False)
     return done.stdout if done.returncode == 0 else None
 
 
@@ -39,8 +45,8 @@ def main() -> None:
             stale += not ok
         if not state:
             missing += 1
-        print(info.name.ljust(22), " ".join(verdicts) or "never built")
-    print(f"sheets current {current}, stale {stale}, songs never built {missing}")
+        sys.stdout.write(info.name.ljust(SONG_COLUMN) + " " + (" ".join(verdicts) or "never built") + "\n")
+    sys.stdout.write(f"sheets current {current}, stale {stale}, songs never built {missing}\n")
 
 
 if __name__ == "__main__":

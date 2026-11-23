@@ -1,13 +1,21 @@
 """A cache must never hide a stale file."""
 
+import json
 import pathlib
 import subprocess
 import types
+from collections.abc import Callable
+from types import SimpleNamespace
+from typing import Any
 
-from muse import build, buildcache, preflight
+import pytest
+
+from muse import build, buildcache, launch, mode, preflight
 
 
-def setup(tmp_path):
+def setup(
+    tmp_path: pathlib.Path,
+) -> tuple[pathlib.Path, pathlib.Path, pathlib.Path, pathlib.Path, str, dict[str, Any]]:
     source, style, code, out = (tmp_path / n for n in ("s.pdf", "s.mss", "c.py", "o.pdf"))
     for path in (source, style, code, out):
         path.write_text("a")
@@ -15,12 +23,12 @@ def setup(tmp_path):
     return source, style, code, out, key, buildcache.record(key, [out])
 
 
-def test_an_unchanged_build_is_fresh(tmp_path) -> None:
+def test_an_unchanged_build_is_fresh(tmp_path: pathlib.Path) -> None:
     source, style, code, out, _key, entry = setup(tmp_path)
     assert buildcache.fresh(entry, buildcache.key_of(source, "song", [code], style=style), [out])
 
 
-def test_changing_source_style_code_or_song_forces_a_rebuild(tmp_path) -> None:
+def test_changing_source_style_code_or_song_forces_a_rebuild(tmp_path: pathlib.Path) -> None:
     source, style, code, out, _key, entry = setup(tmp_path)
     for path in (source, style, code):
         path.write_text("b")
@@ -29,7 +37,7 @@ def test_changing_source_style_code_or_song_forces_a_rebuild(tmp_path) -> None:
     assert not buildcache.fresh(entry, buildcache.key_of(source, "other", [code], style=style), [out])
 
 
-def test_a_changed_or_missing_output_forces_a_rebuild(tmp_path) -> None:
+def test_a_changed_or_missing_output_forces_a_rebuild(tmp_path: pathlib.Path) -> None:
     _source, _style, _code, out, key, entry = setup(tmp_path)
     out.write_text("edited")
     assert not buildcache.fresh(entry, key, [out])
@@ -58,7 +66,7 @@ def test_workers_follow_the_cores_never_a_load_sample() -> None:
     assert build.free_workers(0, cores=10) == 1
 
 
-def test_a_module_a_sheet_writer_imports_joins_the_key(tmp_path) -> None:
+def test_a_module_a_sheet_writer_imports_joins_the_key(tmp_path: pathlib.Path) -> None:
     (tmp_path / "layout.py").write_text("from muse import helper\n")
     (tmp_path / "helper.py").write_text("from muse.deep import x\n")
     (tmp_path / "deep.py").write_text("")
@@ -73,7 +81,7 @@ def test_a_module_a_sheet_writer_imports_joins_the_key(tmp_path) -> None:
 def test_a_failing_code_check_stops_the_rest() -> None:
     calls = []
 
-    def check(command, **_):
+    def check(command: list[str], **_: object) -> subprocess.CompletedProcess[str]:
         calls.append(command)
         return subprocess.CompletedProcess(command, 1, "boom", "")
 
@@ -81,7 +89,9 @@ def test_a_failing_code_check_stops_the_rest() -> None:
     assert len(calls) == 1
 
 
-def test_a_song_with_no_piano_part_or_a_refused_source_is_named(monkeypatch, tmp_path) -> None:
+def test_a_song_with_no_piano_part_or_a_refused_source_is_named(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path,
+) -> None:
     source = tmp_path / "x.pdf"
     source.write_text("x")
     monkeypatch.setattr(preflight, "decode", lambda _: object())
@@ -97,7 +107,9 @@ def test_build_key_covers_the_extension() -> None:
     assert {"main.js", "manifest.json"} <= names
 
 
-def test_songs_build_in_the_owners_priority_order_then_by_name(tmp_path, monkeypatch) -> None:
+def test_songs_build_in_the_owners_priority_order_then_by_name(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
     (tmp_path / "PRIORITY.txt").write_text("Zeta Beta\n", encoding="utf-8")
     monkeypatch.setenv("MUSE_PRIVATE", str(tmp_path))
     monkeypatch.setattr(build, "song_of", lambda src: types.SimpleNamespace(name=src.stem.split("-")[0]))
@@ -105,36 +117,32 @@ def test_songs_build_in_the_owners_priority_order_then_by_name(tmp_path, monkeyp
     assert [src.stem.split("-")[0] for src in build.ordered(sources)] == ["Zeta", "Beta", "Alpha", "Gamma"]
 
 
-def test_a_build_gives_each_song_worker_its_share_of_launch_slots(monkeypatch) -> None:
-    from muse import launch
-
+def test_a_build_gives_each_song_worker_its_share_of_launch_slots(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(launch.SLOTS_VARIABLE, "3")
     assert launch.slots() == 3
     monkeypatch.delenv(launch.SLOTS_VARIABLE)
     assert launch.slots() >= 1
 
 
-def test_a_print_mode_build_is_never_reused_as_strict(tmp_path, monkeypatch) -> None:
-    from muse import mode
-
+def test_a_print_mode_build_is_never_reused_as_strict(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
     source = tmp_path / "Song-Em.pdf"
     source.write_bytes(b"pdf")
-    monkeypatch.setattr(build, "song_of", lambda src: types.SimpleNamespace(name="Song"))
+    monkeypatch.setattr(build, "song_of", lambda _: types.SimpleNamespace(name="Song"))
     monkeypatch.setattr(mode, "PRINT", False)
     strict = build.variant_key(source, "original")
     monkeypatch.setattr(mode, "PRINT", True)
     assert build.variant_key(source, "original") != strict
 
 
-def test_a_song_child_hands_back_its_report_or_its_refusal(monkeypatch, tmp_path) -> None:
-    import json
-    import subprocess
-    from types import SimpleNamespace
+def test_a_song_child_hands_back_its_report_or_its_refusal(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path,
+) -> None:
+    monkeypatch.setattr(build, "song_of", lambda _: SimpleNamespace(name="Song"))
 
-    monkeypatch.setattr(build, "song_of", lambda src: SimpleNamespace(name="Song"))
-
-    def finished(code: int, report: dict | None, reason: str | None):
-        def run(argv, **_):
+    def finished(
+        code: int, report: dict[str, str] | None, reason: str | None
+    ) -> Callable[..., subprocess.CompletedProcess[str]]:
+        def run(argv: list[str], **_: object) -> subprocess.CompletedProcess[str]:
             assert argv[3] == build.CHILD_FLAG
             if report is not None:
                 (tmp_path / "Song-report.json").write_text(json.dumps(report), encoding="utf-8")

@@ -1,4 +1,7 @@
-"""An orchestral full score's files: its MuseScore file and its PDF, in the original key, broken where the source breaks."""
+"""An orchestral full score's files: its MuseScore file and its PDF.
+
+Both are in the original key, broken where the source breaks.
+"""
 
 from __future__ import annotations
 
@@ -33,12 +36,20 @@ def xml_path(work: pathlib.Path, info: Song) -> pathlib.Path:
 
 
 def breaks_of(orchestra: Orchestra) -> Score:
-    """The source's system and page breaks, which every part shares, as the layout writer reads them."""
+    """Take the source's system and page breaks, which every part shares, as the layout writer reads them.
+
+    Returns:
+        A score carrying the first part's bars.
+    """
     return Score(orchestra.parts[0].bars, [], [])
 
 
 def build(src: pathlib.Path, out_dir: pathlib.Path, work: pathlib.Path, info: Song) -> dict[str, object]:
-    """The 2 files of 1 full score."""
+    """Write the 2 files of 1 full score.
+
+    Returns:
+        The build report: PDF page count and the chosen staff space.
+    """
     orchestra = orchestra_of(src)
     xml = xml_path(work, info)
     xml.write_text(musicxml.write_orchestra(orchestra), encoding="utf-8")
@@ -52,7 +63,11 @@ def build(src: pathlib.Path, out_dir: pathlib.Path, work: pathlib.Path, info: So
 
 
 def system_problems(orchestra: Orchestra, mpos: pathlib.Path) -> list[str]:
-    """Every system of the score opens on the bar its source system opens on."""
+    """Every system of the score opens on the bar its source system opens on.
+
+    Returns:
+        The mismatch, or an empty list.
+    """
     boxes = [
         (int(float(e.get("page") or 0)), round(float(e.get("y") or 0))) for e in ET.parse(mpos).getroot().iter("element")
     ]
@@ -62,7 +77,16 @@ def system_problems(orchestra: Orchestra, mpos: pathlib.Path) -> list[str]:
 
 
 def fit(xml: pathlib.Path, work: pathlib.Path, final: pathlib.Path, info: Song, orchestra: Orchestra) -> float:
-    """The largest staff space at which every source system holds on 1 line, judged on MuseScore's own layout, written to the final file."""
+    """Find the largest staff space at which every source system holds on 1 line.
+
+    It is judged on MuseScore's own layout and written to the final file.
+
+    Returns:
+        The staff space that fits.
+
+    Raises:
+        DoesNotFit: no staff space down to the floor holds every source system.
+    """
     tried = []
     spatium = SPATIUM
     while spatium >= SPATIUM_FLOOR - 1e-9:

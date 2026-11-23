@@ -9,7 +9,7 @@ import subprocess
 import sys
 import xml.etree.ElementTree as ET
 import zipfile
-from fractions import Fraction as F
+from fractions import Fraction
 from typing import TYPE_CHECKING
 
 from muse import chordnames, launch, scorefile
@@ -18,7 +18,7 @@ from muse.pdfcheck import title_problems
 from muse.song import decode, song_of, sources
 
 if TYPE_CHECKING:
-    from muse.model import Score
+    from muse.model import Bar, Score
 
 BANNED = ["Copyright", "Contact", "Sáng tác", "Trình bày"]
 PRIVATE_BANNED = "banned.txt"
@@ -50,7 +50,8 @@ def bar_roots(m: ET.Element) -> list[tuple[int, int]]:
     got = []
     for h in m.findall("harmony"):
         r, b = h.find("root"), h.find("bass")
-        assert r is not None
+        if r is None:
+            raise AssertionError
         root = (PC[text_of(r, "root-step")] + alter_of(r, "root-alter")) % 12
         got.append((root, -1 if b is None else (PC[text_of(b, "bass-step")] + alter_of(b, "bass-alter")) % 12))
     return sorted(got)
@@ -63,7 +64,11 @@ def stored_chord_names(final: pathlib.Path) -> list[str]:
 
 
 def pdf_words_problems(pdf: pathlib.Path, title: str) -> list[str]:
-    """No credit, contact or stray text in a finished PDF, and the title where it belongs."""
+    """Find credit, contact or stray text in a finished PDF, and check the title sits where it belongs.
+
+    Returns:
+        Every problem found; empty when the PDF is clean.
+    """
     text = subprocess.run(["pdftotext", str(pdf), "-"], capture_output=True, text=True, check=True).stdout
     problems = [f"banned text in {pdf.name}: {word}" for word in BANNED if word.lower() in text.lower()]
     names = (pathlib.Path(os.environ["MUSE_PRIVATE"]) / PRIVATE_BANNED).read_text(encoding="utf-8").split("\n")
@@ -74,7 +79,11 @@ def pdf_words_problems(pdf: pathlib.Path, title: str) -> list[str]:
 
 
 def chord_beat_problems(src: pathlib.Path, path: pathlib.Path) -> list[str]:
-    """Every chord of a saved score against its true beat; a bar without notes follows the fixed rule."""
+    """Check every chord of a saved score against its true beat; a bar without notes follows the fixed rule.
+
+    Returns:
+        Every bar whose chords sit off their beats.
+    """
     score = decode(src)
     problems = []
     staff = scorefile.read(path)[0]
@@ -87,44 +96,64 @@ def chord_beat_problems(src: pathlib.Path, path: pathlib.Path) -> list[str]:
 
 
 def tempo_text(final: pathlib.Path) -> str:
-    """The number the score's tempo mark prints."""
+    """Read the number the score's tempo mark prints.
+
+    Returns:
+        The printed tempo number, or empty when the score has no tempo mark.
+    """
     with zipfile.ZipFile(final) as z:
         name = next(n for n in z.namelist() if n.endswith(".mscx") and "/" not in n)
         found = re.search(r"<Tempo>.*?=\s*([\d.]+)\s*</text>", z.read(name).decode("utf-8"), re.DOTALL)
-    return found[1] if found else ""
+    return str(found[1]) if found is not None else ""
 
 
 def expected_keys(score: Score, fifths: int) -> set[int]:
-    """The song's key and every key change it makes, moved by the same fifths that take its first key to the given one."""
+    """Collect the song's key and every key change it makes.
+
+    Each is moved by the same fifths that take its first key to the given one.
+
+    Returns:
+        The moved keys, in fifths.
+    """
     first = next((bar.key for bar in score.bars if bar.key is not None), fifths)
     return {fifths, *(bar.key - first + fifths for bar in score.bars if bar.key is not None)}
 
 
 def same_keys(found: set[str], wanted: set[int]) -> bool:
-    """The same keys, counting enharmonic spellings as 1: a key and the key 12 fifths away sound alike."""
+    """Compare 2 key sets, counting enharmonic spellings as 1: a key and the key 12 fifths away sound alike.
+
+    Returns:
+        Whether both sets hold the same keys.
+    """
     return {int(k) % 12 for k in found} == {k % 12 for k in wanted}
 
 
-def check(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> list[str]:
-    """The latest score and its PDF, in the original tone, against the source decode."""
-    info = song_of(src)
-    song, fifths = info.name, info.source_fifths
-    final = out / info.score_file
-    score = decode(src)
-    xml = work / f"{song}-final.musicxml"
-    launch.mscore(["-o", str(xml), str(final)], 240, check=True)
-    root = ET.parse(xml).getroot()
+def _shape_problems(score: Score, root: ET.Element, final: pathlib.Path, fifths: int) -> list[str]:
     problems = []
-    parts = root.findall("part")
-    counts = [len(p.findall("measure")) for p in parts]
+    counts = [len(p.findall("measure")) for p in root.findall("part")]
     if any(c != len(score.bars) for c in counts):
         problems.append(f"bar count {counts} vs {len(score.bars)}")
-    keys = {k.text for k in root.iter("fifths") if k.text}
+    keys = {text for k in root.iter("fifths") if (text := k.text) is not None and text}
     if not same_keys(keys, expected_keys(score, fifths)):
         problems.append(f"key {keys}")
     tempo = next((b.tempo for b in score.bars if b.tempo), None)
     if tempo and tempo_text(final) != f"{tempo[1]:g}":
         problems.append(f"tempo prints {tempo_text(final)}, the sheet says {tempo[1]:g}")
+    return problems
+
+
+def _bar_chord_problems(m: ET.Element, bar: Bar, problems: list[str]) -> int:
+    want_c = sorted(
+        ((PC[c.root] + c.root_alter) % 12, -1 if c.bass is None or not c.bass else (PC[c.bass] + c.bass_alter) % 12)
+        for c in bar.chords
+    )
+    got_c = bar_roots(m)
+    if want_c != got_c:
+        problems.append(f"bar {bar.number}: chords {got_c} expected {want_c}")
+    return len(got_c)
+
+
+def _content_problems(score: Score, parts: list[ET.Element], problems: list[str]) -> tuple[int, int]:
     notes = chords = 0
     for p_i, part in enumerate(parts):
         for m, bar in zip(part.findall("measure"), score.bars, strict=False):
@@ -135,14 +164,11 @@ def check(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> list[str]
             if got != want:
                 problems.append(f"bar {bar.number} part {p_i + 1}: pitches {got} expected {want}")
             if p_i == 0:
-                want_c = sorted(
-                    ((PC[c.root] + c.root_alter) % 12, -1 if not c.bass else (PC[c.bass] + c.bass_alter) % 12)
-                    for c in bar.chords
-                )
-                got_c = bar_roots(m)
-                chords += len(got_c)
-                if want_c != got_c:
-                    problems.append(f"bar {bar.number}: chords {got_c} expected {want_c}")
+                chords += _bar_chord_problems(m, bar, problems)
+    return notes, chords
+
+
+def _duration_problems(score: Score, root: ET.Element, parts: list[ET.Element], problems: list[str]) -> None:
     div = int(next(root.iter("divisions")).text or 0)
     for m, bar in zip(parts[0].findall("measure"), score.bars, strict=False):
         totals: dict[str, int] = {}
@@ -151,12 +177,32 @@ def check(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> list[str]
                 v = n.findtext("voice") or "1"
                 totals[v] = totals.get(v, 0) + int(text_of(n, "duration"))
         for v, t in totals.items():
-            if F(t, div) != bar.length:
-                problems.append(f"bar {bar.number} voice {v}: {F(t, div)} quarters vs {bar.length}")
+            if Fraction(t, div) != bar.length:
+                problems.append(f"bar {bar.number} voice {v}: {Fraction(t, div)} quarters vs {bar.length}")
+
+
+def check(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> list[str]:
+    """Check the latest score and its PDF, in the original tone, against the source decode.
+
+    Returns:
+        Every problem found; empty when the song matches its source.
+    """
+    info = song_of(src)
+    song, fifths = info.name, info.source_fifths
+    final = out / info.score_file
+    score = decode(src)
+    xml = work / f"{song}-final.musicxml"
+    launch.mscore(["-o", str(xml), str(final)], 240, check=True)
+    root = ET.parse(xml).getroot()
+    parts = root.findall("part")
+    problems = _shape_problems(score, root, final, fifths)
+    notes, chords = _content_problems(score, parts, problems)
+    _duration_problems(score, root, parts, problems)
     if stored_chord_names(final) != sorted(chordnames.stored(c.kind) for bar in score.bars for c in bar.chords if c.kind):
         problems.append("stored chord names differ from the source")
-    print(
-        f"{song}: bars {len(score.bars)} notes {notes} chords {chords} corrections {len(score.corrections)} flags {len(score.flags)} problems {len(problems)}",
+    sys.stdout.write(
+        f"{song}: bars {len(score.bars)} notes {notes} chords {chords} corrections {len(score.corrections)}"
+        f" flags {len(score.flags)} problems {len(problems)}" + "\n",
     )
     return problems
 
@@ -166,9 +212,9 @@ def main() -> None:
     total = 0
     for src in sources(src_dir):
         for p in check(src, out, work):
-            print("  ", p)
+            sys.stdout.write("   " + p + "\n")
             total += 1
-    print("problems", total)
+    sys.stdout.write(f"problems {total}" + "\n")
     raise SystemExit(1 if total else 0)
 
 

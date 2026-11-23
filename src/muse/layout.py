@@ -1,4 +1,7 @@
-"""Calculated layout: measure a sheet's natural bar widths once, plan its lines in code, render the plan, and correct only what measurement shows off."""
+"""Calculated layout: measure a sheet's natural bar widths once and plan its lines in code.
+
+The plan is rendered, and only what measurement shows off is corrected.
+"""
 
 from __future__ import annotations
 
@@ -9,11 +12,12 @@ import os
 import pathlib
 import re
 import shutil
+import sys
 import threading
 import xml.etree.ElementTree as ET
 import zipfile
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from muse import chordseat, launch, mode, pdfcheck, pdftext, piano, port
 from muse.render import BATCHER
@@ -41,20 +45,31 @@ EXTENSION_URI = "extension://muse/seat"
 EXTENSION_FOLDER = "museseat"
 INSTALL_LOCK = threading.Lock()
 EXTENSION_SECONDS = 300
+TRACE_VARIABLE = "MUSE_LAYOUT_TRACE"
 
 
 def extensions_root() -> pathlib.Path:
-    """Where MuseScore reads user extensions; MUSE_EXTENSIONS overrides it."""
+    """Where MuseScore reads user extensions; MUSE_EXTENSIONS overrides it.
+
+    Returns:
+        The extensions folder.
+    """
     given = os.environ.get("MUSE_EXTENSIONS")
     return (
         pathlib.Path(given)
-        if given
+        if given is not None and len(given) > 0
         else pathlib.Path.home() / "Library" / "Application Support" / "MuseScore" / "MuseScore4" / "extensions"
     )
 
 
 def install_extension() -> str:
-    """Install the pipeline's own extension under a name carrying a digest of its bytes, and return the address to run it by: 2 versions never share 1 copy."""
+    """Install the pipeline's own extension under a name carrying a digest of its bytes.
+
+    2 versions never share 1 copy.
+
+    Returns:
+        The address to run the installed extension by.
+    """
     script = (EXTENSION / "main.js").read_bytes()
     digest = hashlib.sha256(script + (EXTENSION / "manifest.json").read_bytes()).hexdigest()[:12]
     uri = f"{EXTENSION_URI}-{digest}"
@@ -78,7 +93,11 @@ def install_extension() -> str:
 
 
 def run_extension(source: pathlib.Path, target: pathlib.Path) -> None:
-    """1 MuseScore launch: open the score, seat its chords by measuring its own layout, save it."""
+    """1 MuseScore launch: open the score, seat its chords by measuring its own layout, save it.
+
+    Raises:
+        DoesNotFit: when the launch fails or writes no target.
+    """
     uri = install_extension()
     done = launch.mscore(["--extension", uri, "-o", str(target), str(source)], EXTENSION_SECONDS)
     if done.returncode or not target.exists():
@@ -105,13 +124,20 @@ def set_tags(score_path: pathlib.Path, tags: dict[str, str]) -> None:
 
 
 def read_tag(score_path: pathlib.Path, key: str) -> str:
-    """A score tag's value; DoesNotFit when the extension never wrote it."""
+    """Read a score tag's value; DoesNotFit when the extension never wrote it.
+
+    Returns:
+        The tag's value.
+
+    Raises:
+        DoesNotFit: when the extension never wrote the tag.
+    """
     _, text = chordseat.score_text(score_path)
     found = re.search(rf'<metaTag name="{key}">([^<]*)</metaTag>', text)
     if found is None:
         msg = f"{score_path.name}: the extension wrote no {key}"
         raise port.DoesNotFit(msg)
-    return found.group(1)
+    return str(found.group(1))
 
 
 @dataclass
@@ -150,7 +176,11 @@ class Sheet:
         return port.imported(self.score, self.work, self.name, self.import_style, False)
 
     def starts(self) -> list[int]:
-        """1-based bars that open a line."""
+        """1-based bars that open a line.
+
+        Returns:
+            The bar numbers that open a line.
+        """
         return [1] + [bar.number for bar in self.score.bars[1:] if bar.new_system]
 
     def set_lines(self, starts: set[int]) -> None:
@@ -159,7 +189,7 @@ class Sheet:
             bar.new_page = False
 
 
-def rewrite(path: pathlib.Path, change: Any) -> None:
+def rewrite(path: pathlib.Path, change: Callable[[str, str], str]) -> None:
     """Apply a text change to every score and style part of an .mscz."""
     with zipfile.ZipFile(path) as old:
         items = {name: old.read(name) for name in old.namelist()}
@@ -174,7 +204,11 @@ def rewrite(path: pathlib.Path, change: Any) -> None:
 
 
 def unjustified(name: str, text: str) -> str:
-    """The page so wide and the last line so unjustified that every bar prints at its natural width."""
+    """Make the page so wide and the last line so unjustified that every bar prints at its natural width.
+
+    Returns:
+        The changed text.
+    """
     text = re.sub(r"<pageWidth>[^<]*</pageWidth>", f"<pageWidth>{WIDE_PAGE}</pageWidth>", text)
     text = re.sub(
         r"<pagePrintableWidth>[^<]*</pagePrintableWidth>",
@@ -188,7 +222,11 @@ def unjustified(name: str, text: str) -> str:
 
 
 def placed(name: str, text: str) -> str:
-    """Every chord symbol placed by code alone, so it never sets a bar's width or gets moved."""
+    """Every chord symbol placed by code alone, so it never sets a bar's width or gets moved.
+
+    Returns:
+        The changed text.
+    """
     if not name.endswith(".mscx"):
         return text
     return re.sub(r"<Harmony>(?!<autoplace>)", "<Harmony><autoplace>0</autoplace>", text)
@@ -202,7 +240,11 @@ def boxes(mpos: pathlib.Path) -> list[dict[str, float]]:
 
 
 def measure(sheet: Sheet) -> tuple[list[float], float]:
-    """Each bar's natural width, and the room 1 line holds, in the program's own units."""
+    """Each bar's natural width, and the room 1 line holds, in the program's own units.
+
+    Returns:
+        The natural widths and the room of 1 line.
+    """
     flags = [(bar.new_system, bar.new_page) for bar in sheet.score.bars]
     sheet.set_lines({1})
     natural, normal = sheet.path("natural"), sheet.path("normal")
@@ -229,7 +271,16 @@ def measure(sheet: Sheet) -> tuple[list[float], float]:
 
 
 def chord_shares(natural: pathlib.Path, bars: int, noted: list[int]) -> list[float]:
-    """Per bar, the share its natural width must grow to hold its chords apart by the clear gap, measured by the extension."""
+    """Per bar, the share its natural width must grow to hold its chords apart by the clear gap.
+
+    The extension measures it.
+
+    Returns:
+        Each bar's share.
+
+    Raises:
+        DoesNotFit: when the extension reports crowding or measures the wrong bar count.
+    """
     probe = natural.with_name(natural.stem + "-chords.mscz")
     shutil.copyfile(natural, probe)
     set_tags(
@@ -253,7 +304,13 @@ def chord_shares(natural: pathlib.Path, bars: int, noted: list[int]) -> list[flo
 
 
 def blocks_of(score: Score, variant: str | None) -> list[list[int]]:
-    """0-based bars of each section; a section of 1 bar joins the block after it, so that block's mark or label sits second rather than the bar standing alone."""
+    """0-based bars of each section; a section of 1 bar joins the block after it.
+
+    That block's mark or label then sits second rather than the bar standing alone.
+
+    Returns:
+        The bars of each block.
+    """
     blocks = [list(block) for block in port.sections(score)]
     joined: list[list[int]] = []
     for block in blocks:
@@ -266,18 +323,30 @@ def blocks_of(score: Score, variant: str | None) -> list[list[int]]:
 
 
 def plan(score: Score, widths: list[float], room: float, variant: str | None = None) -> set[int]:
-    """1-based line starts: per section, the break set with fewest rule breaks, then fewest lines, then the most even fill."""
+    """1-based line starts: per section, the break set with fewest rule breaks.
+
+    Ties go to fewest lines, then the most even fill.
+
+    Returns:
+        The 1-based bars that open a line.
+    """
     cap = room * LINE_SHARE
     tied = [port.tied_out(bar) for bar in score.bars]
     empty = [not piano.has_notes(bar) for bar in score.bars]
     chorded = [bool(bar.chords) or bar.source_line for bar in score.bars]
 
     def width(line: list[int]) -> float:
-        """A line's width once its empty bars are evened to the widest of them, as they will be: an empty bar widens for its own chords and its line's empty bars follow."""
+        """Measure a line's width once its empty bars are evened to the widest of them, as they will be.
+
+        An empty bar widens for its own chords and its line's empty bars follow.
+
+        Returns:
+            The line's width.
+        """
         widest = max((widths[i] for i in line if empty[i]), default=0.0)
         return sum(widest if empty[i] else widths[i] for i in line)
 
-    def judged(line: list[int], opens_block: bool, ends_block: bool, lone_allowed: bool) -> tuple[int, float]:
+    def judged(line: list[int], *, opens_block: bool, ends_block: bool, lone_allowed: bool) -> tuple[int, float]:
         used = width(line)
         lone = len(line) == 1 and not lone_allowed
         breaks = (
@@ -294,28 +363,39 @@ def plan(score: Score, widths: list[float], room: float, variant: str | None = N
     starts: set[int] = set()
     for block in blocks_of(score, variant):
         count = len(block)
-        best: list[tuple[int, int, float, int] | None] = [None] * (count + 1)
-        best[0] = (0, 0, 0.0, -1)
+        best: dict[int, tuple[int, int, float, int]] = {0: (0, 0, 0.0, -1)}
         for end in range(1, count + 1):
             for begin in range(end):
-                before = best[begin]
+                before = best.get(begin)
                 if before is None:
                     continue
-                breaks, cost = judged(block[begin:end], begin == 0, end == count, count == 1)
+                breaks, cost = judged(
+                    block[begin:end],
+                    opens_block=begin == 0,
+                    ends_block=end == count,
+                    lone_allowed=count == 1,
+                )
                 option = (before[0] + breaks, before[1] + 1, before[2] + cost, begin)
-                if best[end] is None or option[:3] < best[end][:3]:  # type: ignore[index]
+                current = best.get(end)
+                if current is None or option[:3] < current[:3]:
                     best[end] = option
         at = count
         while at > 0:
             chosen = best[at]
-            assert chosen is not None
             starts.add(block[chosen[3]])
             at = chosen[3]
     return {index + 1 for index in starts}
 
 
-def render(sheet: Sheet, label: str, seated: bool = False) -> tuple[pathlib.Path, pathlib.Path]:
-    """The sheet as its score now breaks it; a seated render keeps the chord offsets already written."""
+def render(sheet: Sheet, label: str, *, seated: bool = False) -> tuple[pathlib.Path, pathlib.Path]:
+    """Render the sheet as its score now breaks it; a seated render keeps the chord offsets already written.
+
+    Returns:
+        The score path and the rendered probe.
+
+    Raises:
+        DoesNotFit: when a seated render finds no seated score.
+    """
     score_path = sheet.path(label)
     if seated and not score_path.exists():
         msg = f"{score_path.name}: no seated score to render; its edits would be lost"
@@ -329,7 +409,11 @@ def render(sheet: Sheet, label: str, seated: bool = False) -> tuple[pathlib.Path
 
 
 def candidate(src: pathlib.Path, work: pathlib.Path, variant: str, size: float) -> dict[str, Any]:
-    """1 size planned and rendered once: whether its lines held, how full its pages are, and its short-line share."""
+    """1 size planned and rendered once: whether its lines held, how full its pages are, and its short-line share.
+
+    Returns:
+        The candidate's measurements.
+    """
     with BATCHER.worker():
         sheet = Sheet(src, work, variant, size)
         widths, room = measure(sheet)
@@ -351,7 +435,13 @@ def candidate(src: pathlib.Path, work: pathlib.Path, variant: str, size: float) 
 
 
 def ranked(fit: list[dict[str, Any]]) -> list[float]:
-    """Every sheet's sizes by fewest lines, then those filling their pages, then largest: a dense sheet reads more of the song per glance."""
+    """Every sheet's sizes by fewest lines, then those filling their pages, then largest.
+
+    A dense sheet reads more of the song per glance.
+
+    Returns:
+        The sizes, best first.
+    """
     return [
         c["size"]
         for c in sorted(
@@ -362,7 +452,13 @@ def ranked(fit: list[dict[str, Any]]) -> list[float]:
 
 
 def choose(found: list[dict[str, Any]], variant: str) -> list[float]:
-    """Sizes to finish, best first, within the base short-line share, then the wider one, each tier by fewest lines, then filling their pages, then largest."""
+    """Sizes to finish, best first, within the base short-line share, then the wider one.
+
+    Each tier ranks by fewest lines, then filling their pages, then largest.
+
+    Returns:
+        The sizes to finish, best first.
+    """
     order: list[float] = []
     for share in (port.MAX_SHORT_SHARE, port.RELAXED_SHORT_SHARE):
         fit = [c for c in found if c["good"] and not c["lone"] and c["share"] <= share]
@@ -370,8 +466,12 @@ def choose(found: list[dict[str, Any]], variant: str) -> list[float]:
     return order
 
 
-def overflowing(sheet: Sheet, probe: pathlib.Path, seated: bool) -> set[int]:
-    """0-based bars of every line the render wrapped, and once seated, every line still crowded."""
+def overflowing(sheet: Sheet, probe: pathlib.Path, *, seated: bool) -> set[int]:
+    """0-based bars of every line the render wrapped, and once seated, every line still crowded.
+
+    Returns:
+        The 0-based bars that overflow.
+    """
     wanted, got = sheet.starts(), sorted({1, *port.system_starts(probe)})
     extra = set(got) - set(wanted)
     crowded = port.crowded_rows(probe, wanted) | merged_rows(sheet.score, probe) if seated and not extra else set()
@@ -386,7 +486,13 @@ def overflowing(sheet: Sheet, probe: pathlib.Path, seated: bool) -> set[int]:
 
 
 def merged_rows(score: Score, probe: pathlib.Path) -> set[int]:
-    """First bar of every line printing fewer chords than the score holds: 2 chords that touch print as 1 word, the tightest crowding of all."""
+    """First bar of every line printing fewer chords than the score holds.
+
+    2 chords that touch print as 1 word, the tightest crowding of all.
+
+    Returns:
+        The first bar of every merged line.
+    """
     rows = [row for row in port.rows(score) if any(score.bars[number - 1].chords for number in row)]
     lines = chordseat.page_lines(probe)
     if len(rows) != len(lines):
@@ -405,6 +511,7 @@ INK_LIMIT = 5.0
 
 RESPONSE_FLOOR = 0.2
 RESPONSE_CEILING = 5.0
+MOVED_ASK_FLOOR = 0.01
 
 
 def next_bias(
@@ -414,14 +521,20 @@ def next_bias(
     before: list[float] | None = None,
     gaps_before: list[float | None] | None = None,
 ) -> list[float]:
-    """Each chord's correction plus its measured gap in staff spaces, scaled by how far its last correction actually moved its ink; a gap past the ink limit left out: only a mispaired chord is that far off."""
+    """Each chord's correction plus its measured gap in staff spaces, scaled by how far its last correction moved its ink.
+
+    A gap past the ink limit is left out: only a mispaired chord is that far off.
+
+    Returns:
+        Each chord's next correction.
+    """
     found = []
     for at, (gap, space) in enumerate(zip(gaps, spaces, strict=True)):
         was = bias[at] if at < len(bias) else 0.0
         step = (gap or 0.0) / space
         asked = was - before[at] if before is not None and at < len(before) else 0.0
         old = gaps_before[at] if gaps_before is not None and at < len(gaps_before) else None
-        if gap is not None and old is not None and abs(asked) > 0.01:
+        if gap is not None and old is not None and abs(asked) > MOVED_ASK_FLOOR:
             response = (old - gap) / space / asked
             if RESPONSE_FLOOR <= response <= RESPONSE_CEILING:
                 step /= response
@@ -429,66 +542,94 @@ def next_bias(
     return found
 
 
-def seat_inked(
+@dataclass
+class _InkState:
+    probe: pathlib.Path
+    reach: float
+    bias: list[float] = field(default_factory=list)
+    inks: list[float] = field(default_factory=list)
+    before: list[float] | None = None
+    gaps_before: list[float | None] | None = None
+
+
+def _tracing() -> bool:
+    return os.environ.get(TRACE_VARIABLE, "") != ""
+
+
+def _round_tags(state: _InkState, noted: list[int] | None) -> dict[str, str]:
+    tags = {
+        "museSignReach": f"{state.reach:.4f}",
+        "museChordGap": f"{CLEAR_SPACES:.4f}",
+        "museInkBias": ",".join(f"{b:.4f}" for b in state.bias),
+        "museInkWidth": ",".join(f"{w:.4f}" for w in state.inks),
+    }
+    if noted is not None:
+        tags["museNoted"] = ",".join(str(i) for i in noted) or "-1"
+        tags["museEven"] = "0"
+        tags["museWiden"] = "1" if mode.PRINT else "0"
+    return tags
+
+
+def _ink_round(
     score_path: pathlib.Path,
     rendered: Callable[[], pathlib.Path],
     holds: Callable[[pathlib.Path], bool],
-    noted: list[int] | None = None,
-) -> pathlib.Path:
-    """The extension fits each bar's chords, evens empty bars and seats chords; each round passes it every chord's measured ink offset and ink width, until the ink sits on target."""
-    bias: list[float] = []
-    inks: list[float] = []
-    before: list[float] | None = None
-    gaps_before: list[float | None] | None = None
-    probe = score_path
-    evened = False
-    reach = SIGN_REACH
-    for _ in range(INK_ROUNDS):
-        tags = {
-            "museSignReach": f"{reach:.4f}",
-            "museChordGap": f"{CLEAR_SPACES:.4f}",
-            "museInkBias": ",".join(f"{b:.4f}" for b in bias),
-            "museInkWidth": ",".join(f"{w:.4f}" for w in inks),
-        }
-        if noted is not None:
-            tags["museNoted"] = ",".join(str(i) for i in noted) or "-1"
-            tags["museEven"] = "0"
-            tags["museWiden"] = "1" if mode.PRINT else "0"
-        set_tags(score_path, tags)
-        run_extension(score_path, score_path)
-        probe = rendered()
-        if not holds(probe):
-            return probe
-        _, text = chordseat.score_text(score_path)
-        rows = chordseat.rows_of(text)
-        lines = chordseat.matched(text, probe)
-        if [len(line["chords"]) for line in lines] != [len(row) for row in rows if row]:
-            return probe
-        gaps = chordseat.gaps(rows, lines)
-        spaces = [chordseat.space_points(score_path)] * len(gaps)
-        if os.environ.get("MUSE_LAYOUT_TRACE"):
-            print(
-                f"{score_path.name}: seating round, chords off target {[(at + 1, round(gap, 2)) for at, gap in enumerate(gaps) if gap is not None and abs(gap - chordseat.GAP) > chordseat.TOLERANCE]}",
-                flush=True,
-            )
-        bias, before, gaps_before = next_bias(bias, gaps, spaces, before, gaps_before), bias, gaps
-        inks = [width / space for width, space in zip(chordseat.ink_widths(rows, lines), spaces, strict=True)]
-        evened = noted is not None and chordseat.equalize(score_path, probe, {index + 1 for index in noted})
-        overlaps = pdfcheck.sign_word_overlaps(probe) + [width for _, width in chordseat.jump_crossings(score_path, probe)]
-        if overlaps:
-            reach += max(overlaps) / spaces[0] + SIGN_REACH_MARGIN
-        if (
-            not evened
-            and not overlaps
-            and all(gap is None or abs(gap - chordseat.GAP) <= chordseat.TOLERANCE for gap in gaps)
-            and not pdfcheck.chord_collisions(probe)
-        ):
-            break
+    noted: list[int] | None,
+    state: _InkState,
+) -> Literal["refused", "settled", "again"]:
+    set_tags(score_path, _round_tags(state, noted))
+    run_extension(score_path, score_path)
+    state.probe = rendered()
+    if not holds(state.probe):
+        return "refused"
+    _, text = chordseat.score_text(score_path)
+    rows = chordseat.rows_of(text)
+    lines = chordseat.matched(text, state.probe)
+    if [len(line["chords"]) for line in lines] != [len(row) for row in rows if row]:
+        return "refused"
+    gaps = chordseat.gaps(rows, lines)
+    spaces = [chordseat.space_points(score_path)] * len(gaps)
+    if _tracing():
+        off = [
+            (at + 1, round(gap, 2))
+            for at, gap in enumerate(gaps)
+            if gap is not None and abs(gap - chordseat.GAP) > chordseat.TOLERANCE
+        ]
+        sys.stdout.write(f"{score_path.name}: seating round, chords off target {off}" + "\n")
+        sys.stdout.flush()
+    state.bias, state.before, state.gaps_before = (
+        next_bias(state.bias, gaps, spaces, state.before, state.gaps_before),
+        state.bias,
+        gaps,
+    )
+    state.inks = [width / space for width, space in zip(chordseat.ink_widths(rows, lines), spaces, strict=True)]
+    evened = noted is not None and chordseat.equalize(score_path, state.probe, {index + 1 for index in noted})
+    overlaps = pdfcheck.sign_word_overlaps(state.probe) + [
+        width for _, width in chordseat.jump_crossings(score_path, state.probe)
+    ]
+    if overlaps:
+        state.reach += max(overlaps) / spaces[0] + SIGN_REACH_MARGIN
+    if (
+        not evened
+        and not overlaps
+        and all(gap is None or abs(gap - chordseat.GAP) <= chordseat.TOLERANCE for gap in gaps)
+        and not pdfcheck.chord_collisions(state.probe)
+    ):
+        return "settled"
+    return "again"
+
+
+def _settle(
+    score_path: pathlib.Path,
+    rendered: Callable[[], pathlib.Path],
+    noted: list[int] | None,
+    state: _InkState,
+) -> None:
     for round_number in range(INK_ROUNDS):
-        probe = current_render(score_path, probe, rendered)
+        state.probe = current_render(score_path, state.probe, rendered)
         _, text = chordseat.score_text(score_path)
         rows = chordseat.rows_of(text)
-        lines = chordseat.matched(text, probe)
+        lines = chordseat.matched(text, state.probe)
         if [len(line["chords"]) for line in lines] != [len(row) for row in rows if row]:
             break
         gaps = chordseat.gaps(rows, lines)
@@ -498,36 +639,74 @@ def seat_inked(
             if gap is not None and abs(gap - chordseat.GAP) > chordseat.TOLERANCE
         ]
         noted_bars = {index + 1 for index in noted} if noted is not None else set()
-        uneven = chordseat.uneven(score_path, probe, noted_bars) if noted is not None else []
-        if os.environ.get("MUSE_LAYOUT_TRACE"):
-            print(f"{score_path.name}: settling, chords off target {off}, uneven {uneven}", flush=True)
+        uneven = chordseat.uneven(score_path, state.probe, noted_bars) if noted is not None else []
+        if _tracing():
+            sys.stdout.write(f"{score_path.name}: settling, chords off target {off}, uneven {uneven}" + "\n")
+            sys.stdout.flush()
         if (not off and not uneven) or round_number == INK_ROUNDS - 1:
             break
         if uneven:
-            chordseat.equalize(score_path, probe, noted_bars)
+            chordseat.equalize(score_path, state.probe, noted_bars)
         spaces = [chordseat.space_points(score_path)] * len(gaps)
-        bias, before, gaps_before = next_bias(bias, gaps, spaces, before, gaps_before), bias, gaps
+        state.bias, state.before, state.gaps_before = (
+            next_bias(state.bias, gaps, spaces, state.before, state.gaps_before),
+            state.bias,
+            gaps,
+        )
         set_tags(
             score_path,
             {
-                "museSignReach": f"{reach:.4f}",
-                "museInkBias": ",".join(f"{b:.4f}" for b in bias),
-                "museInkWidth": ",".join(f"{w:.4f}" for w in inks),
+                "museSignReach": f"{state.reach:.4f}",
+                "museInkBias": ",".join(f"{b:.4f}" for b in state.bias),
+                "museInkWidth": ",".join(f"{w:.4f}" for w in state.inks),
                 "museEven": "0",
             },
         )
         run_extension(score_path, score_path)
-        probe = rendered()
-    return current_render(score_path, probe, rendered)
+        state.probe = rendered()
+
+
+def seat_inked(
+    score_path: pathlib.Path,
+    rendered: Callable[[], pathlib.Path],
+    holds: Callable[[pathlib.Path], bool],
+    noted: list[int] | None = None,
+) -> pathlib.Path:
+    """Fit each bar's chords through the extension, even empty bars and seat chords.
+
+    Each round passes it every chord's measured ink offset and ink width, until the ink sits on target.
+
+    Returns:
+        The render of the seated score.
+    """
+    state = _InkState(probe=score_path, reach=SIGN_REACH)
+    for _ in range(INK_ROUNDS):
+        outcome = _ink_round(score_path, rendered, holds, noted, state)
+        if outcome == "refused":
+            return state.probe
+        if outcome == "settled":
+            break
+    _settle(score_path, rendered, noted, state)
+    return current_render(score_path, state.probe, rendered)
 
 
 def current_render(score_path: pathlib.Path, probe: pathlib.Path, rendered: Callable[[], pathlib.Path]) -> pathlib.Path:
-    """The render of the score file as it now stands: a file written after its render is rendered again, so nothing judges a print that is not its own."""
+    """Return the render of the score file as it now stands.
+
+    A file written after its render is rendered again, so nothing judges a print that is not its own.
+
+    Returns:
+        The current render.
+    """
     return rendered() if score_path.stat().st_mtime_ns > probe.stat().st_mtime_ns else probe
 
 
 def seat(sheet: Sheet, score_path: pathlib.Path) -> pathlib.Path:
-    """A sheet's final score seated in place, every round judged on a fresh render of the saved score."""
+    """Seat a sheet's final score in place, every round judged on a fresh render of the saved score.
+
+    Returns:
+        The render of the seated score.
+    """
     noted = [index for index, bar in enumerate(sheet.score.bars) if piano.has_notes(bar)]
     return seat_inked(
         score_path,
@@ -543,7 +722,14 @@ def finish(
     variant: str,
     size: float,
 ) -> tuple[Score, pathlib.Path, float, float, int]:
-    """1 size finished at the base line gap, then at wider gaps while text below 1 line meets the next line's chords."""
+    """1 size finished at the base line gap, then at wider gaps while text below 1 line meets the next line's chords.
+
+    Returns:
+        The finished score, its path, size, line gap and page count.
+
+    Raises:
+        DoesNotFit: when no line gap passes.
+    """
     refusal: port.DoesNotFit | None = None
     learned: list[list[float]] = []
     for step in range(int(GAP_REACH / GAP_STEP) + 1):
@@ -553,71 +739,60 @@ def finish(
             if "text on text" not in str(error):
                 raise
             refusal = error
-    assert refusal is not None
+    if refusal is None:
+        msg = f"{src.stem} at {size}: no line gap was tried"
+        raise port.DoesNotFit(msg)
     raise refusal
 
 
 def uneven_empty_bars(sheet: Sheet, score_path: pathlib.Path, probe: pathlib.Path) -> list[str]:
-    """The gate's even-bars rule in strict mode: the empty bars of 1 line are equal; print mode lets a bar widen for its own chords, which the gate alone measures."""
+    """Apply the gate's even-bars rule in strict mode: the empty bars of 1 line are equal.
+
+    Print mode lets a bar widen for its own chords, which the gate alone measures.
+
+    Returns:
+        The uneven-bar problems.
+    """
     if mode.PRINT:
         return []
     return chordseat.uneven(score_path, probe, {bar.number for bar in sheet.score.bars if piano.has_notes(bar)})
 
 
-def finish_at(
-    src: pathlib.Path,
-    work: pathlib.Path,
-    variant: str,
-    size: float,
-    distance: float,
-    learned: list[list[float]] | None = None,
-) -> tuple[Score, pathlib.Path, float, float, int]:
-    """1 size and line gap from plan to a seated sheet that passes every final check; a line that will not hold grows its estimate and the whole plan is made again."""
-    sheet = Sheet(src, work, variant, size, distance)
-    widths, room = measure(sheet)
-    if learned:
-        widths = learned[-1]
-    score_path = sheet.path("final")
-    tried: set[frozenset[int]] = set()
-    for _ in range(REPLAN_ROUNDS):
-        sheet.set_lines(plan(sheet.score, widths, room, sheet.variant))
-        tried.add(frozenset(sheet.starts()))
-        _, probe = render(sheet, "final")
-        bad = overflowing(sheet, probe, seated=False)
+def _fitted(sheet: Sheet, score_path: pathlib.Path) -> tuple[set[int], pathlib.Path]:
+    _, probe = render(sheet, "final")
+    bad = overflowing(sheet, probe, seated=False)
+    if not bad:
+        if port.balance(sheet.score, probe):
+            _, probe = render(sheet, "final")
+            bad = overflowing(sheet, probe, seated=False)
         if not bad:
-            if port.balance(sheet.score, probe):
-                _, probe = render(sheet, "final")
-                bad = overflowing(sheet, probe, seated=False)
-            if not bad:
-                probe = seat(sheet, score_path)
-                bad = overflowing(sheet, probe, seated=True)
-            for _ in range(BALANCE_ROUNDS):
-                if bad or not port.page_problems(sheet.score, probe) or not port.balance(sheet.score, probe):
-                    break
-                render(sheet, "final")
-                probe = seat(sheet, score_path)
-                bad = overflowing(sheet, probe, seated=True)
-        if os.environ.get("MUSE_LAYOUT_TRACE"):
-            print(f"{sheet.name} {size}: starts {sheet.starts()} overflowing {sorted(b + 1 for b in bad)}", flush=True)
-        if not bad:
-            break
-        grown = widths
-        for _ in range(GROW_STEPS):
-            grown = [width * GROW if index in bad else width for index, width in enumerate(grown)]
-            if frozenset(plan(sheet.score, grown, room, sheet.variant)) not in tried:
+            probe = seat(sheet, score_path)
+            bad = overflowing(sheet, probe, seated=True)
+        for _ in range(BALANCE_ROUNDS):
+            if bad or not port.page_problems(sheet.score, probe) or not port.balance(sheet.score, probe):
                 break
-        else:
-            msg = f"{sheet.name} at {size}: bars {sorted(b + 1 for b in bad)} overflow and no plan can move them: {port.crowded_reasons(probe)[:3]}"
-            raise port.DoesNotFit(
-                msg,
-            )
-        widths = grown
-        if learned is not None:
-            learned.append(widths)
-    else:
-        msg = f"{sheet.name} at {size}: lines still overflow after {REPLAN_ROUNDS} plans"
-        raise port.DoesNotFit(msg)
-    probe = current_render(score_path, probe, lambda: render(sheet, "final", seated=True)[1])
+            render(sheet, "final")
+            probe = seat(sheet, score_path)
+            bad = overflowing(sheet, probe, seated=True)
+    return bad, probe
+
+
+def _grown(
+    sheet: Sheet,
+    widths: list[float],
+    room: float,
+    bad: set[int],
+    tried: set[frozenset[int]],
+) -> list[float] | None:
+    grown = widths
+    for _ in range(GROW_STEPS):
+        grown = [width * GROW if index in bad else width for index, width in enumerate(grown)]
+        if frozenset(plan(sheet.score, grown, room, sheet.variant)) not in tried:
+            return grown
+    return None
+
+
+def _final_problems(sheet: Sheet, score_path: pathlib.Path, probe: pathlib.Path) -> list[str]:
     problems = (
         pdfcheck.all_problems(probe, sheet.title)
         + chordseat.problems(score_path, probe)
@@ -628,6 +803,61 @@ def finish_at(
     )
     problems += port.short_line_problems(port.rows(sheet.score))
     problems += port.chord_starts(score_path, sheet.score)
+    return problems
+
+
+def finish_at(
+    src: pathlib.Path,
+    work: pathlib.Path,
+    variant: str,
+    size: float,
+    distance: float,
+    learned: list[list[float]] | None = None,
+) -> tuple[Score, pathlib.Path, float, float, int]:
+    """1 size and line gap from plan to a seated sheet that passes every final check.
+
+    A line that will not hold grows its estimate and the whole plan is made again.
+
+    Returns:
+        The finished score, its path, size, line gap and page count.
+
+    Raises:
+        DoesNotFit: when lines still overflow or a final check fails.
+    """
+    sheet = Sheet(src, work, variant, size, distance)
+    widths, room = measure(sheet)
+    if learned is not None and len(learned) > 0:
+        widths = learned[-1]
+    score_path = sheet.path("final")
+    tried: set[frozenset[int]] = set()
+    for _ in range(REPLAN_ROUNDS):
+        sheet.set_lines(plan(sheet.score, widths, room, sheet.variant))
+        tried.add(frozenset(sheet.starts()))
+        bad, probe = _fitted(sheet, score_path)
+        if _tracing():
+            sys.stdout.write(
+                f"{sheet.name} {size}: starts {sheet.starts()} overflowing {sorted(b + 1 for b in bad)}" + "\n",
+            )
+            sys.stdout.flush()
+        if not bad:
+            break
+        grown = _grown(sheet, widths, room, bad, tried)
+        if grown is None:
+            msg = (
+                f"{sheet.name} at {size}: bars {sorted(b + 1 for b in bad)} overflow and no plan can move them: "
+                f"{port.crowded_reasons(probe)[:3]}"
+            )
+            raise port.DoesNotFit(
+                msg,
+            )
+        widths = grown
+        if learned is not None:
+            learned.append(widths)
+    else:
+        msg = f"{sheet.name} at {size}: lines still overflow after {REPLAN_ROUNDS} plans"
+        raise port.DoesNotFit(msg)
+    probe = current_render(score_path, probe, lambda: render(sheet, "final", seated=True)[1])
+    problems = _final_problems(sheet, score_path, probe)
     if problems:
         msg = f"{sheet.name} at {size}: {problems[:3]}"
         raise port.DoesNotFit(msg)
@@ -635,7 +865,14 @@ def finish_at(
 
 
 def lay(src: pathlib.Path, work: pathlib.Path, variant: str) -> tuple[Score, pathlib.Path, float, float, int]:
-    """Every candidate size planned side by side in shared jobs; the best is finished, the next only if it cannot be."""
+    """Every candidate size planned side by side in shared jobs; the best is finished, the next only if it cannot be.
+
+    Returns:
+        The best finished score, its path, size, line gap and page count.
+
+    Raises:
+        DoesNotFit: when no size passes.
+    """
     sizes = port.sizes_between(port.SIZE_FLOORS[-1], port.SIZE_CAP)
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(sizes)) as pool:
         found = list(pool.map(lambda size: candidate(src, work, variant, size), sizes))
@@ -649,7 +886,8 @@ def lay(src: pathlib.Path, work: pathlib.Path, variant: str) -> tuple[Score, pat
             done = finish(src, work, variant, size)
         except port.DoesNotFit as error:
             refusals.append(str(error))
-            print(f"refused {error}", flush=True)
+            sys.stdout.write(f"refused {error}" + "\n")
+            sys.stdout.flush()
             continue
         if best is None or len(port.rows(done[0])) < len(port.rows(best[0])):
             best = done

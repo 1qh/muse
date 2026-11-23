@@ -25,7 +25,7 @@ PRIVATE_NAMES = "banned.txt"
 
 
 def tokens(text: str) -> list[str]:
-    return TOKEN.findall(unicodedata.normalize("NFC", text).replace("Ð", "Đ").lower())
+    return [str(token) for token in TOKEN.findall(unicodedata.normalize("NFC", text).replace("Ð", "Đ").lower())]
 
 
 def source_words(path: pathlib.Path) -> collections.Counter[str]:
@@ -52,7 +52,11 @@ def decoded_words(score: Score) -> collections.Counter[str]:
 
 
 def lost_words(printed: collections.Counter[str], decoded: collections.Counter[str], excluded: set[str]) -> dict[str, int]:
-    """Words printed more often than decoded; a joined word counts by its letters, so it is not lost."""
+    """Words printed more often than decoded; a joined word counts by its letters, so it is not lost.
+
+    Returns:
+        Each lost word and how many more times it was printed than decoded.
+    """
     joined = "".join(decoded)
     return {
         word: count - decoded[word]

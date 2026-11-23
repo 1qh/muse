@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pathlib
 import sys
-from fractions import Fraction as F
+from fractions import Fraction
 
 from muse.song import decode
 
@@ -13,7 +13,7 @@ for bar in score.bars:
     rows = []
     for name, voices in (("A", bar.voices), ("B", bar.voices2)):
         for voice in voices:
-            total = sum((e.length for e in voice), F(0))
+            total = sum((e.length for e in voice), Fraction(0))
             ok = "" if total == bar.length else f"!{total}"
             rows.append(
                 name
@@ -30,9 +30,9 @@ for bar in score.bars:
                 ),
             )
     chords = " ".join(
-        c.root + {-1: "b", 1: "#", 0: ""}[c.root_alter] + c.kind + ("/" + c.bass if c.bass else "") for c in bar.chords
+        c.root + {-1: "b", 1: "#", 0: ""}[c.root_alter] + c.kind + ("/" + c.bass if c.bass not in {None, ""} else "") for c in bar.chords
     )
-    print(f"{bar.number} p{bar.page} len={bar.length} [{chords}] " + " || ".join(rows))
+    sys.stdout.write(f"{bar.number} p{bar.page} len={bar.length} [{chords}] " + " || ".join(rows) + "\n")
 for f in score.flags:
-    print("FLAG", f.bar, f.message)
-print("bars", len(score.bars), "flags", len(score.flags))
+    sys.stdout.write(f"FLAG {f.bar} {f.message}\n")
+sys.stdout.write(f"bars {len(score.bars)} flags {len(score.flags)}\n")

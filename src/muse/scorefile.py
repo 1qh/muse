@@ -42,7 +42,8 @@ def root_of(path: pathlib.Path) -> ET.Element:
 
 def staves(root: ET.Element) -> list[ET.Element]:
     score = root.find("Score")
-    assert score is not None
+    if score is None:
+        raise AssertionError
     return [s for s in score.findall("Staff") if s.find("Measure") is not None]
 
 
@@ -50,7 +51,7 @@ def length_of(event: ET.Element, scale: F) -> F:
     if any(event.find(tag) is not None for tag in GRACE):
         return F(0)
     text = event.findtext("duration")
-    if text and event.findtext("durationType") == "measure":
+    if text is not None and text != "" and event.findtext("durationType") == "measure":
         return F(text)
     base = DURATIONS.get(event.findtext("durationType") or "", F(0))
     dots = int(event.findtext("dots") or 0)
@@ -68,39 +69,52 @@ def read_bar(measure: ET.Element) -> FileBar:
             jump.findtext("continueAt") or "",
         ))
     for voice in measure.findall("voice"):
-        at = F(0)
-        scale = F(1)
-        for node in voice:
-            if node.tag == "location":
-                at += F(node.findtext("fractions") or "0")
-            elif node.tag == "Tuplet":
-                scale = F(int(node.findtext("normalNotes") or 1), int(node.findtext("actualNotes") or 1))
-            elif node.tag == "endTuplet":
-                scale = F(1)
-            elif node.tag == "Harmony":
-                info = node.find("harmonyInfo")
-                holder = info if info is not None else node
-                bar.chords.append((
-                    at * 4,
-                    int(holder.findtext("root") or -1),
-                    int(holder.findtext("base") or holder.findtext("bass") or -1),
-                    holder.findtext("name") or "",
-                ))
-            elif node.tag in {"Chord", "Rest"}:
-                if node.tag == "Chord":
-                    bar.pitches += [int(n.findtext("pitch") or 0) for n in node.findall("Note")]
-                at += length_of(node, scale)
+        at = _read_voice(voice, bar)
         bar.length = max(bar.length, at)
     return bar
 
 
+def _read_voice(voice: ET.Element, bar: FileBar) -> F:
+    at = F(0)
+    scale = F(1)
+    for node in voice:
+        if node.tag == "location":
+            at += F(node.findtext("fractions") or "0")
+        elif node.tag == "Tuplet":
+            scale = F(int(node.findtext("normalNotes") or 1), int(node.findtext("actualNotes") or 1))
+        elif node.tag == "endTuplet":
+            scale = F(1)
+        elif node.tag == "Harmony":
+            info = node.find("harmonyInfo")
+            holder = info if info is not None else node
+            bar.chords.append((
+                at * 4,
+                int(holder.findtext("root") or -1),
+                int(holder.findtext("base") or holder.findtext("bass") or -1),
+                holder.findtext("name") or "",
+            ))
+        elif node.tag in {"Chord", "Rest"}:
+            if node.tag == "Chord":
+                bar.pitches += [int(n.findtext("pitch") or 0) for n in node.findall("Note")]
+            at += length_of(node, scale)
+    return at
+
+
 def read(path: pathlib.Path) -> list[list[FileBar]]:
-    """1 list of bars per staff."""
+    """Read 1 list of bars per staff.
+
+    Returns:
+        The bars of every staff.
+    """
     return [[read_bar(m) for m in staff.findall("Measure")] for staff in staves(root_of(path))]
 
 
 def difference(a: pathlib.Path, b: pathlib.Path) -> list[str]:
-    """Where 2 files disagree about notes, chords, chord beats, signs or jumps: everything a file plays."""
+    """Where 2 files disagree about notes, chords, chord beats, signs or jumps: everything a file plays.
+
+    Returns:
+        Every disagreement found.
+    """
     one, two = read(a), read(b)
     problems = []
     if len(one) != len(two):
@@ -122,7 +136,11 @@ def difference(a: pathlib.Path, b: pathlib.Path) -> list[str]:
 
 
 def builtin_sign_problems(path: pathlib.Path) -> list[str]:
-    """Segno and coda must be the application's own symbols, sized by its own size setting."""
+    """Segno and coda must be the application's own symbols, sized by its own size setting.
+
+    Returns:
+        Every sign problem found.
+    """
     problems = []
     root = root_of(path)
     for marker in root.iter("Marker"):
@@ -156,7 +174,11 @@ TEXT_ELEMENTS = ("StaffText", "SystemText", "Tempo", "RehearsalMark", "Expressio
 
 
 def empty_text_problems(path: pathlib.Path) -> list[str]:
-    """Every text element with nothing to print: MuseScore still places it and reserves room for it."""
+    """Every text element with nothing to print: MuseScore still places it and reserves room for it.
+
+    Returns:
+        Every empty text element found.
+    """
     problems = []
     for number, staff in enumerate(staves(root_of(path)), 1):
         for bar, measure in enumerate(staff.findall("Measure"), 1):

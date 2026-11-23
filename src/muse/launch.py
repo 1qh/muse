@@ -1,4 +1,7 @@
-"""Every heavy tool run, MuseScore or the optical cross-check, passes through 1 gate, so 1 build process never runs more at once than its share of the cores."""
+"""Pass every heavy tool run, MuseScore or the optical cross-check, through 1 gate.
+
+So 1 build process never runs more at once than its share of the cores.
+"""
 
 from __future__ import annotations
 
@@ -23,8 +26,12 @@ LAUNCH_SECONDS = 240
 
 
 def slots() -> int:
-    """This process's share of simultaneous launches: what the build assigned it, else every core."""
-    given = os.environ.get(SLOTS_VARIABLE)
+    """Count the simultaneous launches this process may make.
+
+    Returns:
+        This process's share of simultaneous launches: what the build assigned it, else every core.
+    """
+    given = os.environ.get(SLOTS_VARIABLE, "")
     return max(1, int(given)) if given else max(1, os.cpu_count() or 1)
 
 
@@ -36,7 +43,11 @@ IDLE_WINDOW = 1.0
 
 
 def idle_percent() -> float:
-    """The share of all CPU time idle over the last second, measured, never the load average, which counts waiting threads."""
+    """Measure the share of all CPU time idle over the last second.
+
+    Returns:
+        The idle share, measured, never the load average, which counts waiting threads.
+    """
     return 100.0 - float(psutil.cpu_percent(interval=IDLE_WINDOW))
 
 
@@ -45,7 +56,14 @@ def free_core(
     idle: Callable[[], float] = idle_percent,
     cores: int | None = None,
 ) -> None:
-    """Wait until a whole core sits idle: the cores are shared with other work, and a run started on a saturated machine starves past its deadline; each reading itself takes the measuring second."""
+    """Wait until a whole core sits idle.
+
+    The cores are shared with other work, and a run started on a saturated machine starves past its deadline;
+    each reading itself takes the measuring second.
+
+    Raises:
+        TimeoutError: no whole core sat idle before the deadline.
+    """
     total = cores or os.cpu_count() or 1
     give_up = time.monotonic() + deadline
     while (free := idle() * total / 100.0) < 1.0:
@@ -72,7 +90,18 @@ def heavy(
     check: bool = False,
     cwd: pathlib.Path | None = None,
 ) -> subprocess.CompletedProcess[str]:
-    """1 run of a heavy tool, MuseScore or the optical cross-check, waiting for a free slot first; the timeout counts only the run, never the wait; with check, a failed run raises; a run past its deadline is sampled before it is killed."""
+    """Run 1 heavy tool, MuseScore or the optical cross-check, waiting for a free slot first.
+
+    The timeout counts only the run, never the wait; with check, a failed run raises;
+    a run past its deadline is sampled before it is killed.
+
+    Returns:
+        The finished run with its exit status and captured output.
+
+    Raises:
+        TimeoutExpired: the run outlived its timeout; its stack was sampled first.
+        MachineUnavailable: the locked machine refused the tool a window session.
+    """
     with GATE:
         free_core()
         LAUNCHES["count"] += 1
@@ -101,7 +130,13 @@ def heavy(
 
 
 def sample(pid: int) -> pathlib.Path | None:
-    """The native stack of a running process, written where a reader can find it after the process is gone; none where the sampler is absent."""
+    """Sample the native stack of a running process.
+
+    The stack is written where a reader can find it after the process is gone.
+
+    Returns:
+        The file holding the stack; none where the sampler is absent.
+    """
     tool = shutil.which("sample")
     if tool is None:
         return None
@@ -128,7 +163,11 @@ def mscore(
     command: str = "mscore",
     check: bool = False,
 ) -> subprocess.CompletedProcess[str]:
-    """1 MuseScore launch through the shared slots, its own logs removed after it."""
+    """Launch MuseScore once through the shared slots, its own logs removed after it.
+
+    Returns:
+        The finished MuseScore run.
+    """
     began = time.time()
     try:
         return heavy([command, *args], timeout, check)
@@ -137,7 +176,11 @@ def mscore(
 
 
 def roots_of(args: list[str]) -> list[pathlib.Path]:
-    """The folders a launch reads from: each path argument's own, and for a job file, each path it lists."""
+    """Find the folders a launch reads from.
+
+    Returns:
+        Each path argument's own folder, and for a job file, the folder of each path it lists.
+    """
     paths = [pathlib.Path(arg) for arg in args if pathlib.Path(arg).exists()]
     for job in [path for path in paths if path.suffix == ".json"]:
         paths += [
@@ -149,7 +192,13 @@ def roots_of(args: list[str]) -> list[pathlib.Path]:
 
 
 def drop_own_logs(roots: list[pathlib.Path], start: float, end: float, logs: pathlib.Path | None = None) -> int:
-    """Delete each log named for a second between start and end whose every conversion reads a file under 1 of the roots; a log with no conversion, the owner's own session, stays."""
+    """Delete each log named for a second between start and end whose every conversion reads a file under 1 of the roots.
+
+    A log with no conversion, the owner's own session, stays.
+
+    Returns:
+        The number of logs deleted.
+    """
     folder = logs or LOGS
     if not roots or not folder.is_dir():
         return 0

@@ -24,7 +24,11 @@ CODE_SUFFIXES = (".py", ".js", ".json")
 
 
 def code_files(root: pathlib.Path = ROOT, skip: frozenset[str] | set[str] = frozenset()) -> list[pathlib.Path]:
-    """Every file of the package that can shape an output: its Python and the MuseScore extension it installs."""
+    """Every file of the package that can shape an output: its Python and the MuseScore extension it installs.
+
+    Returns:
+        The sorted code file paths.
+    """
     return sorted(
         path
         for path in root.rglob("*")
@@ -33,13 +37,17 @@ def code_files(root: pathlib.Path = ROOT, skip: frozenset[str] | set[str] = froz
 
 
 def imports_of(module: str, root: pathlib.Path = ROOT) -> set[str]:
-    """The package's own modules 1 module imports, read from its syntax tree."""
+    """Read the package's own modules 1 module imports from its syntax tree.
+
+    Returns:
+        The names of the package modules imported.
+    """
     tree = ast.parse((root / f"{module}.py").read_text(encoding="utf-8"))
     found: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom) and node.module == "muse":
             found |= {alias.name for alias in node.names}
-        elif isinstance(node, ast.ImportFrom) and node.module and node.module.startswith("muse."):
+        elif isinstance(node, ast.ImportFrom) and node.module is not None and node.module.startswith("muse."):
             found.add(node.module.split(".")[1])
         elif isinstance(node, ast.Import):
             found |= {alias.name.split(".")[1] for alias in node.names if alias.name.startswith("muse.")}
@@ -47,7 +55,13 @@ def imports_of(module: str, root: pathlib.Path = ROOT) -> set[str]:
 
 
 def sheet_code(root: pathlib.Path = ROOT) -> list[pathlib.Path]:
-    """Every file that can shape a sheet: the import closure of the modules that write one, and the MuseScore extension they install."""
+    """Every file that can shape a sheet.
+
+    That is the import closure of the modules that write one, and the MuseScore extension they install.
+
+    Returns:
+        The sorted file paths.
+    """
     seen: set[str] = set()
     todo = list(SHEET_WRITERS)
     while todo:
@@ -66,11 +80,15 @@ def sheet_code(root: pathlib.Path = ROOT) -> list[pathlib.Path]:
 
 
 def tool_identity() -> str:
-    """Which MuseScore runs, by size and time, without paying to launch it."""
+    """Which MuseScore runs, by size and time, without paying to launch it.
+
+    Returns:
+        The identity of every MuseScore found, joined by bars.
+    """
     parts = []
     for name in ("mscore",):
-        found = shutil.which(name) if name else None
-        if found:
+        found = shutil.which(name)
+        if found is not None:
             stat = pathlib.Path(found).resolve().stat()
             parts.append(f"{found}:{stat.st_size}:{int(stat.st_mtime)}")
     return "|".join(parts)
@@ -83,7 +101,11 @@ def key_of(
     extra: str = "",
     style: pathlib.Path = STYLE,
 ) -> str:
-    """Digest of everything an output depends on: source bytes, song settings, code, style, tools."""
+    """Digest of everything an output depends on: source bytes, song settings, code, style, tools.
+
+    Returns:
+        The hex digest.
+    """
     whole = hashlib.sha256()
     for part in (
         file_digest(source),
@@ -116,7 +138,12 @@ def save(song: str, state: dict[str, dict[str, Any]]) -> None:
 
 
 def fresh(entry: dict[str, Any] | None, key: str, outputs: list[pathlib.Path]) -> bool:
-    """True only when the inputs match and every output still holds the bytes that were built."""
+    """Report true only when the inputs match and every output still holds the bytes that were built.
+
+    Returns:
+        Whether the recorded outputs are still fresh.
+    """
+    entry = entry if entry is not None else {}
     if not entry or entry.get("key") != key:
         return False
     recorded = entry.get("outputs", {})

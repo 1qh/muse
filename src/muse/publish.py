@@ -13,6 +13,8 @@ from collections.abc import Callable
 from muse import gate
 
 PUSH_TRIES = 4
+SH_TIMEOUT_SECONDS = 3000
+ERROR_TAIL_CHARS = 600
 PUSH_WAIT = 60.0
 Runner = Callable[..., str]
 Judge = Callable[[pathlib.Path, pathlib.Path, pathlib.Path, tuple[str, ...]], dict[str, list[str]]]
@@ -23,15 +25,28 @@ class Refused(RuntimeError):
 
 
 def sh(*args: str, cwd: pathlib.Path | None = None) -> str:
-    done = subprocess.run(args, cwd=cwd, capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=3000)
+    done = subprocess.run(
+        args,
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        stdin=subprocess.DEVNULL,
+        timeout=SH_TIMEOUT_SECONDS,
+        check=False,
+    )
     if done.returncode:
-        msg = f"{' '.join(args[:3])}: {done.stdout[-600:]}{done.stderr[-600:]}"
+        head = " ".join(args[:3])
+        msg = f"{head}: {done.stdout[-ERROR_TAIL_CHARS:]}{done.stderr[-ERROR_TAIL_CHARS:]}"
         raise Refused(msg)
     return done.stdout.strip()
 
 
 def stray_files(tracked: str) -> list[str]:
-    """Anything tracked in the sheets repo but a PDF or a MuseScore file."""
+    """List anything tracked in the sheets repo but a PDF or a MuseScore file.
+
+    Returns:
+        The tracked names that are neither a PDF nor a MuseScore file.
+    """
     return [name for name in tracked.split("\n") if name and not name.endswith((".pdf", ".mscz"))]
 
 
@@ -42,15 +57,20 @@ def pushed(
     tries: int = PUSH_TRIES,
     wait: float = PUSH_WAIT,
 ) -> None:
-    """A forge's server error passes; any other refusal, or the last try, stands."""
+    """Retry past a forge's server error; any other refusal, or the last try, stands.
+
+    Raises:
+        Refused: A refusal that is not a server error, or the last try's refusal.
+    """
     for attempt in range(1, tries + 1):
         try:
             run(*command, cwd=where)
-            return
         except Refused as error:
             if attempt == tries or "Internal Server Error" not in str(error):
                 raise
             time.sleep(wait)
+        else:
+            return
 
 
 def keep_last_good(out: pathlib.Path, song: str, run: Runner) -> None:
@@ -62,10 +82,17 @@ def keep_last_good(out: pathlib.Path, song: str, run: Runner) -> None:
 
 
 SHEET_SUFFIXES = (".pdf", ".mscz")
+SHOWN_FAILURES = 3
 
 
 def superseded(current_tree: str, history: str) -> list[str]:
-    """Blob ids of sheet files in history that the current sheets do not hold: the only versions a purge removes, so each commit keeps its current files."""
+    """Find blob ids of sheet files in history that the current sheets do not hold.
+
+    These are the only versions a purge removes, so each commit keeps its current files.
+
+    Returns:
+        The sorted stale blob ids.
+    """
     current = {line.split()[2] for line in current_tree.splitlines() if line.split()[1:2] == ["blob"]}
     stale = set()
     for line in history.splitlines():
@@ -76,13 +103,20 @@ def superseded(current_tree: str, history: str) -> list[str]:
 
 
 def resync(out: pathlib.Path, run: Runner = sh) -> None:
-    """The local sheets repo reset to its remote: a build stopped mid-publish can leave it behind a history another publish rewrote."""
+    """Reset the local sheets repo to its remote.
+
+    A build stopped mid-publish can leave it behind a history another publish rewrote.
+    """
     run("git", "fetch", "--quiet", "origin", cwd=out)
     run("git", "reset", "--quiet", "--hard", "@{u}", cwd=out)
 
 
 def commit_message(songs: list[str]) -> str:
-    """Name what a publish brings, since the history purge leaves no earlier file to diff against."""
+    """Name what a publish brings, since the history purge leaves no earlier file to diff against.
+
+    Returns:
+        The commit message for the published songs.
+    """
     return f"feat: publish {', '.join(songs)}" if songs else "chore: refresh sheets"
 
 
@@ -94,7 +128,15 @@ def publish(
     judge: Judge = gate.verdicts,
     names: tuple[str, ...] = (),
 ) -> dict[str, list[str]]:
-    """Publish every song passing its gate; returns the blocked songs, each keeping its last good folder, with reasons."""
+    """Publish every song passing its gate; returns the blocked songs, each keeping its last good folder, with reasons.
+
+    Returns:
+        The blocked songs mapped to their failure reasons.
+
+    Raises:
+        SystemExit: The sheets repo holds a file that is neither a PDF nor a MuseScore file.
+        Refused: The purge changed the current files, or the local tree differs after it.
+    """
     verdicts = judge(src, out, work, names)
     blocked = {song: failures for song, failures in verdicts.items() if failures}
     for song in blocked:
@@ -141,7 +183,7 @@ def publish(
 
 
 def main() -> None:
-    if not shutil.which("git-filter-repo"):
+    if shutil.which("git-filter-repo") is None:
         msg = "git-filter-repo not found"
         raise SystemExit(msg)
     src, out, work = map(pathlib.Path, sys.argv[1:4])
@@ -150,8 +192,8 @@ def main() -> None:
     except Refused as error:
         raise SystemExit(str(error)) from error
     for song, failures in blocked.items():
-        print(f"blocked {song}: {failures[:3]}")
-    print("ok" if not blocked else f"blocked {len(blocked)}")
+        sys.stdout.write(f"blocked {song}: {failures[:SHOWN_FAILURES]}" + "\n")
+    sys.stdout.write(("ok" if not blocked else f"blocked {len(blocked)}") + "\n")
     raise SystemExit(1 if blocked else 0)
 
 

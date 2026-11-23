@@ -1,11 +1,15 @@
-"""The checks a full score takes: its parts, bars, pitches, keys and transpositions through MuseScore's own export, its systems, its MuseScore 3 file, its PDF and the optical cross-check."""
+"""The checks a full score takes.
+
+Its parts, bars, pitches, keys and transpositions through MuseScore's own export,
+its systems, its MuseScore 3 file, its PDF and the optical cross-check.
+"""
 
 from __future__ import annotations
 
 import collections
 import collections.abc
 import xml.etree.ElementTree as ET
-from fractions import Fraction as F
+from fractions import Fraction
 from typing import TYPE_CHECKING
 
 from muse import chordnames, fullscore, gate, launch, pdfcheck, pdftext, scorefile, verify
@@ -14,7 +18,7 @@ from muse.song import Song, orchestra_of
 if TYPE_CHECKING:
     import pathlib
 
-    from muse.model import Orchestra
+    from muse.model import Bar, Orchestra
 
 
 def file_bars(xml: pathlib.Path) -> list[tuple[str, ET.Element]]:
@@ -24,7 +28,13 @@ def file_bars(xml: pathlib.Path) -> list[tuple[str, ET.Element]]:
 
 
 def content_problems(orchestra: Orchestra, xml: pathlib.Path) -> list[str]:
-    """The score file, through MuseScore's own export, against the decode: parts, bars, written pitches, keys, transpositions and every voice's length."""
+    """Check the score file, through MuseScore's own export, against the decode.
+
+    It compares parts, bars, written pitches, keys, transpositions and every voice's length.
+
+    Returns:
+        A problem line per difference found.
+    """
     found = file_bars(xml)
     problems = []
     if [name for name, _ in found] != [part.name for part in orchestra.parts]:
@@ -66,20 +76,35 @@ def content_problems(orchestra: Orchestra, xml: pathlib.Path) -> list[str]:
             got = verify.bar_pitches(measure)
             if got != want:
                 problems.append(f"{part.name} bar {bar.number}: pitches {got} against {want}")
-            totals: dict[str, int] = collections.Counter()
-            for note in measure.findall("note"):
-                if note.find("chord") is None and note.find("grace") is None and note.find("duration") is not None:
-                    totals[note.findtext("voice") or "1"] += int(note.findtext("duration") or 0)
-            for voice, total in totals.items():
-                if F(total, divisions) != bar.length:
-                    problems.append(
-                        f"{part.name} bar {bar.number} voice {voice}: {F(total, divisions)} quarters against {bar.length}",
-                    )
+            problems.extend(_length_problems(part.name, bar, measure, divisions))
+    return problems
+
+
+def _length_problems(name: str, bar: Bar, measure: ET.Element, divisions: int) -> list[str]:
+    """Check every voice's length in 1 exported bar against the decode.
+
+    Returns:
+        A problem line per voice whose length differs.
+    """
+    problems = []
+    totals: dict[str, int] = collections.Counter()
+    for note in measure.findall("note"):
+        if note.find("chord") is None and note.find("grace") is None and note.find("duration") is not None:
+            totals[note.findtext("voice") or "1"] += int(note.findtext("duration") or 0)
+    for voice, total in totals.items():
+        if Fraction(total, divisions) != bar.length:
+            problems.append(
+                f"{name} bar {bar.number} voice {voice}: {Fraction(total, divisions)} quarters against {bar.length}",
+            )
     return problems
 
 
 def navigation_problems(score_file: pathlib.Path) -> list[str]:
-    """The full score reads straight through: the decode reads no repeat or jump, so the file holds none."""
+    """Check the full score reads straight through: the decode reads no repeat or jump, so the file holds none.
+
+    Returns:
+        Up to 5 bars holding a repeat sign or a jump.
+    """
     found = [
         f"bar {at}: {bar.signs + [str(j) for j in bar.jumps]}"
         for staff in scorefile.read(score_file)
@@ -90,9 +115,13 @@ def navigation_problems(score_file: pathlib.Path) -> list[str]:
 
 
 def homr_problems(src: pathlib.Path, orchestra: Orchestra, work: pathlib.Path) -> tuple[list[str], str]:
-    """Homr's reading of every page against the decode's note letters, page by page in staff order."""
+    """Homr's reading of every page against the decode's note letters, page by page in staff order.
+
+    Returns:
+        The failures and a note on how far homr agrees.
+    """
     command = gate.homr_command()
-    if not command:
+    if command is None:
         return ["homr not found: install it or set MUSE_HOMR"], ""
     ours: list[str] = []
     where: list[int] = []
@@ -114,7 +143,11 @@ CHECKS = ("verify", "systems", "navigate", "chord file", "pdf", "homr")
 
 
 def problems(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path, info: Song) -> tuple[list[str], list[str]]:
-    """Every check that applies to a full score, each speaking even when another crashed."""
+    """Every check that applies to a full score, each speaking even when another crashed.
+
+    Returns:
+        The failures and the notes the checks made.
+    """
     failures: list[str] = []
     notes: list[str] = []
 

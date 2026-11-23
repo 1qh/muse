@@ -21,28 +21,40 @@ CODE_CHECKS = (
 )
 
 
-def song_problem(src: pathlib.Path) -> str:
-    """Why a source cannot be built, or an empty string: decode, song key, tone, piano parts."""
-    try:
-        if is_orchestral(src):
-            orchestra_of(src)
-            buildcache.key_of(src, repr(song_of(src)), buildcache.code_files())
-            return ""
-        score = decode(src)
-        info = song_of(src, score)
-        buildcache.key_of(src, repr(info), buildcache.code_files())
-        if not piano.parts(score):
-            return "no piano part resolved"
-        lost = oracle.problems(src, score, info.title)
-        if lost:
-            return lost[0]
-    except Exception as error:
-        return f"{type(error).__name__}: {str(error)[:200]}"
+def _checked_problem(src: pathlib.Path) -> str:
+    if is_orchestral(src):
+        orchestra_of(src)
+        buildcache.key_of(src, repr(song_of(src)), buildcache.code_files())
+        return ""
+    score = decode(src)
+    info = song_of(src, score)
+    buildcache.key_of(src, repr(info), buildcache.code_files())
+    if not piano.parts(score):
+        return "no piano part resolved"
+    lost = oracle.problems(src, score, info.title)
+    if lost:
+        return lost[0]
     return ""
 
 
+def song_problem(src: pathlib.Path) -> str:
+    """Why a source cannot be built, or an empty string: decode, song key, tone, piano parts.
+
+    Returns:
+        The first problem found, or an empty string.
+    """
+    try:
+        return _checked_problem(src)
+    except Exception as error:
+        return f"{type(error).__name__}: {str(error)[:200]}"
+
+
 def code_problems(check: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run) -> list[str]:
-    """The first failing code check stops the rest."""
+    """Run the code checks; the first failing code check stops the rest.
+
+    Returns:
+        The failing check's label and output tail, or an empty list.
+    """
     for label, command in CODE_CHECKS:
         done = check(command, capture_output=True, text=True, stdin=subprocess.DEVNULL)
         if done.returncode:
@@ -53,11 +65,11 @@ def code_problems(check: Callable[..., subprocess.CompletedProcess[str]] = subpr
 def main() -> None:
     bad = {src.stem: found for src in sources(pathlib.Path(sys.argv[1])) if (found := song_problem(src))}
     for song, reason in bad.items():
-        print(f"blocked {song}: {reason}")
+        sys.stdout.write(f"blocked {song}: {reason}\n")
     code = code_problems()
     for problem in code:
-        print(f"code: {problem}")
-    print("ok" if not bad and not code else f"code failures {len(code)}, songs blocked {len(bad)}")
+        sys.stdout.write(f"code: {problem}\n")
+    sys.stdout.write(("ok" if not bad and not code else f"code failures {len(code)}, songs blocked {len(bad)}") + "\n")
     raise SystemExit(2 if code else 1 if bad else 0)
 
 

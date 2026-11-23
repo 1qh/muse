@@ -559,7 +559,7 @@ MUTATIONS = [
 ]
 
 
-def run(src: pathlib.Path, heavy: bool = False) -> int:
+def run(src: pathlib.Path, *, heavy: bool = False) -> int:
     env = dict(os.environ, PYTHONPATH=str(src))
     args = [
         sys.executable,
@@ -580,13 +580,18 @@ def run(src: pathlib.Path, heavy: bool = False) -> int:
             cwd=ROOT,
             capture_output=True,
             timeout=HEAVY_SECONDS if heavy else CONTROL_SECONDS,
+            check=False,
         ).returncode
     except subprocess.TimeoutExpired:
         return 1
 
 
 def control(mutation: tuple[str, str, str, str]) -> str:
-    """1 planted bug in its own copy of the code, so controls run side by side."""
+    """1 planted bug in its own copy of the code, so controls run side by side.
+
+    Returns:
+        The control's label and verdict.
+    """
     name, old, new, label = mutation
     with tempfile.TemporaryDirectory() as tmp:
         base = pathlib.Path(tmp) / "src"
@@ -596,7 +601,7 @@ def control(mutation: tuple[str, str, str, str]) -> str:
         if old not in text:
             return f"{label}: ANCHOR MISSING"
         path.write_text(text.replace(old, new))
-        return f"{label}: {'red' if run(base, name.startswith(HEAVY)) else 'SURVIVED'}"
+        return f"{label}: {'red' if run(base, heavy=name.startswith(HEAVY)) else 'SURVIVED'}"
 
 
 def main() -> None:
@@ -606,7 +611,7 @@ def main() -> None:
             for file, old, _, name in MUTATIONS
             if old not in (ROOT / "src" / "muse" / file).read_text(encoding="utf-8")
         ]
-        print(f"dead anchors: {dead}" if dead else "ok")
+        sys.stdout.write((f"dead anchors: {dead}" if dead else "ok") + "\n")
         raise SystemExit(1 if dead else 0)
     chosen = MUTATIONS
     if "--only" in sys.argv:
@@ -633,7 +638,9 @@ def main() -> None:
                 str(ROOT / "tests"),
             ]
             try:
-                done = subprocess.run(args, env=env, cwd=ROOT, capture_output=True, text=True, timeout=HEAVY_SECONDS)
+                done = subprocess.run(
+                    args, env=env, cwd=ROOT, capture_output=True, text=True, timeout=HEAVY_SECONDS, check=False
+                )
             except subprocess.TimeoutExpired:
                 msg = f"baseline did not finish in {CONTROL_SECONDS} seconds"
                 raise SystemExit(msg) from None
@@ -642,7 +649,7 @@ def main() -> None:
                 raise SystemExit(msg)
         outcomes = list(pool.map(control, chosen))
     for outcome in outcomes:
-        print(outcome)
+        sys.stdout.write(outcome + "\n")
     raise SystemExit(1 if any(not outcome.endswith(": red") for outcome in outcomes) else 0)
 
 

@@ -41,6 +41,10 @@ PIANO = "piano"
 STYLE = buildcache.STYLE
 SF_PRO_FILES = tuple(f"SF-Pro-Display-{face}.otf" for face in ("Regular", "RegularItalic", "Bold", "BoldItalic"))
 FONT_DIRS = (pathlib.Path.home() / "Library" / "Fonts", pathlib.Path("/Library/Fonts"))
+NUMBER_MARGIN = 60
+SHORT_LINE_BARS = 2
+MIN_BALANCED_PAGES = 2
+TIE_LOOKBACK = 2
 
 
 class MissingFont(RuntimeError):
@@ -61,7 +65,10 @@ def run(*args: str) -> None:
         raise RuntimeError(msg)
 
 
-BOX = '<frameType>1</frameType><frameWidth>0.45</frameWidth><framePadding>0.4</framePadding><frameFgColor r="{}" g="{}" b="{}" a="255"/>'
+BOX = (
+    "<frameType>1</frameType><frameWidth>0.45</frameWidth><framePadding>0.4</framePadding>"
+    '<frameFgColor r="{}" g="{}" b="{}" a="255"/>'
+)
 SIGN_BOX = {"segno": BOX.format(220, 0, 0), "coda": BOX.format(0, 0, 220)}
 
 
@@ -88,7 +95,10 @@ def strip_title_frame(mscz: pathlib.Path) -> None:
     for name, data in items.items():
         if name.endswith(".mscx"):
             items[name] = re.sub(
-                r"\s*<VBox>(?:(?!</VBox>|<Text>).)*</VBox>", "", data.decode("utf-8"), flags=re.DOTALL
+                r"\s*<VBox>(?:(?!</VBox>|<Text>).)*</VBox>",
+                "",
+                data.decode("utf-8"),
+                flags=re.DOTALL,
             ).encode(
                 "utf-8",
             )
@@ -98,7 +108,11 @@ def strip_title_frame(mscz: pathlib.Path) -> None:
 
 
 def system_starts(pdf: pathlib.Path) -> list[int]:
-    """The bar number printed at the start of every line, read from the exported PDF."""
+    """Read the bar number printed at the start of every line from the exported PDF.
+
+    Returns:
+        The bar number printed at the start of every line, read from the exported PDF.
+    """
     found = []
     for page in pdftext.open(pdf):
         for block in page.get_text("dict")["blocks"]:
@@ -106,13 +120,17 @@ def system_starts(pdf: pathlib.Path) -> list[int]:
                 found.extend(
                     int(span["text"])
                     for span in line["spans"]
-                    if span["text"].strip().isdigit() and span["bbox"][0] < 60 and "Italic" in span["font"]
+                    if span["text"].strip().isdigit() and span["bbox"][0] < NUMBER_MARGIN and "Italic" in span["font"]
                 )
     return found
 
 
 def rows(score: Score) -> list[list[int]]:
-    """1-based bar numbers of each declared row."""
+    """1-based bar numbers of each declared row.
+
+    Returns:
+        The 1-based bar numbers of each declared row.
+    """
     out: list[list[int]] = []
     for number, bar in enumerate(score.bars, 1):
         if not out or bar.new_system or bar.new_page:
@@ -122,17 +140,29 @@ def rows(score: Score) -> list[list[int]]:
 
 
 def tied_out(bar: Bar) -> bool:
-    """Whether a tie leaves the bar: only a voice's last event can carry one past the barline."""
+    """Whether a tie leaves the bar: only a voice's last event can carry one past the barline.
+
+    Returns:
+        Whether a tie leaves the bar.
+    """
     return any(head.tie_start for voice in [*bar.voices, *bar.voices2] if voice for head in voice[-1].heads)
 
 
 def last_before(where: list[tuple[int, float, int]], page_no: int) -> int:
-    """The line a page with no printed bar number continues: the last one numbered on an earlier page."""
+    """Find the line a page with no printed bar number continues: the last one numbered on an earlier page.
+
+    Returns:
+        The line a page with no printed bar number continues.
+    """
     return max(item for item in where if item[0] < page_no)[2]
 
 
 def crowded_reasons(pdf: pathlib.Path) -> list[str]:
-    """What makes a line overflow, in words, for a refusal a reader can act on."""
+    """Say what makes a line overflow, in words, for a refusal a reader can act on.
+
+    Returns:
+        What makes a line overflow, in words.
+    """
     return (
         [f"chords too close at {root}" for _, _, root in pdfcheck.chord_collisions(pdf)]
         + [what for _, _, what in pdfcheck.sign_chord_hits(pdf)]
@@ -141,7 +171,13 @@ def crowded_reasons(pdf: pathlib.Path) -> list[str]:
 
 
 def crowded_rows(pdf: pathlib.Path, firsts: list[int]) -> set[int]:
-    """First bar of every line a wider line can cure, matched by page and height: chords too close and ink past the margin; text on text is never a width fault."""
+    """Find the first bar of every line a wider line can cure, matched by page and height.
+
+    Chords too close and ink past the margin; text on text is never a width fault.
+
+    Returns:
+        The first bar of every line a wider line can cure.
+    """
     where = []
     for page_no, page in enumerate(pdftext.open(pdf)):
         for block in page.get_text("dict")["blocks"]:
@@ -150,7 +186,7 @@ def crowded_rows(pdf: pathlib.Path, firsts: list[int]) -> set[int]:
                     (page_no, span["bbox"][1], int(span["text"]))
                     for span in line["spans"]
                     if span["text"].strip().isdigit()
-                    and span["bbox"][0] < 60
+                    and span["bbox"][0] < NUMBER_MARGIN
                     and "Italic" in span["font"]
                     and int(span["text"]) in firsts
                 )
@@ -167,12 +203,20 @@ def crowded_rows(pdf: pathlib.Path, firsts: list[int]) -> set[int]:
 
 
 def must_start_line(bar: Bar, previous: Bar | None) -> bool:
-    """A section mark or a lyric label starts a new block of lines."""
+    """Tell whether the bar starts a new block of lines: a section mark or a lyric label starts one.
+
+    Returns:
+        Whether a section mark or a lyric label starts a new block of lines here.
+    """
     return previous is None or bool(bar.rehearsal or bar.segno or bar.coda or previous.final or piano.label_of(bar))
 
 
 def sections(score: Score) -> list[list[int]]:
-    """Bar indexes of each block; a tie into a section mark keeps the bars together."""
+    """Bar indexes of each block; a tie into a section mark keeps the bars together.
+
+    Returns:
+        The bar indexes of each block.
+    """
     blocks: list[list[int]] = []
     for index, bar in enumerate(score.bars):
         previous = score.bars[index - 1] if index else None
@@ -183,7 +227,11 @@ def sections(score: Score) -> list[list[int]]:
 
 
 def short_line_problems(lines: list[list[int]]) -> list[str]:
-    """A finished sheet whose lines of 2 bars or fewer pass the widest share any song is allowed."""
+    """Refuse a finished sheet whose lines of 2 bars or fewer pass the widest share any song is allowed.
+
+    Returns:
+        The refusal, empty when the share is within the widest allowed.
+    """
     share = short_line_share(lines)
     return (
         [f"{share:.0%} of lines hold 2 bars or fewer, past {RELAXED_SHORT_SHARE:.0%}"]
@@ -193,12 +241,20 @@ def short_line_problems(lines: list[list[int]]) -> list[str]:
 
 
 def short_line_share(lines: list[list[int]]) -> float:
-    """Share of lines with 2 bars or fewer."""
-    return sum(1 for line in lines if len(line) <= 2) / len(lines)
+    """Share of lines with 2 bars or fewer.
+
+    Returns:
+        The share of lines with 2 bars or fewer.
+    """
+    return sum(1 for line in lines if len(line) <= SHORT_LINE_BARS) / len(lines)
 
 
 def balanced_pages(heights: list[float], pages: int) -> list[int]:
-    """Indexes of the lines that start pages 2 and up, keeping the tallest page as short as possible."""
+    """Indexes of the lines that start pages 2 and up, keeping the tallest page as short as possible.
+
+    Returns:
+        The indexes of the lines that start pages 2 and up.
+    """
     count = len(heights)
     pages = min(pages, count)
     prefix = [0.0]
@@ -223,13 +279,20 @@ def balanced_pages(heights: list[float], pages: int) -> list[int]:
 
 
 def line_heights(pdf: pathlib.Path, firsts: list[int]) -> tuple[list[float], int]:
-    """Each line's height from where its bar number prints, the last on a page ending at the page's ink."""
+    """Each line's height from where its bar number prints, the last on a page ending at the page's ink.
+
+    Returns:
+        Each line's height, and the number of pages.
+
+    Raises:
+        DoesNotFit: A page is blank, so its lines have no height.
+    """
     where: dict[int, tuple[int, float]] = {}
     doc = pdftext.open(pdf)
     bottoms = []
     tops = []
     for page_no, page in enumerate(doc):
-        inked, _ = pdfcheck.inked_rows(page, 72)
+        inked, _ = pdfcheck.inked_rows(page.page, 72)
         if not inked:
             msg = f"{pdf.name}: page {page_no + 1} is blank, so its lines have no height"
             raise DoesNotFit(msg)
@@ -238,7 +301,7 @@ def line_heights(pdf: pathlib.Path, firsts: list[int]) -> tuple[list[float], int
         for block in page.get_text("dict")["blocks"]:
             for line in block.get("lines", []):
                 for span in line["spans"]:
-                    if span["text"].strip().isdigit() and span["bbox"][0] < 60 and "Italic" in span["font"]:
+                    if span["text"].strip().isdigit() and span["bbox"][0] < NUMBER_MARGIN and "Italic" in span["font"]:
                         where.setdefault(int(span["text"]), (page_no, span["bbox"][1]))
     where[1] = (0, tops[0])
     heights = []
@@ -250,7 +313,11 @@ def line_heights(pdf: pathlib.Path, firsts: list[int]) -> tuple[list[float], int
 
 
 def balance(score: Score, probe: pathlib.Path) -> bool:
-    """Spread the lines evenly over the pages the render needs, replacing every earlier page break; False when nothing changes."""
+    """Spread the lines evenly over the pages the render needs, replacing every earlier page break.
+
+    Returns:
+        False when nothing changes.
+    """
     firsts = [row[0] for row in rows(score)]
     heights, pages = line_heights(probe, firsts)
     wanted = {firsts[start] for start in balanced_pages(heights, pages)} if pages > 1 else set()
@@ -261,14 +328,24 @@ def balance(score: Score, probe: pathlib.Path) -> bool:
 
 
 def page_problems(score: Score, probe: pathlib.Path) -> list[str]:
-    """A sheet whose printed pages differ from the balanced split of its own line heights."""
+    """Refuse a sheet whose printed pages differ from the balanced split of its own line heights.
+
+    Returns:
+        The refusal, empty when the pages are balanced.
+    """
     return balance_problems(probe, [row[0] for row in rows(score)])
 
 
 def balance_problems(probe: pathlib.Path, firsts: list[int]) -> list[str]:
-    """Printed pages whose tallest page stands taller than the most even split of the lines' own heights allows, given the bars that open each line."""
+    """Refuse printed pages whose tallest page stands taller than the most even split of the lines' own heights allows.
+
+    The lines are given by the bars that open each line.
+
+    Returns:
+        The refusal, empty when the tallest page is within the slack.
+    """
     heights, pages = line_heights(probe, firsts)
-    if pages < 2:
+    if pages < MIN_BALANCED_PAGES:
         return []
     starts = balanced_pages(heights, pages)
     best = max(sum(heights[a:b]) for a, b in zip([0, *starts], [*starts, len(heights)], strict=True))
@@ -282,27 +359,38 @@ def balance_problems(probe: pathlib.Path, firsts: list[int]) -> list[str]:
 
 
 def lines_per_page(pdf: pathlib.Path, firsts: list[int]) -> list[int]:
-    """How many of the score's lines each page prints, by where each line's bar number prints."""
+    """How many of the score's lines each page prints, by where each line's bar number prints.
+
+    Returns:
+        How many of the score's lines each page prints.
+    """
     pages = [page_of(pdf, first) for first in firsts]
     return [pages.count(page) for page in range(len(pdftext.open(pdf)))]
 
 
 def page_of(pdf: pathlib.Path, bar: int) -> int:
-    """The page a bar's printed number stands on; bar 1, which prints no number, opens page 1."""
+    """Find the page a bar's printed number stands on; bar 1, which prints no number, opens page 1.
+
+    Returns:
+        The page a bar's printed number stands on.
+
+    Raises:
+        DoesNotFit: The bar opens a line that prints no number.
+    """
     if bar == 1:
         return 0
     for page_no, page in enumerate(pdftext.open(pdf)):
         for block in page.get_text("dict")["blocks"]:
             for line in block.get("lines", []):
                 for span in line["spans"]:
-                    if span["text"].strip() == str(bar) and span["bbox"][0] < 60 and "Italic" in span["font"]:
+                    if span["text"].strip() == str(bar) and span["bbox"][0] < NUMBER_MARGIN and "Italic" in span["font"]:
                         return page_no
     msg = f"{pdf.name}: bar {bar} opens a line that prints no number"
     raise DoesNotFit(msg)
 
 
 class DoesNotFit(Exception):
-    """This size does not fit the song's page count."""
+    """The size does not fit the song's page count."""
 
 
 def styled(
@@ -313,7 +401,16 @@ def styled(
     distance: float,
     overrides: dict[str, object] | None = None,
 ) -> pathlib.Path:
-    """A copy of the style at 1 notation size and line gap, with the song title at the top right of every page, and any tag a kind of score sets its own way."""
+    """Copy the style at 1 notation size and line gap, with the song title at the top right of every page.
+
+    Any tag a kind of score sets its own way is set too.
+
+    Returns:
+        The path of the copy of the style.
+
+    Raises:
+        RuntimeError: The style has no single tag to set, or holds an override more than once.
+    """
     text = STYLE.read_text(encoding="utf-8")
     for tag, value in (
         ("Spatium", spatium),
@@ -345,7 +442,11 @@ def styled(
 
 
 def boxed_sign(element: str) -> str:
-    """1 Marker or Jump as its sign alone in its colored box; the jump it performs is untouched."""
+    """1 Marker or Jump as its sign alone in its colored box; the jump it performs is untouched.
+
+    Returns:
+        The element as its sign alone in its colored box.
+    """
     kind = "segno" if element.startswith("<Jump") or "<label>segno" in element else "coda"
     bare = re.sub(r"<offset[^>]*/>", "", element)
     bare = re.sub(r"<text>.*?</text>", f"<text><sym>{kind}</sym></text>", bare, flags=re.DOTALL)
@@ -356,17 +457,21 @@ def boxed_sign(element: str) -> str:
 
 
 def beside_each_other(text: str) -> str:
-    """In a bar holding 2 jump signs the Jump steps left, so both stay in the chord row of their own bar."""
+    """In a bar holding 2 jump signs the Jump steps left, so both stay in the chord row of their own bar.
+
+    Returns:
+        The text with the Jump stepped left in every such bar.
+    """
     measures = re.split(r"(?=<Measure)", text)
     for at, measure in enumerate(measures):
         if "<Jump>" in measure and "<label>coda</label>" in measure:
-            measure = re.sub(
+            stretched = re.sub(
                 r"^<Measure([^>]*)>",
                 lambda m: f"<Measure{m[1]}><stretch>{SIGN_BAR_STRETCH}</stretch>",
                 measure,
                 count=1,
             )
-            measures[at] = measure.replace(
+            measures[at] = stretched.replace(
                 "<Jump>",
                 f'<Jump><autoplace>0</autoplace><offset x="{SIGN_STEP}" y="{SIGN_RISE}"/>',
                 1,
@@ -407,7 +512,11 @@ IMPORTS_LOCK = threading.Lock()
 
 
 def imported(score: Score, work: pathlib.Path, sheet: str, style: pathlib.Path, clear: bool) -> pathlib.Path:
-    """1 import of a sheet with no line breaks, its signs set; every trial edits a copy of it."""
+    """1 import of a sheet with no line breaks, its signs set; every trial edits a copy of it.
+
+    Returns:
+        The path of the import.
+    """
     flags = [(bar.new_system, bar.new_page) for bar in score.bars]
     for bar in score.bars:
         bar.new_system = bar.new_page = False
@@ -439,7 +548,13 @@ def imported(score: Score, work: pathlib.Path, sheet: str, style: pathlib.Path, 
 
 
 def staff_texts(text: str) -> str:
-    """Every Expression an import made rewritten as staff text with the same placement: expressions share 1 row and overprint, staff texts stack."""
+    """Every Expression an import made rewritten as staff text with the same placement.
+
+    Expressions share 1 row and overprint, staff texts stack.
+
+    Returns:
+        The text with every Expression rewritten as staff text.
+    """
 
     def rewritten(match: re.Match[str]) -> str:
         body = match[1]
@@ -453,7 +568,7 @@ def staff_texts(text: str) -> str:
 
 
 def edited(source: pathlib.Path, target: pathlib.Path, spatium: float, distance: float, score: Score) -> None:
-    """A copy of an import at 1 size and line gap, breaking lines and pages where the score says."""
+    """Copy an import at 1 size and line gap, breaking lines and pages where the score says."""
     with zipfile.ZipFile(source) as old:
         items = {name: old.read(name) for name in old.namelist()}
     for name, data in items.items():
@@ -496,11 +611,15 @@ MIN_TIED_CHAIN = 4
 
 
 def tie_findings(starts: list[int], tied: list[bool]) -> tuple[list[str], list[str]]:
-    """A tie over a line end fails unless its tied run is too long for 1 line, which is only reported."""
+    """Fail a tie over a line end unless its tied run is too long for 1 line, which is only reported.
+
+    Returns:
+        The failures and the reported ties.
+    """
     failures: list[str] = []
     reported: list[str] = []
     for start in starts:
-        if start < 2 or start > len(tied) or not tied[start - 2]:
+        if start < TIE_LOOKBACK or start > len(tied) or not tied[start - 2]:
             continue
         low = start - 2
         while low > 0 and tied[low - 1]:
@@ -516,7 +635,13 @@ def tie_findings(starts: list[int], tied: list[bool]) -> tuple[list[str], list[s
 
 
 def line_findings(score: Score, opening: set[int], bare: set[int]) -> list[str]:
-    """The line rules, 1 home for the layout and the gate: opening holds the bars that start a line, bare those of them printed without a chord."""
+    """Judge the line rules, 1 home for the layout and the gate.
+
+    Opening holds the bars that start a line, bare those of them printed without a chord.
+
+    Returns:
+        The line rule findings.
+    """
     marks = {bar.number for at, bar in enumerate(score.bars) if must_start_line(bar, score.bars[at - 1] if at else None)}
     tied_in = {bar.number for bar in score.bars if bar.number > 1 and tied_out(score.bars[bar.number - 2])}
     labels = {bar.number for bar in score.bars if piano.label_of(bar)}
@@ -531,7 +656,11 @@ def line_findings(score: Score, opening: set[int], bare: set[int]) -> list[str]:
 
 
 def chord_starts(score_path: pathlib.Path, score: Score) -> list[str]:
-    """The line rules judged on a score file as written: its own line starts and the chords it prints."""
+    """Judge the line rules on a score file as written: its own line starts and the chords it prints.
+
+    Returns:
+        The line rule findings.
+    """
     text = chordseat.score_text(score_path)[1]
     bare = set(chordseat.chordless_starts(text))
     opening = {numbers[0] for numbers in chordseat.bar_rows(text) if numbers}
@@ -539,19 +668,34 @@ def chord_starts(score_path: pathlib.Path, score: Score) -> list[str]:
 
 
 def line_rule_reasons(score: Score, variant: str = TONE) -> list[str]:
-    """The line rules judged on a plan, with the tie rule; the same findings the gate reads off the file."""
+    """Judge the line rules on a plan, with the tie rule; the same findings the gate reads off the file.
+
+    Returns:
+        The line rule findings.
+    """
     firsts = {row[0] for row in rows(score)}
     bare = {n for n in firsts if not score.bars[n - 1].chords}
     return line_findings(score, firsts, bare) + tie_findings(sorted(firsts), [tied_out(bar) for bar in score.bars])[0]
 
 
 def line_rule_breaks(score: Score, variant: str = TONE) -> list[int]:
-    """The bars that break a line rule, each once."""
+    """List the bars that break a line rule, each once.
+
+    Returns:
+        The bars that break a line rule, each once.
+    """
     return sorted({bar_of(reason) for reason in line_rule_reasons(score, variant)})
 
 
 def bar_of(reason: str) -> int:
-    """The bar a line-rule reason names."""
+    """Find the bar a line-rule reason names.
+
+    Returns:
+        The bar a line-rule reason names.
+
+    Raises:
+        ValueError: The reason names no bar.
+    """
     found = re.search(r"bar (\d+)", reason)
     if found is None:
         msg = f"a line-rule reason names no bar: {reason}"
@@ -560,10 +704,14 @@ def bar_of(reason: str) -> int:
 
 
 def page_fill(pdf: pathlib.Path) -> float:
-    """How far down its page the music reaches on the least filled page, as a share of the page height."""
+    """How far down its page the music reaches on the least filled page, as a share of the page height.
+
+    Returns:
+        The share of the page height the music reaches on the least filled page.
+    """
     shares = []
     for page in pdftext.open(pdf):
-        inked, height = pdfcheck.inked_rows(page, 36)
+        inked, height = pdfcheck.inked_rows(page.page, 36)
         shares.append((max(inked) + 1) / height if inked else 0.0)
     return min(shares, default=0.0)
 
@@ -573,7 +721,7 @@ def sizes_between(low: float, high: float) -> list[float]:
 
 
 def lift_idle_cues(score: Score) -> None:
-    """A cue on a staff with no notes in its bar moves up, or that staff could never hide."""
+    """Move up a cue on a staff with no notes in its bar, or that staff could never hide."""
     for bar in score.bars:
         if not any(e.heads for v in bar.voices2 for e in v):
             bar.texts = [*bar.texts, *bar.texts2]
@@ -587,13 +735,21 @@ def keep_pair(positions: pathlib.Path, pdf: pathlib.Path, target: pathlib.Path) 
 
 
 def pairs(positions: pathlib.Path, pdf: pathlib.Path) -> bool:
-    """Whether kept positions were drawn by the render that printed exactly this PDF."""
+    """Whether kept positions were drawn by the render that printed exactly this PDF.
+
+    Returns:
+        Whether kept positions were drawn by the render that printed exactly this PDF.
+    """
     stamp = positions.with_suffix(".sha")
     return positions.exists() and stamp.exists() and stamp.read_text() == hashlib.sha256(pdf.read_bytes()).hexdigest()
 
 
 def paired(work: pathlib.Path, pdf_name: str) -> pathlib.Path:
-    """Where the measure positions of the render that drew a published PDF are kept, outside the sheets folder."""
+    """Where the measure positions of the render that drew a published PDF are kept, outside the sheets folder.
+
+    Returns:
+        The path of the kept measure positions.
+    """
     folder = work / "paired"
     folder.mkdir(parents=True, exist_ok=True)
     return folder / pathlib.Path(pdf_name).with_suffix(".mpos").name

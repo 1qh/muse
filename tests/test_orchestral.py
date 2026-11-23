@@ -1,11 +1,14 @@
-"""The orchestral path's own rules, proved without the private sources: its glyphs, its writer, its song identity, and how the build and gate send a full score its own way."""
+"""The orchestral path's own rules, proved without the private sources.
+
+Its glyphs, its writer, its song identity, and how the build and gate send a full score its own way.
+"""
 
 import pathlib
 import re
 import xml.etree.ElementTree as ET
 import zipfile
-from fractions import Fraction as F
-from typing import Never
+from fractions import Fraction
+from typing import Never, TypedDict, Unpack
 
 import pytest
 
@@ -28,7 +31,7 @@ class FakePage:
     def __init__(self, code: int) -> None:
         self.code = code
 
-    def get_text(self, _kind):
+    def get_text(self, _kind: str) -> dict[str, object]:
         char = {"c": chr(self.code), "origin": (1.0, 1.0), "bbox": (1.0, 0.0, 3.0, 2.0)}
         return {
             "blocks": [
@@ -51,7 +54,8 @@ class FakePage:
             ],
         }
 
-    def get_drawings(self):
+    @staticmethod
+    def get_drawings() -> list[object]:
         return []
 
     @property
@@ -74,29 +78,50 @@ def test_an_undecoded_glyph_is_refused_and_a_known_one_is_read() -> None:
     ("name", "written"),
     [("Clarinet I", 4), ("Horn III/IV", 3), ("Double Bass", 2), ("Flute I", 2), ("Harp", 2)],
 )
-def test_each_part_prints_the_concert_key_moved_by_its_transposition(name, written) -> None:
+def test_each_part_prints_the_concert_key_moved_by_its_transposition(name: str, written: int) -> None:
     assert orchestral.written_key(2, orchestral.transposition_of(name)) == written
 
 
-def bar(number, voices, voices2=None, **kw):
-    made = Bar(number, 0, 0.0, 100.0, F(4), **kw)
+class _BarExtras(TypedDict, total=False):
+    key: int
+    time: tuple[int, int]
+
+
+class _NoteExtras(TypedDict, total=False):
+    staff: int | None
+    tuplet: bool
+    ratio: Fraction
+    dots: int
+
+
+def bar(
+    number: int,
+    voices: list[list[Event]],
+    voices2: list[list[Event]] | None = None,
+    **kw: Unpack[_BarExtras],
+) -> Bar:
+    made = Bar(number, 0, 0.0, 100.0, Fraction(4), **kw)
     made.voices = voices
     made.voices2 = voices2 or []
     return made
 
 
-def note(x, step, octave, length, onset, staff=None, **kw):
-    return Event(x, [Head(x, 0.0, step, octave)], length, onset=onset, staff=staff, **kw)
+def note(x: float, step: str, octave: int, length: Fraction, onset: Fraction, **kw: Unpack[_NoteExtras]) -> Event:
+    return Event(x, [Head(x, 0.0, step, octave)], length, onset=onset, **kw)
 
 
 def small_orchestra() -> Orchestra:
-    """A clarinet with a quintuplet, and a harp whose 1 line crosses from its lower staff to its upper."""
-    fives = [note(10.0 + i, "C", 5, F(1, 4), F(i, 5), tuplet=True, ratio=F(4, 5)) for i in range(5)]
-    clarinet = bar(1, [[*fives, note(30.0, "E", 5, F(3), F(1), dots=1)]], key=4, time=(4, 4))
-    clarinet.clefs = [(1, F(0), ("G", 2, 0))]
-    crossing = [note(10.0 + i, "D", 3 + i // 8, F(1, 2), F(i, 2), staff=2 if i < 4 else 1) for i in range(8)]
+    """Build a clarinet with a quintuplet, and a harp whose 1 line crosses from its lower staff to its upper.
+
+    Returns:
+        The orchestra of the clarinet and the harp.
+    """
+    fives = [note(10.0 + i, "C", 5, Fraction(1, 4), Fraction(i, 5), tuplet=True, ratio=Fraction(4, 5)) for i in range(5)]
+    clarinet = bar(1, [[*fives, note(30.0, "E", 5, Fraction(3), Fraction(1), dots=1)]], key=4, time=(4, 4))
+    clarinet.clefs = [(1, Fraction(0), ("G", 2, 0))]
+    crossing = [note(10.0 + i, "D", 3 + i // 8, Fraction(1, 2), Fraction(i, 2), staff=2 if i < 4 else 1) for i in range(8)]
     harp = bar(1, [crossing], [], key=2, time=(4, 4))
-    harp.clefs = [(1, F(0), ("G", 2, 0)), (2, F(0), ("F", 4, 0)), (2, F(2), ("G", 2, 0))]
+    harp.clefs = [(1, Fraction(0), ("G", 2, 0)), (2, Fraction(0), ("F", 4, 0)), (2, Fraction(2), ("G", 2, 0))]
     harp.texts2 = [Text(12.0, 0.0, [("p", False, True)], above=False, kind="dynamic")]
     return Orchestra(
         [
@@ -107,14 +132,17 @@ def small_orchestra() -> Orchestra:
     )
 
 
-def test_full_score_writes_every_part_with_its_transposition_staves_and_crossing_line(tmp_path) -> None:
+def test_full_score_writes_every_part_with_its_transposition_staves_and_crossing_line(tmp_path: pathlib.Path) -> None:
     text = musicxml.write_orchestra(small_orchestra())
     root = ET.fromstring(text.split("\n", 1)[1])
     clarinet, harp = root.findall("part")
     shift = clarinet.find("measure/attributes/transpose")
+    assert shift is not None
     assert (shift.findtext("diatonic"), shift.findtext("chromatic")) == ("-1", "-2")
-    assert clarinet.find("measure/attributes/key/fifths").text == "4"
-    assert {m.findtext("actual-notes") + ":" + m.findtext("normal-notes") for m in clarinet.iter("time-modification")} == {
+    fifths = clarinet.find("measure/attributes/key/fifths")
+    assert fifths is not None
+    assert fifths.text == "4"
+    assert {f"{m.findtext('actual-notes')}:{m.findtext('normal-notes')}" for m in clarinet.iter("time-modification")} == {
         "5:4",
     }
     assert harp.find("measure/attributes/transpose") is None
@@ -132,10 +160,13 @@ def test_full_score_writes_every_part_with_its_transposition_staves_and_crossing
 
 def test_a_duration_the_divisions_cannot_hold_is_refused_rather_than_cut() -> None:
     with pytest.raises(ValueError, match="divisions"):
-        musicxml.note_xml(Event(0.0, [], F(1, 4), tuplet=True, ratio=F(4, 5)), 1, 48)
+        musicxml.note_xml(Event(0.0, [], Fraction(1, 4), tuplet=True, ratio=Fraction(4, 5)), 1, 48)
 
 
-def test_a_full_score_song_names_3_files_and_its_key_from_its_strings(tmp_path, monkeypatch) -> None:
+def test_a_full_score_song_names_3_files_and_its_key_from_its_strings(
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     folder = tmp_path / orchestral.FOLDER
     folder.mkdir()
     path = folder / "Score-D.pdf"
@@ -151,16 +182,19 @@ def test_a_full_score_song_names_3_files_and_its_key_from_its_strings(tmp_path, 
         song.decode(path)
 
 
-def test_a_lead_sheet_folder_is_never_read_as_a_full_score(tmp_path) -> None:
+def test_a_lead_sheet_folder_is_never_read_as_a_full_score(tmp_path: pathlib.Path) -> None:
     assert not song.is_orchestral(tmp_path / "Lead" / "Song-C.pdf")
     assert song.is_orchestral(tmp_path / orchestral.FOLDER / "Score-D.pdf")
 
 
 def orchestral_song() -> song.Song:
-    return song.Song("Score", "D", 2, "C", 0, "down", -2, "Title", True)
+    return song.Song("Score", "D", 2, "C", 0, "down", -2, "Title", orchestral=True)
 
 
-def test_the_gate_gives_a_full_score_its_own_checks_and_none_of_the_lead_sheet_ones(tmp_path, monkeypatch) -> None:
+def test_the_gate_gives_a_full_score_its_own_checks_and_none_of_the_lead_sheet_ones(
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setattr(gate, "song_of", lambda _src, _score=None: orchestral_song())
     monkeypatch.setattr(gate, "decode", lambda _src: pytest.fail("a full score was decoded as a lead sheet"))
     for name in ("check", "chord_beat_problems"):
@@ -168,7 +202,12 @@ def test_the_gate_gives_a_full_score_its_own_checks_and_none_of_the_lead_sheet_o
     monkeypatch.setattr(gate, "piano_problems", lambda *_a: pytest.fail("the piano check ran on a full score"))
     ran = []
 
-    def judged(src, out, work, info):
+    def judged(
+        _src: pathlib.Path,
+        _out: pathlib.Path,
+        _work: pathlib.Path,
+        info: song.Song,
+    ) -> tuple[list[str], list[str]]:
         ran.append(info.name)
         return [], []
 
@@ -180,7 +219,10 @@ def test_the_gate_gives_a_full_score_its_own_checks_and_none_of_the_lead_sheet_o
     )
 
 
-def test_a_full_score_builds_its_3_files_and_never_lays_out_a_sheet(tmp_path, monkeypatch) -> None:
+def test_a_full_score_builds_its_3_files_and_never_lays_out_a_sheet(
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     src = tmp_path / orchestral.FOLDER / "Score-D.pdf"
     src.parent.mkdir()
     src.write_bytes(b"source")
@@ -189,7 +231,7 @@ def test_a_full_score_builds_its_3_files_and_never_lays_out_a_sheet(tmp_path, mo
     monkeypatch.setattr(build.buildcache, "sheet_code", list)
     monkeypatch.setattr(build.layout, "lay", lambda *_a: pytest.fail("a full score went through the lead-sheet layout"))
 
-    def made(_src, out_dir, _work, info):
+    def made(_src: pathlib.Path, out_dir: pathlib.Path, _work: pathlib.Path, info: song.Song) -> dict[str, object]:
         for name in info.files():
             (out_dir / name).write_bytes(b"x")
         return {"pdf pages": 1}
@@ -202,8 +244,8 @@ def test_a_full_score_builds_its_3_files_and_never_lays_out_a_sheet(tmp_path, mo
     )
 
 
-def test_the_score_breaks_where_the_source_breaks(tmp_path) -> None:
-    bars = [bar(n, [[Event(0.0, [], F(4), bar_rest=True)]]) for n in range(1, 6)]
+def test_the_score_breaks_where_the_source_breaks(tmp_path: pathlib.Path) -> None:
+    bars = [bar(n, [[Event(0.0, [], Fraction(4), bar_rest=True)]]) for n in range(1, 6)]
     bars[2].new_system = True
     bars[3].new_system = bars[3].new_page = True
     score = Orchestra([Part("Flute I", "Fl.", 1, None, 2, bars)], minor=False)
@@ -224,13 +266,13 @@ def test_the_score_breaks_where_the_source_breaks(tmp_path) -> None:
     assert f"<Spatium>{fullscore.SPATIUM}</Spatium>" in text
 
 
-def test_the_gate_refuses_systems_that_open_off_the_source_s_bars(tmp_path) -> None:
-    bars = [bar(n, [[Event(0.0, [], F(4), bar_rest=True)]]) for n in range(1, 5)]
+def test_the_gate_refuses_systems_that_open_off_the_source_s_bars(tmp_path: pathlib.Path) -> None:
+    bars = [bar(n, [[Event(0.0, [], Fraction(4), bar_rest=True)]]) for n in range(1, 5)]
     bars[2].new_system = True
     score = Orchestra([Part("Flute I", "Fl.", 1, None, 2, bars)], minor=False)
     mpos = tmp_path / "final.mpos"
 
-    def laid(rows):
+    def laid(rows: list[int]) -> list[str]:
         mpos.write_text(
             "<score><elements>"
             + "".join(f'<element id="{n}" x="0" y="{y}" sx="1" sy="1" page="0"/>' for n, y in enumerate(rows))
@@ -242,7 +284,7 @@ def test_the_gate_refuses_systems_that_open_off_the_source_s_bars(tmp_path) -> N
     assert laid([100, 100, 100, 300]) == ["systems open on bars [1, 4], the source's on [1, 3]"]
 
 
-def test_the_gate_finds_a_wrong_pitch_a_lost_bar_and_a_lost_transposition(tmp_path) -> None:
+def test_the_gate_finds_a_wrong_pitch_a_lost_bar_and_a_lost_transposition(tmp_path: pathlib.Path) -> None:
     path = tmp_path / "score.musicxml"
     path.write_text(musicxml.write_orchestra(small_orchestra()), encoding="utf-8")
     wrong = small_orchestra()
@@ -251,21 +293,24 @@ def test_the_gate_finds_a_wrong_pitch_a_lost_bar_and_a_lost_transposition(tmp_pa
         "Clarinet I bar 1: pitches [72, 72, 72, 72, 72, 76] against [72, 72, 72, 72, 72, 77]",
     ]
     longer = small_orchestra()
-    longer.parts[1].bars.append(bar(2, [[Event(0.0, [], F(4), bar_rest=True)]]))
+    longer.parts[1].bars.append(bar(2, [[Event(0.0, [], Fraction(4), bar_rest=True)]]))
     assert fullcheck.content_problems(longer, path) == ["Harp: 1 bars against 2"]
     plain = small_orchestra()
     plain.parts[0].transposition = None
     assert fullcheck.content_problems(plain, path) == ["Clarinet I: transposition (-1, -2, 0) against None"]
 
 
-def test_preflight_reads_a_full_score_with_its_own_reader(tmp_path, monkeypatch) -> None:
+def test_preflight_reads_a_full_score_with_its_own_reader(
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     path = tmp_path / orchestral.FOLDER / "Score-D.pdf"
     path.parent.mkdir()
     path.write_bytes(b"source")
     monkeypatch.setattr(song, "title_of", lambda _path: "Title")
     monkeypatch.setattr(orchestral, "decode", lambda _path: small_orchestra())
     monkeypatch.setattr(preflight, "decode", lambda _src: pytest.fail("a full score was read as a lead sheet"))
-    assert preflight.song_problem(path) == ""
+    assert not preflight.song_problem(path)
     wrong = tmp_path / orchestral.FOLDER / "Score-E.pdf"
     wrong.write_bytes(b"source")
     assert preflight.song_problem(wrong).startswith("SongRefused")
