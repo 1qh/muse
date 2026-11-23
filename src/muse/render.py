@@ -1,4 +1,5 @@
 """MuseScore renders gathered from many threads into 1 job per round: a launch costs seconds, a render inside a job a fraction."""
+
 from __future__ import annotations
 
 import contextlib
@@ -9,9 +10,12 @@ import tempfile
 import threading
 import time
 from collections.abc import Iterator
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from muse import launch
+
+if TYPE_CHECKING:
+    from collections.abc import Generator
 
 JOB_SECONDS = 900
 
@@ -34,10 +38,10 @@ class Batcher:
         self.ticket = 0
         self.jobs = 0
         self.renders = 0
-        self.seconds = 0.0  # wall time spent inside MuseScore jobs
+        self.seconds = 0.0
 
     @contextlib.contextmanager
-    def worker(self) -> Iterator[None]:
+    def worker(self) -> Generator[None, None, None]:
         """Count a thread that will ask for renders, so a round waits for it."""
         with self.lock:
             self.working += 1
@@ -68,7 +72,7 @@ class Batcher:
                         began = time.monotonic()
                         try:
                             results = self.run(batch)
-                        except (OSError, subprocess.SubprocessError, ValueError) as error:  # a job that raises fails its own renders; the batcher keeps serving
+                        except (OSError, subprocess.SubprocessError, ValueError) as error:
                             results = {item["ticket"]: f"job failed: {error}" for item in batch}
                         finally:
                             self.lock.acquire()
@@ -88,7 +92,7 @@ class Batcher:
 
     def run(self, batch: list[dict[str, Any]]) -> dict[int, str | None]:
         """1 MuseScore job for the batch; each render's verdict is whether its outputs exist."""
-        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as handle:
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".json", delete=False) as handle:
             json.dump([item["entry"] for item in batch], handle)
             job = pathlib.Path(handle.name)
         try:

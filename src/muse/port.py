@@ -1,39 +1,44 @@
 """Port 1 source PDF: decode, write MusicXML, create the MuseScore file, transpose, export."""
+
 from __future__ import annotations
 
 import hashlib
+import itertools
+import operator
 import os
 import pathlib
 import re
 import shutil
 import threading
 import zipfile
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from muse import buildcache, chordnames, chordseat, jumps, launch, mode, musicxml, pdfcheck, pdftext, piano
-from muse.model import Bar, Score
-from muse.song import Song
 
-CHORD_GAP = chordseat.CHORD_GAP  # of the chord size, between 2 chords
-CHORD_SIZE_PER_SPACE = 8.0  # printed chord points per unit of the style's spatium
-SIZE_FLOORS = (1.2, 1.15)  # below 1.2 only for a song that fits its pages no other way; under 1.15 the fixed title outgrows chords
-SIZE_CAP = 2.0  # the largest notation any sheet takes
-PAGE_SLACK = 0.05  # share a printed page may stand taller than the most even split allows
-PAGE_FILL = mode.pick(0.85, 0.0)  # how far down every page the music must reach
+if TYPE_CHECKING:
+    from muse.model import Bar, Score
+    from muse.song import Song
+
+CHORD_GAP = chordseat.CHORD_GAP
+CHORD_SIZE_PER_SPACE = 8.0
+SIZE_FLOORS = (1.2, 1.15)
+SIZE_CAP = 2.0
+PAGE_SLACK = 0.05
+PAGE_FILL = mode.pick(0.85, 0.0)
 MAX_WORKERS = 10
 SIZE_STEP = 0.05
-SIGN_CLEARANCE = 3.0  # spaces a chord moves right off a sign printed on its baseline
+SIGN_CLEARANCE = 3.0
 TARGET_HOLD = '<autoplace>0</autoplace><offset x="1" y="-3"/>'
-SIGN_STEP = -6  # spaces a jump sign steps left of the sign beside it
-SIGN_RISE = -2.5  # spaces above the staff, in its own chord row
-SIGN_BAR_STRETCH = 2.5  # a bar holding 2 signs widens to hold both
-MAX_SHORT_SHARE = mode.pick(0.15, 0.40)  # readers find many 2-bar lines sparse; smaller notation is preferred
-RELAXED_SHORT_SHARE = mode.pick(0.30, 0.40)  # when no size holds a song to the base share
+SIGN_STEP = -6
+SIGN_RISE = -2.5
+SIGN_BAR_STRETCH = 2.5
+MAX_SHORT_SHARE = mode.pick(0.15, 0.40)
+RELAXED_SHORT_SHARE = mode.pick(0.30, 0.40)
 BASE_DISTANCE = 11.0
 ORIGINAL = "original"
 TONE = "tone"
 PIANO = "piano"
-STYLE = buildcache.STYLE  # the style file, 1 home
+STYLE = buildcache.STYLE
 SF_PRO_FILES = tuple(f"SF-Pro-Display-{face}.otf" for face in ("Regular", "RegularItalic", "Bold", "BoldItalic"))
 FONT_DIRS = (pathlib.Path.home() / "Library" / "Fonts", pathlib.Path("/Library/Fonts"))
 
@@ -45,15 +50,15 @@ class MissingFont(RuntimeError):
 def require_font(folders: tuple[pathlib.Path, ...] = FONT_DIRS) -> None:
     missing = [name for name in SF_PRO_FILES if not any((folder / name).exists() for folder in folders)]
     if missing:
-        raise MissingFont(f"SF Pro Display is missing {missing}; install it from Apple into {folders[0]}")
-
-
+        msg = f"SF Pro Display is missing {missing}; install it from Apple into {folders[0]}"
+        raise MissingFont(msg)
 
 
 def run(*args: str) -> None:
     done = launch.mscore(list(args), launch.LAUNCH_SECONDS)
     if done.returncode:
-        raise RuntimeError(f"mscore {args}: {done.stderr[-400:]}")
+        msg = f"mscore {args}: {done.stderr[-400:]}"
+        raise RuntimeError(msg)
 
 
 BOX = '<frameType>1</frameType><frameWidth>0.45</frameWidth><framePadding>0.4</framePadding><frameFgColor r="{}" g="{}" b="{}" a="255"/>'
@@ -82,7 +87,11 @@ def strip_title_frame(mscz: pathlib.Path) -> None:
         items = {info.filename: z.read(info.filename) for info in z.infolist()}
     for name, data in items.items():
         if name.endswith(".mscx"):
-            items[name] = re.sub(r"\s*<VBox>(?:(?!</VBox>|<Text>).)*</VBox>", "", data.decode("utf-8"), flags=re.S).encode("utf-8")
+            items[name] = re.sub(
+                r"\s*<VBox>(?:(?!</VBox>|<Text>).)*</VBox>", "", data.decode("utf-8"), flags=re.DOTALL
+            ).encode(
+                "utf-8",
+            )
     with zipfile.ZipFile(mscz, "w", zipfile.ZIP_DEFLATED) as z:
         for name, data in items.items():
             z.writestr(name, data)
@@ -94,9 +103,11 @@ def system_starts(pdf: pathlib.Path) -> list[int]:
     for page in pdftext.open(pdf):
         for block in page.get_text("dict")["blocks"]:
             for line in block.get("lines", []):
-                for span in line["spans"]:
-                    if span["text"].strip().isdigit() and span["bbox"][0] < 60 and "Italic" in span["font"]:
-                        found.append(int(span["text"]))
+                found.extend(
+                    int(span["text"])
+                    for span in line["spans"]
+                    if span["text"].strip().isdigit() and span["bbox"][0] < 60 and "Italic" in span["font"]
+                )
     return found
 
 
@@ -122,7 +133,11 @@ def last_before(where: list[tuple[int, float, int]], page_no: int) -> int:
 
 def crowded_reasons(pdf: pathlib.Path) -> list[str]:
     """What makes a line overflow, in words, for a refusal a reader can act on."""
-    return [f"chords too close at {root}" for _, _, root in pdfcheck.chord_collisions(pdf)] + [what for _, _, what in pdfcheck.sign_chord_hits(pdf)] + [f"past the margin: {word}" for _, _, word in pdfcheck.past_margin(pdf)]
+    return (
+        [f"chords too close at {root}" for _, _, root in pdfcheck.chord_collisions(pdf)]
+        + [what for _, _, what in pdfcheck.sign_chord_hits(pdf)]
+        + [f"past the margin: {word}" for _, _, word in pdfcheck.past_margin(pdf)]
+    )
 
 
 def crowded_rows(pdf: pathlib.Path, firsts: list[int]) -> set[int]:
@@ -131,18 +146,23 @@ def crowded_rows(pdf: pathlib.Path, firsts: list[int]) -> set[int]:
     for page_no, page in enumerate(pdftext.open(pdf)):
         for block in page.get_text("dict")["blocks"]:
             for line in block.get("lines", []):
-                for span in line["spans"]:
-                    if span["text"].strip().isdigit() and span["bbox"][0] < 60 and "Italic" in span["font"] and int(span["text"]) in firsts:
-                        where.append((page_no, span["bbox"][1], int(span["text"])))
+                where.extend(
+                    (page_no, span["bbox"][1], int(span["text"]))
+                    for span in line["spans"]
+                    if span["text"].strip().isdigit()
+                    and span["bbox"][0] < 60
+                    and "Italic" in span["font"]
+                    and int(span["text"]) in firsts
+                )
     where.append((0, 0.0, 1))
     crowded = set()
-    for page_no, y, _ in [*pdfcheck.chord_collisions(pdf), *pdfcheck.sign_chord_hits(pdf)]:  # a wider bar moves a chord off a sign at its end as it moves 2 chords apart
+    for page_no, y, _ in [*pdfcheck.chord_collisions(pdf), *pdfcheck.sign_chord_hits(pdf)]:
         same_page = [item for item in where if item[0] == page_no]
         crowded.add(min(same_page, key=lambda item: abs(item[1] - y))[2] if same_page else last_before(where, page_no))
     for page_no, y, _ in pdfcheck.past_margin(pdf):
         above = [item for item in where if item[0] == page_no and item[1] <= y]
         same_page = above or [item for item in where if item[0] == page_no]
-        crowded.add(max(same_page, key=lambda item: item[1])[2] if same_page else last_before(where, page_no))
+        crowded.add(max(same_page, key=operator.itemgetter(1))[2] if same_page else last_before(where, page_no))
     return crowded
 
 
@@ -162,33 +182,19 @@ def sections(score: Score) -> list[list[int]]:
     return blocks
 
 
-
-
-
-
-
-
-
-
-
-
-
-
 def short_line_problems(lines: list[list[int]]) -> list[str]:
     """A finished sheet whose lines of 2 bars or fewer pass the widest share any song is allowed."""
     share = short_line_share(lines)
-    return [f"{share:.0%} of lines hold 2 bars or fewer, past {RELAXED_SHORT_SHARE:.0%}"] if share > RELAXED_SHORT_SHARE else []
+    return (
+        [f"{share:.0%} of lines hold 2 bars or fewer, past {RELAXED_SHORT_SHARE:.0%}"]
+        if share > RELAXED_SHORT_SHARE
+        else []
+    )
 
 
 def short_line_share(lines: list[list[int]]) -> float:
     """Share of lines with 2 bars or fewer."""
     return sum(1 for line in lines if len(line) <= 2) / len(lines)
-
-
-
-
-
-
 
 
 def balanced_pages(heights: list[float], pages: int) -> list[int]:
@@ -201,14 +207,17 @@ def balanced_pages(heights: list[float], pages: int) -> list[int]:
     best = {(0, 0): (0.0, -1)}
     for used in range(1, pages + 1):
         for end in range(used, count + 1):
-            options = [(max(best[(used - 1, start)][0], prefix[end] - prefix[start]), start)
-                       for start in range(used - 1, end) if (used - 1, start) in best]
+            options = [
+                (max(best[used - 1, start][0], prefix[end] - prefix[start]), start)
+                for start in range(used - 1, end)
+                if (used - 1, start) in best
+            ]
             if options:
-                best[(used, end)] = min(options)
+                best[used, end] = min(options)
     starts = []
     end = count
     for used in range(pages, 0, -1):
-        end = best[(used, end)][1]
+        end = best[used, end][1]
         starts.append(end)
     return sorted(start for start in starts if start > 0)
 
@@ -222,7 +231,8 @@ def line_heights(pdf: pathlib.Path, firsts: list[int]) -> tuple[list[float], int
     for page_no, page in enumerate(doc):
         inked, _ = pdfcheck.inked_rows(page, 72)
         if not inked:
-            raise DoesNotFit(f"{pdf.name}: page {page_no + 1} is blank, so its lines have no height")
+            msg = f"{pdf.name}: page {page_no + 1} is blank, so its lines have no height"
+            raise DoesNotFit(msg)
         tops.append(float(inked[0]))
         bottoms.append(float(inked[-1]))
         for block in page.get_text("dict")["blocks"]:
@@ -264,7 +274,7 @@ def balance_problems(probe: pathlib.Path, firsts: list[int]) -> list[str]:
     best = max(sum(heights[a:b]) for a, b in zip([0, *starts], [*starts, len(heights)], strict=True))
     printed = lines_per_page(probe, firsts)
     edges = [sum(printed[:at]) for at in range(len(printed) + 1)]
-    tallest = max(sum(heights[a:b]) for a, b in zip(edges, edges[1:], strict=False))
+    tallest = max(sum(heights[a:b]) for a, b in itertools.pairwise(edges))
     if tallest > best * (1 + PAGE_SLACK):
         wanted = [b - a for a, b in zip([0, *starts], [*starts, len(firsts)], strict=True)]
         return [f"pages hold {printed} lines, balanced {wanted}"]
@@ -287,33 +297,50 @@ def page_of(pdf: pathlib.Path, bar: int) -> int:
                 for span in line["spans"]:
                     if span["text"].strip() == str(bar) and span["bbox"][0] < 60 and "Italic" in span["font"]:
                         return page_no
-    raise DoesNotFit(f"{pdf.name}: bar {bar} opens a line that prints no number")
-
-
+    msg = f"{pdf.name}: bar {bar} opens a line that prints no number"
+    raise DoesNotFit(msg)
 
 
 class DoesNotFit(Exception):
     """This size does not fit the song's page count."""
 
 
-def styled(work: pathlib.Path, name: str, title: str, spatium: float, distance: float, overrides: dict[str, object] | None = None) -> pathlib.Path:
+def styled(
+    work: pathlib.Path,
+    name: str,
+    title: str,
+    spatium: float,
+    distance: float,
+    overrides: dict[str, object] | None = None,
+) -> pathlib.Path:
     """A copy of the style at 1 notation size and line gap, with the song title at the top right of every page, and any tag a kind of score sets its own way."""
     text = STYLE.read_text(encoding="utf-8")
-    for tag, value in (("Spatium", spatium), ("minSystemDistance", distance), ("maxSystemDistance", distance), ("oddHeaderR", title), ("evenHeaderR", title)):
+    for tag, value in (
+        ("Spatium", spatium),
+        ("minSystemDistance", distance),
+        ("maxSystemDistance", distance),
+        ("oddHeaderR", title),
+        ("evenHeaderR", title),
+    ):
         text, count = re.subn(rf"<{tag}>[^<]*</{tag}>", f"<{tag}>{value}</{tag}>", text)
         if count != 1:
-            raise RuntimeError(f"style has no single {tag}")
-    for tag, setting in (overrides or {}).items():  # a kind of score's own setting, set where the style holds it or added where it leaves MuseScore's default
+            msg = f"style has no single {tag}"
+            raise RuntimeError(msg)
+    for tag, setting in (overrides or {}).items():
         text, count = re.subn(rf"<{tag}>[^<]*</{tag}>", f"<{tag}>{setting}</{tag}>", text)
         if count > 1:
-            raise RuntimeError(f"style holds {tag} {count} times")
+            msg = f"style holds {tag} {count} times"
+            raise RuntimeError(msg)
         if not count:
             text = text.replace("</Style>", f"<{tag}>{setting}</{tag}></Style>", 1)
-    text = text.replace("</Style>", f"<chordStyle>custom</chordStyle><chordDescriptionFile>{chordnames.chord_file(work)}</chordDescriptionFile></Style>")
+    text = text.replace(
+        "</Style>",
+        f"<chordStyle>custom</chordStyle><chordDescriptionFile>{chordnames.chord_file(work)}</chordDescriptionFile></Style>",
+    )
     path = work / name
     fresh = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
     fresh.write_text(text, encoding="utf-8")
-    fresh.replace(path)  # atomic: a parallel import never reads half a style
+    fresh.replace(path)
     return path
 
 
@@ -321,9 +348,9 @@ def boxed_sign(element: str) -> str:
     """1 Marker or Jump as its sign alone in its colored box; the jump it performs is untouched."""
     kind = "segno" if element.startswith("<Jump") or "<label>segno" in element else "coda"
     bare = re.sub(r"<offset[^>]*/>", "", element)
-    bare = re.sub(r"<text>.*?</text>", f"<text><sym>{kind}</sym></text>", bare, flags=re.S)
+    bare = re.sub(r"<text>.*?</text>", f"<text><sym>{kind}</sym></text>", bare, flags=re.DOTALL)
     if "</style>" in bare:
-        held = TARGET_HOLD if "repeat_left" in bare or "Repeat Text Left" in bare else ""  # a target held down in its own line's chord row
+        held = TARGET_HOLD if "repeat_left" in bare or "Repeat Text Left" in bare else ""
         return bare.replace("</style>", "</style>" + held + SIGN_BOX[kind], 1)
     return bare.replace(">", ">" + SIGN_BOX[kind], 1)
 
@@ -333,8 +360,17 @@ def beside_each_other(text: str) -> str:
     measures = re.split(r"(?=<Measure)", text)
     for at, measure in enumerate(measures):
         if "<Jump>" in measure and "<label>coda</label>" in measure:
-            measure = re.sub(r"^<Measure([^>]*)>", lambda m: f"<Measure{m[1]}><stretch>{SIGN_BAR_STRETCH}</stretch>", measure, count=1)
-            measures[at] = measure.replace("<Jump>", f'<Jump><autoplace>0</autoplace><offset x="{SIGN_STEP}" y="{SIGN_RISE}"/>', 1)
+            measure = re.sub(
+                r"^<Measure([^>]*)>",
+                lambda m: f"<Measure{m[1]}><stretch>{SIGN_BAR_STRETCH}</stretch>",
+                measure,
+                count=1,
+            )
+            measures[at] = measure.replace(
+                "<Jump>",
+                f'<Jump><autoplace>0</autoplace><offset x="{SIGN_STEP}" y="{SIGN_RISE}"/>',
+                1,
+            )
     return "".join(measures)
 
 
@@ -344,7 +380,9 @@ def big_signs(mscz: pathlib.Path) -> None:
         items = {info.filename: z.read(info.filename) for info in z.infolist()}
     for name, data in items.items():
         if name.endswith(".mscx"):
-            items[name] = beside_each_other(re.sub(r"<(Marker|Jump)>.*?</\1>", lambda m: boxed_sign(m[0]), data.decode("utf-8"), flags=re.S)).encode("utf-8")
+            items[name] = beside_each_other(
+                re.sub(r"<(Marker|Jump)>.*?</\1>", lambda m: boxed_sign(m[0]), data.decode("utf-8"), flags=re.DOTALL),
+            ).encode("utf-8")
     with zipfile.ZipFile(mscz, "w", zipfile.ZIP_DEFLATED) as z:
         for key, data in items.items():
             z.writestr(key, data)
@@ -353,19 +391,15 @@ def big_signs(mscz: pathlib.Path) -> None:
 def transpose_options(song: Song) -> dict[str, Any] | None:
     if not song.direction:
         return None
-    return {"mode": "to_key", "direction": song.direction, "targetKey": song.fifths, "transposeKeySignatures": True, "transposeChordNames": True, "useDoubleSharpsFlats": False, "transposeInterval": 0}
-
-
-
-
-
-
-
-
-
-
-
-
+    return {
+        "mode": "to_key",
+        "direction": song.direction,
+        "targetKey": song.fifths,
+        "transposeKeySignatures": True,
+        "transposeChordNames": True,
+        "useDoubleSharpsFlats": False,
+        "transposeInterval": 0,
+    }
 
 
 IMPORTS: dict[str, threading.Lock] = {}
@@ -381,9 +415,14 @@ def imported(score: Score, work: pathlib.Path, sheet: str, style: pathlib.Path, 
     for bar, (line, page) in zip(score.bars, flags, strict=True):
         bar.new_system, bar.new_page = line, page
     whole = hashlib.sha256()
-    for part in (text, style.read_text(encoding="utf-8"), str(clear), *(file.read_text(encoding="utf-8") for file in buildcache.sheet_code())):
+    for part in (
+        text,
+        style.read_text(encoding="utf-8"),
+        str(clear),
+        *(file.read_text(encoding="utf-8") for file in buildcache.sheet_code()),
+    ):
         whole.update(part.encode("utf-8"))
-    path = work / f"{sheet}-import-{whole.hexdigest()[:12]}.mscz"  # keyed on what it was built from, so a stale import is never reused
+    path = work / f"{sheet}-import-{whole.hexdigest()[:12]}.mscz"
     with IMPORTS_LOCK:
         lock = IMPORTS.setdefault(str(path), threading.Lock())
     with lock:
@@ -404,13 +443,13 @@ def staff_texts(text: str) -> str:
 
     def rewritten(match: re.Match[str]) -> str:
         body = match[1]
-        below = re.search(r"<direction>down</direction>", body) is not None
+        below = r"<direction>down</direction>" in body
         body = re.sub(r"\s*<direction>[^<]*</direction>", "", body)
         if "<placement>" not in body and below:
             body = "<placement>below</placement>" + body
         return f"<StaffText>{body}</StaffText>"
 
-    return re.sub(r"<Expression>(.*?)</Expression>", rewritten, text, flags=re.S)
+    return re.sub(r"<Expression>(.*?)</Expression>", rewritten, text, flags=re.DOTALL)
 
 
 def edited(source: pathlib.Path, target: pathlib.Path, spatium: float, distance: float, score: Score) -> None:
@@ -426,7 +465,7 @@ def edited(source: pathlib.Path, target: pathlib.Path, spatium: float, distance:
             text = re.sub(rf"<{tag}>[^<]*</{tag}>", f"<{tag}>{distance}</{tag}>", text)
         if name.endswith(".mscx"):
             text = staff_texts(text)
-            text = re.sub(r"<LayoutBreak>.*?</LayoutBreak>\s*", "", text, flags=re.S)
+            text = re.sub(r"<LayoutBreak>.*?</LayoutBreak>\s*", "", text, flags=re.DOTALL)
             pieces = re.split(r"(?=<Measure)", text)
             count = 0
             for at, piece in enumerate(pieces):
@@ -434,7 +473,12 @@ def edited(source: pathlib.Path, target: pathlib.Path, spatium: float, distance:
                     count += 1
                     if count < len(score.bars) and score.bars[count].new_system:
                         kind = "page" if score.bars[count].new_page else "line"
-                        pieces[at] = re.sub(r"(</Measure>)", rf"<LayoutBreak><subtype>{kind}</subtype></LayoutBreak>\1", piece, count=1)
+                        pieces[at] = re.sub(
+                            r"(</Measure>)",
+                            rf"<LayoutBreak><subtype>{kind}</subtype></LayoutBreak>\1",
+                            piece,
+                            count=1,
+                        )
             text = "".join(pieces)
         items[name] = text.encode("utf-8")
     fresh = target.with_name(target.stem + "-edit.mscz")
@@ -444,17 +488,11 @@ def edited(source: pathlib.Path, target: pathlib.Path, spatium: float, distance:
     fresh.replace(target)
 
 
-
-
-
-
 def line_starts(score: Score) -> list[int]:
     return [row[0] - 1 for row in rows(score)]
 
 
-
-
-MIN_TIED_CHAIN = 4  # a tied run of this many bars may not fit 1 line
+MIN_TIED_CHAIN = 4
 
 
 def tie_findings(starts: list[int], tied: list[bool]) -> tuple[list[str], list[str]]:
@@ -471,19 +509,25 @@ def tie_findings(starts: list[int], tied: list[bool]) -> tuple[list[str], list[s
         while high + 1 < len(tied) and tied[high + 1]:
             high += 1
         run = high - low + 2
-        (reported if run >= MIN_TIED_CHAIN else failures).append(f"tie over line end into bar {start} (tied run of {run} bars)")
+        (reported if run >= MIN_TIED_CHAIN else failures).append(
+            f"tie over line end into bar {start} (tied run of {run} bars)",
+        )
     return failures, reported
 
 
 def line_findings(score: Score, opening: set[int], bare: set[int]) -> list[str]:
     """The line rules, 1 home for the layout and the gate: opening holds the bars that start a line, bare those of them printed without a chord."""
-    marks = {bar.number for at, bar in enumerate(score.bars) if must_start_line(bar, score.bars[at - 1] if at else None)}  # a mark tied into still opens its line
+    marks = {bar.number for at, bar in enumerate(score.bars) if must_start_line(bar, score.bars[at - 1] if at else None)}
     tied_in = {bar.number for bar in score.bars if bar.number > 1 and tied_out(score.bars[bar.number - 2])}
     labels = {bar.number for bar in score.bars if piano.label_of(bar)}
-    after_mark = {bar + 1 for bar in opening & marks if bar > 1}  # on any sheet: starting both would strand the mark's bar alone
-    sourced = {bar.number for bar in score.bars if bar.source_line}  # the source itself opens a line on that chordless bar
-    lone = [f"bar {first}: lone bar on a line" for first in piano.lone_lines(sorted(opening), len(score.bars))]  # no stranded single bar on any sheet
-    return [f"bar {bar}: line starts without its chord" for bar in sorted(bare - marks - sourced)] + [f"bar {bar}: lyric label inside a line" for bar in sorted(labels - opening - tied_in - after_mark)] + lone
+    after_mark = {bar + 1 for bar in opening & marks if bar > 1}
+    sourced = {bar.number for bar in score.bars if bar.source_line}
+    lone = [f"bar {first}: lone bar on a line" for first in piano.lone_lines(sorted(opening), len(score.bars))]
+    return (
+        [f"bar {bar}: line starts without its chord" for bar in sorted(bare - marks - sourced)]
+        + [f"bar {bar}: lyric label inside a line" for bar in sorted(labels - opening - tied_in - after_mark)]
+        + lone
+    )
 
 
 def chord_starts(score_path: pathlib.Path, score: Score) -> list[str]:
@@ -510,16 +554,9 @@ def bar_of(reason: str) -> int:
     """The bar a line-rule reason names."""
     found = re.search(r"bar (\d+)", reason)
     if found is None:
-        raise ValueError(f"a line-rule reason names no bar: {reason}")
+        msg = f"a line-rule reason names no bar: {reason}"
+        raise ValueError(msg)
     return int(found[1])
-
-
-
-
-
-
-
-
 
 
 def page_fill(pdf: pathlib.Path) -> float:
@@ -527,28 +564,12 @@ def page_fill(pdf: pathlib.Path) -> float:
     shares = []
     for page in pdftext.open(pdf):
         inked, height = pdfcheck.inked_rows(page, 36)
-        shares.append((max(inked) + 1) / height if inked else 0.0)  # a blank page fills nothing
+        shares.append((max(inked) + 1) / height if inked else 0.0)
     return min(shares, default=0.0)
 
 
-
-
 def sizes_between(low: float, high: float) -> list[float]:
-    return [round(low + step * SIZE_STEP, 2) for step in range(int(round((high - low) / SIZE_STEP)) + 1)]
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+    return [round(low + step * SIZE_STEP, 2) for step in range(round((high - low) / SIZE_STEP) + 1)]
 
 
 def lift_idle_cues(score: Score) -> None:
@@ -557,10 +578,6 @@ def lift_idle_cues(score: Score) -> None:
         if not any(e.heads for v in bar.voices2 for e in v):
             bar.texts = [*bar.texts, *bar.texts2]
             bar.texts2 = []
-
-
-
-
 
 
 def keep_pair(positions: pathlib.Path, pdf: pathlib.Path, target: pathlib.Path) -> None:

@@ -1,4 +1,5 @@
 """Every word a source prints must reach the decoded score: a check independent of the decoder's reading."""
+
 from __future__ import annotations
 
 import collections
@@ -6,10 +7,12 @@ import os
 import pathlib
 import re
 import unicodedata
+from typing import TYPE_CHECKING
 
 import pymupdf
 
-from muse.model import Score
+if TYPE_CHECKING:
+    from muse.model import Score
 
 TOKEN = re.compile(r"[^\W\d_]+")
 MUSIC_FONTS = ("Anastasia", "Bravura", "Leland")
@@ -17,7 +20,7 @@ CHORD_PIECES = {"maj", "add", "m", "dim", "sus", "aug", "a", "b", "c", "d", "e",
 CREDIT_LABELS = {"sheet", "by", "copyright", "contact", "sáng", "tác", "trình", "bày", "singer", "lời", "việt"}
 CHORD = re.compile(r"[a-g](m|maj|min|sus|dim|add|aug)*")
 JUMP_WORDS = {"to", "coda", "fine"}
-NOTE_GLYPH = {"q"}  # the quarter note of a tempo mark, printed through a text font
+NOTE_GLYPH = {"q"}
 PRIVATE_NAMES = "banned.txt"
 
 
@@ -51,11 +54,19 @@ def decoded_words(score: Score) -> collections.Counter[str]:
 def lost_words(printed: collections.Counter[str], decoded: collections.Counter[str], excluded: set[str]) -> dict[str, int]:
     """Words printed more often than decoded; a joined word counts by its letters, so it is not lost."""
     joined = "".join(decoded)
-    return {word: count - decoded[word] for word, count in printed.items() if count > decoded[word] and word not in excluded and word not in joined and not CHORD.fullmatch(word)}
+    return {
+        word: count - decoded[word]
+        for word, count in printed.items()
+        if count > decoded[word] and word not in excluded and word not in joined and not CHORD.fullmatch(word)
+    }
 
 
 def problems(path: pathlib.Path, score: Score, title: str) -> list[str]:
     names = pathlib.Path(os.environ["MUSE_PRIVATE"]) / PRIVATE_NAMES
     private = {word for line in names.read_text(encoding="utf-8").splitlines() for word in tokens(line)}
-    lost = lost_words(source_words(path), decoded_words(score), private | set(tokens(title)) | CHORD_PIECES | CREDIT_LABELS | JUMP_WORDS | NOTE_GLYPH)
+    lost = lost_words(
+        source_words(path),
+        decoded_words(score),
+        private | set(tokens(title)) | CHORD_PIECES | CREDIT_LABELS | JUMP_WORDS | NOTE_GLYPH,
+    )
     return [f"words printed in the source and not decoded: {sorted(lost)}"] if lost else []

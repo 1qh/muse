@@ -1,25 +1,45 @@
 """The 1 command a finished set must pass: run every check over every song and state every failure at once."""
+
 from __future__ import annotations
 
 import difflib
 import hashlib
+import itertools
 import os
 import pathlib
 import shutil
 import sys
 import time
 import xml.etree.ElementTree as ET
-from collections.abc import Callable
 from functools import partial
+from typing import TYPE_CHECKING
 
 import pymupdf
 
-from muse import buildcache, chordnames, chordseat, fullcheck, inverse, launch, mode, navigate, pdfcheck, piano, port, scorefile, verify
-from muse.model import Score
+from muse import (
+    buildcache,
+    chordnames,
+    chordseat,
+    fullcheck,
+    inverse,
+    launch,
+    mode,
+    navigate,
+    pdfcheck,
+    piano,
+    port,
+    scorefile,
+    verify,
+)
 from muse.song import Song, decode, song_of, sources
 
-HOMR_SECONDS = 1500  # 1 page through the optical cross-check, counted from when its slot frees
-MIN_HOMR_AGREEMENT = 0.6  # below this the independent reading has stopped agreeing about the song
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from muse.model import Score
+
+HOMR_SECONDS = 1500
+MIN_HOMR_AGREEMENT = 0.6
 
 
 def line_starts(pdf: pathlib.Path) -> list[int]:
@@ -57,7 +77,7 @@ def homr_command() -> str | None:
 
 
 def homr_reading(src: pathlib.Path, page_no: int, work: pathlib.Path, command: str) -> pathlib.Path:
-    """homr's reading of 1 source page, cached by the source's own bytes."""
+    """Homr's reading of 1 source page, cached by the source's own bytes."""
     digest = hashlib.sha256(src.read_bytes()).hexdigest()[:16]
     folder = work / "homr" / digest
     folder.mkdir(parents=True, exist_ok=True)
@@ -93,10 +113,12 @@ def folder_problems(out: pathlib.Path, songs: list[Song]) -> list[str]:
     wanted: set[str] = set()
     for song in songs:
         wanted |= song.files()
-    held = {str(p.relative_to(out)) for p in out.rglob("*") if p.is_file() and ".git" not in p.relative_to(out).parts and p.name != ".DS_Store"}
+    held = {
+        str(p.relative_to(out))
+        for p in out.rglob("*")
+        if p.is_file() and ".git" not in p.relative_to(out).parts and p.name != ".DS_Store"
+    }
     return [f"missing {name}" for name in sorted(wanted - held)] + [f"stray {name}" for name in sorted(held - wanted)]
-
-
 
 
 def piano_problems(src: pathlib.Path, sheet: pathlib.Path) -> list[str]:
@@ -128,12 +150,12 @@ def check_song(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> tupl
         try:
             failures.extend(f"{label}: {problem}" for problem in step())
         except launch.MachineUnavailable:
-            raise  # the machine's fault, never the song's: the run stops
-        except Exception as error:  # every check must speak even when another crashed
+            raise
+        except Exception as error:
             failures.append(f"{label}: could not run: {str(error)[:160]}")
 
     info = song_of(src)
-    if info.orchestral:  # a full score takes its own checks; the lead-sheet ones stay as they are
+    if info.orchestral:
         return fullcheck.problems(src, out, work, info)
     score = decode(src)
     song = song_of(src, score)
@@ -171,7 +193,9 @@ def check_song(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> tupl
             lengths = line_lengths(starts, len(score.bars))
             short = sum(1 for length in lengths if length <= 2)
             notes.append(f"{final.name}: {short} of {len(lengths)} lines hold 2 bars or fewer")
-            wrong += port.short_line_problems([list(range(first, first + length)) for first, length in zip(starts, lengths, strict=True)])
+            wrong += port.short_line_problems([
+                list(range(first, first + length)) for first, length in zip(starts, lengths, strict=True)
+            ])
             notes.extend(long_runs)
             wrong += bad
         return wrong
@@ -182,16 +206,25 @@ def check_song(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> tupl
     guarded("even bars piano", lambda: even_bars(src, sheet, out / song.piano_pdf, work, True))
     guarded("even bars original", lambda: even_bars(src, out / song.score_file, out / song.original_pdf, work, False))
     if song.direction:
-        guarded("even bars tone", lambda: even_bars(src, work / f"{song.name}-{port.TONE}.mscz", out / song.tone_pdf, work, False))
+        guarded(
+            "even bars tone",
+            lambda: even_bars(src, work / f"{song.name}-{port.TONE}.mscz", out / song.tone_pdf, work, False),
+        )
     port.transpose_options(song)
     guarded("line start piano", lambda: port.chord_starts(sheet, score))
     guarded("line start original", lambda: port.chord_starts(out / song.score_file, score))
     if song.direction:
         guarded("line start tone", lambda: port.chord_starts(work / f"{song.name}-{port.TONE}.mscz", score))
     guarded("chord seat piano", lambda: chordseat.problems(sheet, measured(out / song.piano_pdf, work)))
-    guarded("chord seat original", lambda: chordseat.problems(out / song.score_file, measured(out / song.original_pdf, work)))
+    guarded(
+        "chord seat original",
+        lambda: chordseat.problems(out / song.score_file, measured(out / song.original_pdf, work)),
+    )
     if song.direction:
-        guarded("chord seat tone", lambda: chordseat.problems(work / f"{song.name}-{port.TONE}.mscz", measured(out / song.tone_pdf, work)))
+        guarded(
+            "chord seat tone",
+            lambda: chordseat.problems(work / f"{song.name}-{port.TONE}.mscz", measured(out / song.tone_pdf, work)),
+        )
 
     def homr() -> list[str]:
         wrong, note = homr_findings(src, score, work)
@@ -211,23 +244,34 @@ def measured(pdf: pathlib.Path, work: pathlib.Path) -> pathlib.Path:
     shutil.copyfile(pdf, copy)
     target = copy.with_suffix(".mpos")
     drawn = port.paired(work, pdf.name)
-    if not port.pairs(drawn, pdf):  # positions from any other render misplace bars by up to a point: judging with them accuses correct sheets
-        raise port.DoesNotFit(f"{pdf.name}: no measure positions from the render that drew it")
+    if not port.pairs(drawn, pdf):
+        msg = f"{pdf.name}: no measure positions from the render that drew it"
+        raise port.DoesNotFit(msg)
     shutil.copyfile(drawn, target)
     return copy
 
 
-def even_bars(src: pathlib.Path, score_path: pathlib.Path, pdf: pathlib.Path, work: pathlib.Path, reduced: bool) -> list[str]:
+def even_bars(
+    src: pathlib.Path,
+    score_path: pathlib.Path,
+    pdf: pathlib.Path,
+    work: pathlib.Path,
+    reduced: bool,
+) -> list[str]:
     """Empty bars of 1 line are equal on every sheet: chord text never sets a width."""
     score = decode(src)
     if reduced:
         piano.reduce(score)
     probe = measured(pdf, work)
-    widened = ({bar.number for bar in score.bars if len(bar.chords) > 1} | chord_bound_bars(score_path, probe)) if mode.PRINT else set()  # print mode lets a bar widen for its own chords: beat-spaced chords in 1 bar, or a chord crowding the next
-    return chordseat.uneven(score_path, probe, {bar.number for bar in score.bars if piano.has_notes(bar)} | widened)  # sign bars leave the judgement inside chordseat.empty_widths, as they leave the evening
+    widened = (
+        ({bar.number for bar in score.bars if len(bar.chords) > 1} | chord_bound_bars(score_path, probe))
+        if mode.PRINT
+        else set()
+    )
+    return chordseat.uneven(score_path, probe, {bar.number for bar in score.bars if piano.has_notes(bar)} | widened)
 
 
-BARLINE_LEAD = 2.0  # points a beat-1 chord's ink may start left of its own barline
+BARLINE_LEAD = 2.0
 
 
 def chord_bound_bars(score_path: pathlib.Path, pdf: pathlib.Path) -> set[int]:
@@ -245,7 +289,7 @@ def chord_bound_bars(score_path: pathlib.Path, pdf: pathlib.Path) -> set[int]:
             mine = [box for box in boxes if edges[at] - BARLINE_LEAD <= box[0] < edges[at + 1] - BARLINE_LEAD]
             after = [box for box in boxes if edges[at + 1] - BARLINE_LEAD <= box[0] < edges[at + 2] - BARLINE_LEAD][:1]
             chain = mine + after
-            gaps = [nxt[0] - box[1] for box, nxt in zip(chain, chain[1:], strict=False)]
+            gaps = [nxt[0] - box[1] for box, nxt in itertools.pairwise(chain)]
             if mine and gaps and min(gaps) <= clear + chordseat.EQUAL_TOLERANCE:
                 found.add(bar)
     return found
@@ -254,14 +298,20 @@ def chord_bound_bars(score_path: pathlib.Path, pdf: pathlib.Path) -> set[int]:
 def gate_key(src: pathlib.Path) -> str:
     """The key a gate pass is recorded under: the source, the code and the private lists it judges against."""
     private = pathlib.Path(os.environ["MUSE_PRIVATE"])
-    lists = "".join(buildcache.file_digest(path) for path in sorted(private.glob("*.txt")) + sorted(private.glob("*.json")) if path.is_file())
+    lists = "".join(
+        buildcache.file_digest(path)
+        for path in sorted(private.glob("*.txt")) + sorted(private.glob("*.json"))
+        if path.is_file()
+    )
     return buildcache.key_of(src, repr(song_of(src)), buildcache.code_files(), lists)
 
 
 def cached_check(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> tuple[list[str], list[str], bool]:
     """A pass stays valid while the source, code, style, private lists and every checked file are unchanged; a failure is always re-run."""
     info = song_of(src)
-    outputs = sorted(path for path in (out / info.name).iterdir() if path.is_file()) + ([] if info.orchestral else [work / f"{info.name}-piano-final.mscz"])
+    outputs = sorted(path for path in (out / info.name).iterdir() if path.is_file()) + (
+        [] if info.orchestral else [work / f"{info.name}-piano-final.mscz"]
+    )
     key = gate_key(src)
     state = buildcache.load(info.name)
     if buildcache.fresh(state.get("gate"), key, outputs):
@@ -285,11 +335,12 @@ def chord_name_problems(work: pathlib.Path) -> list[str]:
     ]
 
 
-
-
-
-
-def verdicts(src_dir: pathlib.Path, out: pathlib.Path, work: pathlib.Path, names: tuple[str, ...] = ()) -> dict[str, list[str]]:
+def verdicts(
+    src_dir: pathlib.Path,
+    out: pathlib.Path,
+    work: pathlib.Path,
+    names: tuple[str, ...] = (),
+) -> dict[str, list[str]]:
     """Each song folder's own failures, its files included."""
     work.mkdir(parents=True, exist_ok=True)
     found: dict[str, list[str]] = {}
@@ -300,12 +351,18 @@ def verdicts(src_dir: pathlib.Path, out: pathlib.Path, work: pathlib.Path, names
             continue
         files = info.files()
         folder = out / info.name
-        held = {f"{info.name}/{p.name}" for p in folder.iterdir() if p.is_file() and p.name != ".DS_Store"} if folder.exists() else set()
-        found[info.name] = [f"missing {name}" for name in sorted(files - held)] + [f"stray {name}" for name in sorted(held - files)]
+        held = (
+            {f"{info.name}/{p.name}" for p in folder.iterdir() if p.is_file() and p.name != ".DS_Store"}
+            if folder.exists()
+            else set()
+        )
+        found[info.name] = [f"missing {name}" for name in sorted(files - held)] + [
+            f"stray {name}" for name in sorted(held - files)
+        ]
         if not found[info.name]:
             try:
                 found[info.name] = chord_trouble + cached_check(src, out, work)[0]
-            except Exception as error:  # a refused source blocks its song, never the run
+            except Exception as error:
                 found[info.name] = [f"refused: {error}"]
         print(f"{info.name}: {len(found[info.name])} failures", flush=True)
     return found
@@ -325,7 +382,7 @@ def main() -> None:
         began = time.monotonic()
         try:
             failures, notes, cached = cached_check(src, out, work)
-        except Exception as error:  # a refused source is a failure of this song, never the end of the run
+        except Exception as error:
             failures, notes, cached = [f"refused: {error}"], [], False
         print(f"{src.stem}: {len(failures)} failures {time.monotonic() - began:.1f}s{' cached' if cached else ''}")
         for note in notes:

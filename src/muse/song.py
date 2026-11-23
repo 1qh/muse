@@ -1,8 +1,10 @@
 """Everything about a song that is derived rather than declared: decoder, key, target key, title."""
+
 from __future__ import annotations
 
 import dataclasses
 import json
+import operator
 import os
 import pathlib
 import re
@@ -12,8 +14,40 @@ import pymupdf
 from muse import bravura, leland, orchestral, symbolfont
 from muse.model import Orchestra, Score, UnknownEncoding
 
-MAJOR = {"Cb": -7, "Gb": -6, "Db": -5, "Ab": -4, "Eb": -3, "Bb": -2, "F": -1, "C": 0, "G": 1, "D": 2, "A": 3, "E": 4, "B": 5, "F#": 6, "C#": 7}
-MINOR = {"Ab": -7, "Eb": -6, "Bb": -5, "F": -4, "C": -3, "G": -2, "D": -1, "A": 0, "E": 1, "B": 2, "F#": 3, "C#": 4, "G#": 5, "D#": 6, "A#": 7}
+MAJOR = {
+    "Cb": -7,
+    "Gb": -6,
+    "Db": -5,
+    "Ab": -4,
+    "Eb": -3,
+    "Bb": -2,
+    "F": -1,
+    "C": 0,
+    "G": 1,
+    "D": 2,
+    "A": 3,
+    "E": 4,
+    "B": 5,
+    "F#": 6,
+    "C#": 7,
+}
+MINOR = {
+    "Ab": -7,
+    "Eb": -6,
+    "Bb": -5,
+    "F": -4,
+    "C": -3,
+    "G": -2,
+    "D": -1,
+    "A": 0,
+    "E": 1,
+    "B": 2,
+    "F#": 3,
+    "C#": 4,
+    "G#": 5,
+    "D#": 6,
+    "A#": 7,
+}
 PITCH = {"C": 0, "D": 2, "E": 4, "F": 5, "G": 7, "A": 9, "B": 11}
 TARGETS = {True: (("Em", "E", 1), ("Am", "A", 0)), False: (("G", "G", 1), ("C", "C", 0))}
 KEY = re.compile(r"([A-G][b#]?)(m?)")
@@ -35,7 +69,7 @@ class Song:
     direction: str
     semis: int
     title: str
-    orchestral: bool = False  # a full score: its 2 MuseScore files and 1 PDF in the original key, no favourite tone and no piano sheet
+    orchestral: bool = False
 
     @property
     def score_file(self) -> str:
@@ -61,18 +95,22 @@ class Song:
         return {self.score_file, self.original_pdf, self.tone_pdf, self.piano_pdf}
 
 
-PAST_EVENT = 8.0  # points past a bar's last note or rest
-CHORD_LETTER = 5.5  # points a source chord letter takes
-CROSSING = 2.0  # points past the barline
+PAST_EVENT = 8.0
+CHORD_LETTER = 5.5
+CROSSING = 2.0
 
 
 def sources(folders: pathlib.Path) -> list[pathlib.Path]:
     """Every source PDF of 1 folder, or of several joined by the path separator; a song name appears once."""
-    found = sorted((pdf for folder in str(folders).split(os.pathsep) for pdf in pathlib.Path(folder).glob("*.pdf")), key=lambda p: p.name)
+    found = sorted(
+        (pdf for folder in str(folders).split(os.pathsep) for pdf in pathlib.Path(folder).glob("*.pdf")),
+        key=lambda p: p.name,
+    )
     names = [pdf.stem.rsplit("-", 1)[0] for pdf in found]
     repeated = {name for name in names if names.count(name) > 1}
     if repeated:
-        raise SongRefused(f"song names repeat across folders: {sorted(repeated)}")
+        msg = f"song names repeat across folders: {sorted(repeated)}"
+        raise SongRefused(msg)
     return found
 
 
@@ -89,7 +127,8 @@ def encoding(path: pathlib.Path) -> str:
     codes = {ord(c) for page in doc for c in page.get_text()}
     if {symbolfont.STAFF, 0xF026} <= codes:
         return "symbolfont"
-    raise UnknownEncoding(f"{path.name}: unknown music encoding, fonts {fonts}")
+    msg = f"{path.name}: unknown music encoding, fonts {fonts}"
+    raise UnknownEncoding(msg)
 
 
 def settle_chord_bars(score: Score) -> Score:
@@ -99,9 +138,19 @@ def settle_chord_bars(score: Score) -> Score:
             continue
         events = [event.x for voice in bar.voices for event in voice if not event.bar_rest]
         for chord in list(bar.chords):
-            name = len(chord.root) + (1 if chord.root_alter else 0) + len(chord.kind) + (1 + len(chord.bass) if chord.bass else 0)
+            name = (
+                len(chord.root)
+                + (1 if chord.root_alter else 0)
+                + len(chord.kind)
+                + (1 + len(chord.bass) if chord.bass else 0)
+            )
             taken = bool(following.chords) and min(c.x for c in following.chords) - following.left < PAST_EVENT
-            if events and max(events) < chord.x - PAST_EVENT and chord.x + name * CHORD_LETTER > bar.right + CROSSING and not taken:
+            if (
+                events
+                and max(events) < chord.x - PAST_EVENT
+                and chord.x + name * CHORD_LETTER > bar.right + CROSSING
+                and not taken
+            ):
                 bar.chords.remove(chord)
                 following.chords.insert(0, chord)
     return score
@@ -115,7 +164,8 @@ def is_orchestral(path: pathlib.Path) -> bool:
 def orchestra_of(path: pathlib.Path) -> Orchestra:
     """A full score's every part, its mode from the source's file name."""
     if not is_orchestral(path):
-        raise SongRefused(f"{path.name}: not in the {orchestral.FOLDER} folder, so not a full score")
+        msg = f"{path.name}: not in the {orchestral.FOLDER} folder, so not a full score"
+        raise SongRefused(msg)
     found = orchestral.decode(path)
     key = KEY.fullmatch(path.stem.rsplit("-", 1)[-1])
     found.minor = None if key is None else key[2] == "m"
@@ -124,13 +174,14 @@ def orchestra_of(path: pathlib.Path) -> Orchestra:
 
 def decode(path: pathlib.Path) -> Score:
     if is_orchestral(path):
-        raise SongRefused(f"{path.name}: a full score is read by orchestra_of, never as a lead sheet")
+        msg = f"{path.name}: a full score is read by orchestra_of, never as a lead sheet"
+        raise SongRefused(msg)
     decoders = {"bravura": bravura.decode, "leland": leland.decode, "symbolfont": symbolfont.decode}
     score = settle_chord_bars(decoders[encoding(path)](str(path)))
     found = KEY.fullmatch(path.stem.rsplit("-", 1)[-1])
     score.minor = None if found is None else found[2] == "m"
     for bar in score.bars:
-        bar.source_line = bar.new_system  # the source's own line starts, kept when a plan replaces them
+        bar.source_line = bar.new_system
     return score
 
 
@@ -156,8 +207,9 @@ def title_of(path: pathlib.Path) -> str:
                 if has_letter and not name.startswith(MUSIC_FONTS):
                     spans.append((span["size"], span["text"].strip()))
     if not spans:
-        raise SongRefused(f"{path.name}: no title text; add it to {OVERRIDES}")
-    text = max(spans, key=lambda item: item[0])[1]
+        msg = f"{path.name}: no title text; add it to {OVERRIDES}"
+        raise SongRefused(msg)
+    text = max(spans, key=operator.itemgetter(0))[1]
     return str(text.title() if text.isupper() else text)
 
 
@@ -165,11 +217,13 @@ def song_of(path: pathlib.Path, score: Score | None = None) -> Song:
     parts = path.stem.rsplit("-", 1)
     found = KEY.fullmatch(parts[-1]) if len(parts) == 2 else None
     if not found:
-        raise SongRefused(f"{path.name}: name must end in -<key>, such as Name-Cm")
+        msg = f"{path.name}: name must end in -<key>, such as Name-Cm"
+        raise SongRefused(msg)
     root, minor = found[1], found[2] == "m"
     table = MINOR if minor else MAJOR
     if root not in table:
-        raise SongRefused(f"{path.name}: {parts[-1]} is not a usable key")
+        msg = f"{path.name}: {parts[-1]} is not a usable key"
+        raise SongRefused(msg)
     full = is_orchestral(path)
     if full:
         concert_key_problem(path, orchestra_of(path), table[root], parts[-1])
@@ -177,7 +231,10 @@ def song_of(path: pathlib.Path, score: Score | None = None) -> Song:
         decoded = score or decode(path)
         printed = decoded.bars[0].key if decoded.bars else None
         if printed != table[root]:
-            raise SongRefused(f"{path.name}: name says {parts[-1]} ({table[root]} fifths), the sheet prints {printed} fifths")
+            msg = f"{path.name}: name says {parts[-1]} ({table[root]} fifths), the sheet prints {printed} fifths"
+            raise SongRefused(
+                msg,
+            )
     tone, fifths, direction, semis = target_of(root, minor)
     overrides_path = path.parent / OVERRIDES
     overrides = json.loads(overrides_path.read_text(encoding="utf-8")) if overrides_path.exists() else {}
@@ -187,6 +244,12 @@ def song_of(path: pathlib.Path, score: Score | None = None) -> Song:
 
 def concert_key_problem(path: pathlib.Path, score: Orchestra, fifths: int, named: str) -> None:
     """A full score's name states its concert key: each part sounding as written prints it, or no key at all as timpani do, and each transposing part prints it moved by its transposition."""
-    wrong = [f"{part.name} {part.key}" for part in score.parts if part.key != orchestral.written_key(fifths, part.transposition) and not (part.transposition is None and part.key == 0)]
+    wrong = [
+        f"{part.name} {part.key}"
+        for part in score.parts
+        if part.key != orchestral.written_key(fifths, part.transposition)
+        and not (part.transposition is None and part.key == 0)
+    ]
     if wrong or not any(part.transposition is None and part.key == fifths for part in score.parts):
-        raise SongRefused(f"{path.name}: name says {named} ({fifths} fifths), parts print {wrong or 'no such key'}")
+        msg = f"{path.name}: name says {named} ({fifths} fifths), parts print {wrong or 'no such key'}"
+        raise SongRefused(msg)

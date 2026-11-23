@@ -1,4 +1,5 @@
 """Every heavy tool run, MuseScore or the optical cross-check, passes through 1 gate, so 1 build process never runs more at once than its share of the cores."""
+
 from __future__ import annotations
 
 import os
@@ -9,14 +10,16 @@ import subprocess
 import tempfile
 import threading
 import time
-from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 import psutil
 
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
 SLOTS_VARIABLE = "MUSE_LAUNCH_SLOTS"
 LAUNCHES = {"count": 0}
-LAUNCH_SECONDS = 240  # 1 MuseScore import or export, counted from when its launch slot frees
-
+LAUNCH_SECONDS = 240
 
 
 def slots() -> int:
@@ -28,8 +31,8 @@ def slots() -> int:
 GATE = threading.BoundedSemaphore(slots())
 
 
-FREE_CORE_WAIT = 3600.0  # seconds a launch waits for a whole core to sit idle
-IDLE_WINDOW = 1.0  # seconds over which 1 reading measures idle CPU
+FREE_CORE_WAIT = 3600.0
+IDLE_WINDOW = 1.0
 
 
 def idle_percent() -> float:
@@ -37,33 +40,50 @@ def idle_percent() -> float:
     return 100.0 - float(psutil.cpu_percent(interval=IDLE_WINDOW))
 
 
-def free_core(deadline: float = FREE_CORE_WAIT, idle: Callable[[], float] = idle_percent, cores: int | None = None) -> None:
+def free_core(
+    deadline: float = FREE_CORE_WAIT,
+    idle: Callable[[], float] = idle_percent,
+    cores: int | None = None,
+) -> None:
     """Wait until a whole core sits idle: the cores are shared with other work, and a run started on a saturated machine starves past its deadline; each reading itself takes the measuring second."""
     total = cores or os.cpu_count() or 1
     give_up = time.monotonic() + deadline
     while (free := idle() * total / 100.0) < 1.0:
         if time.monotonic() > give_up:
-            raise TimeoutError(f"no free core for {deadline:.0f} s: {free:.2f} of {total} cores idle")
+            msg = f"no free core for {deadline:.0f} s: {free:.2f} of {total} cores idle"
+            raise TimeoutError(msg)
 
 
-UNAVAILABLE = "the locked Mac refuses the tools a build needs: unlock it"  # the marker a run stops on
-REFUSED_BY_LOCK = ("Error creating pasteboard", "Unable to compute the prediction using a neural network model")  # MuseScore refused the pasteboard, homr refused its CoreML model: what each prints while the Mac sits at the login or lock window
+UNAVAILABLE = "the locked Mac refuses the tools a build needs: unlock it"
+REFUSED_BY_LOCK = ("Error creating pasteboard", "Unable to compute the prediction using a neural network model")
 
 
 class MachineUnavailable(RuntimeError):
     """MuseScore aborted because the machine refused it a window session: no song is at fault."""
 
 
-HANGS = pathlib.Path(tempfile.gettempdir()) / "muse-hangs"  # native stacks of runs that passed their deadline
+HANGS = pathlib.Path(tempfile.gettempdir()) / "muse-hangs"
 SAMPLE_SECONDS = 3
 
 
-def heavy(argv: list[str], timeout: float, check: bool = False, cwd: pathlib.Path | None = None) -> subprocess.CompletedProcess[str]:
+def heavy(
+    argv: list[str],
+    timeout: float,
+    check: bool = False,
+    cwd: pathlib.Path | None = None,
+) -> subprocess.CompletedProcess[str]:
     """1 run of a heavy tool, MuseScore or the optical cross-check, waiting for a free slot first; the timeout counts only the run, never the wait; with check, a failed run raises; a run past its deadline is sampled before it is killed."""
     with GATE:
         free_core()
         LAUNCHES["count"] += 1
-        with subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, stdin=subprocess.DEVNULL, cwd=cwd) as process:
+        with subprocess.Popen(
+            argv,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            stdin=subprocess.DEVNULL,
+            cwd=cwd,
+        ) as process:
             try:
                 out, err = process.communicate(timeout=timeout)
             except subprocess.TimeoutExpired as expired:
@@ -73,7 +93,8 @@ def heavy(argv: list[str], timeout: float, check: bool = False, cwd: pathlib.Pat
                 raise subprocess.TimeoutExpired(argv, timeout, output=f"stack sampled to {where}") from expired
         done = subprocess.CompletedProcess(argv, process.returncode, out, err)
         if process.returncode and any(sign in err for sign in REFUSED_BY_LOCK):
-            raise MachineUnavailable(f"{UNAVAILABLE} ({argv[0]} failed: {err.strip()[-200:]})")
+            msg = f"{UNAVAILABLE} ({argv[0]} failed: {err.strip()[-200:]})"
+            raise MachineUnavailable(msg)
         if check:
             done.check_returncode()
         return done
@@ -86,16 +107,27 @@ def sample(pid: int) -> pathlib.Path | None:
         return None
     HANGS.mkdir(parents=True, exist_ok=True)
     target = HANGS / f"{pid}-{int(time.time())}.sample"
-    subprocess.run([tool, str(pid), str(SAMPLE_SECONDS), "-file", str(target)], capture_output=True, stdin=subprocess.DEVNULL, timeout=SAMPLE_SECONDS * 10, check=False)
+    subprocess.run(
+        [tool, str(pid), str(SAMPLE_SECONDS), "-file", str(target)],
+        capture_output=True,
+        stdin=subprocess.DEVNULL,
+        timeout=SAMPLE_SECONDS * 10,
+        check=False,
+    )
     return target
 
 
-LOGS = pathlib.Path.home() / "Library" / "Application Support" / "MuseScore" / "MuseScore4" / "logs"  # MuseScore writes 1 log per launch second and never prunes
+LOGS = pathlib.Path.home() / "Library" / "Application Support" / "MuseScore" / "MuseScore4" / "logs"
 LOG_NAME = re.compile(r"MuseScore_(\d{6}_\d{6})\.log")
 CONVERSION = re.compile(r"ConverterController::convertFile \| in: (.+?), out: ")
 
 
-def mscore(args: list[str], timeout: float, command: str = "mscore", check: bool = False) -> subprocess.CompletedProcess[str]:
+def mscore(
+    args: list[str],
+    timeout: float,
+    command: str = "mscore",
+    check: bool = False,
+) -> subprocess.CompletedProcess[str]:
     """1 MuseScore launch through the shared slots, its own logs removed after it."""
     began = time.time()
     try:
@@ -108,7 +140,11 @@ def roots_of(args: list[str]) -> list[pathlib.Path]:
     """The folders a launch reads from: each path argument's own, and for a job file, each path it lists."""
     paths = [pathlib.Path(arg) for arg in args if pathlib.Path(arg).exists()]
     for job in [path for path in paths if path.suffix == ".json"]:
-        paths += [pathlib.Path(value) for value in re.findall(r'"([^"]+)"', job.read_text(encoding="utf-8")) if value.startswith("/") and pathlib.Path(value).exists()]
+        paths += [
+            pathlib.Path(value)
+            for value in re.findall(r'"([^"]+)"', job.read_text(encoding="utf-8"))
+            if value.startswith("/") and pathlib.Path(value).exists()
+        ]
     return sorted({path.resolve().parent for path in paths})
 
 
@@ -125,7 +161,7 @@ def drop_own_logs(roots: list[pathlib.Path], start: float, end: float, logs: pat
         try:
             text = log.read_text(encoding="utf-8", errors="replace")
         except FileNotFoundError:
-            continue  # another launch removed it between the listing and the read: it is gone, as wanted
+            continue
         reads = CONVERSION.findall(text)
         if reads and all(any(pathlib.Path(read).resolve().is_relative_to(root) for root in roots) for read in reads):
             log.unlink(missing_ok=True)

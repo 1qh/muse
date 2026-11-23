@@ -1,4 +1,5 @@
 """A cache must never hide a stale file."""
+
 import pathlib
 import subprocess
 import types
@@ -14,13 +15,13 @@ def setup(tmp_path):
     return source, style, code, out, key, buildcache.record(key, [out])
 
 
-def test_an_unchanged_build_is_fresh(tmp_path):
-    source, style, code, out, key, entry = setup(tmp_path)
+def test_an_unchanged_build_is_fresh(tmp_path) -> None:
+    source, style, code, out, _key, entry = setup(tmp_path)
     assert buildcache.fresh(entry, buildcache.key_of(source, "song", [code], style=style), [out])
 
 
-def test_changing_source_style_code_or_song_forces_a_rebuild(tmp_path):
-    source, style, code, out, key, entry = setup(tmp_path)
+def test_changing_source_style_code_or_song_forces_a_rebuild(tmp_path) -> None:
+    source, style, code, out, _key, entry = setup(tmp_path)
     for path in (source, style, code):
         path.write_text("b")
         assert not buildcache.fresh(entry, buildcache.key_of(source, "song", [code], style=style), [out])
@@ -28,38 +29,48 @@ def test_changing_source_style_code_or_song_forces_a_rebuild(tmp_path):
     assert not buildcache.fresh(entry, buildcache.key_of(source, "other", [code], style=style), [out])
 
 
-def test_a_changed_or_missing_output_forces_a_rebuild(tmp_path):
-    source, style, code, out, key, entry = setup(tmp_path)
+def test_a_changed_or_missing_output_forces_a_rebuild(tmp_path) -> None:
+    _source, _style, _code, out, key, entry = setup(tmp_path)
     out.write_text("edited")
     assert not buildcache.fresh(entry, key, [out])
     out.unlink()
     assert not buildcache.fresh(entry, key, [out])
 
 
-def test_a_sheets_key_holds_the_code_that_shapes_it_and_no_check():
+def test_a_sheets_key_holds_the_code_that_shapes_it_and_no_check() -> None:
     names = {p.name for p in buildcache.sheet_code()}
-    assert {"layout.py", "port.py", "piano.py", "musicxml.py", "main.js", "manifest.json"} <= names  # piano.py too: every sheet's line rules use it
-    assert not names & {"gate.py", "verify.py", "inverse.py", "publish.py", "status.py", "report.py", "preflight.py", "build.py"}  # checks and reports never shape a sheet
+    assert {"layout.py", "port.py", "piano.py", "musicxml.py", "main.js", "manifest.json"} <= names
+    assert not names & {
+        "gate.py",
+        "verify.py",
+        "inverse.py",
+        "publish.py",
+        "status.py",
+        "report.py",
+        "preflight.py",
+        "build.py",
+    }
 
 
-def test_workers_follow_the_cores_never_a_load_sample():
+def test_workers_follow_the_cores_never_a_load_sample() -> None:
     assert build.free_workers(19, cores=8) == 8
     assert build.free_workers(2, cores=10) == 2
     assert build.free_workers(0, cores=10) == 1
 
 
-def test_a_module_a_sheet_writer_imports_joins_the_key(tmp_path):
+def test_a_module_a_sheet_writer_imports_joins_the_key(tmp_path) -> None:
     (tmp_path / "layout.py").write_text("from muse import helper\n")
     (tmp_path / "helper.py").write_text("from muse.deep import x\n")
     (tmp_path / "deep.py").write_text("")
     (tmp_path / "unused.py").write_text("")
-    for name in set(buildcache.SHEET_WRITERS) - {"layout"}:  # every other writer, from its 1 home
+    for name in set(buildcache.SHEET_WRITERS) - {"layout"}:
         (tmp_path / f"{name}.py").write_text("")
     names = {p.name for p in buildcache.sheet_code(tmp_path)}
-    assert {"layout.py", "helper.py", "deep.py"} <= names and "unused.py" not in names  # derived through every import, never a hand list
+    assert {"layout.py", "helper.py", "deep.py"} <= names
+    assert "unused.py" not in names
 
 
-def test_a_failing_code_check_stops_the_rest():
+def test_a_failing_code_check_stops_the_rest() -> None:
     calls = []
 
     def check(command, **_):
@@ -70,7 +81,7 @@ def test_a_failing_code_check_stops_the_rest():
     assert len(calls) == 1
 
 
-def test_a_song_with_no_piano_part_or_a_refused_source_is_named(monkeypatch, tmp_path):
+def test_a_song_with_no_piano_part_or_a_refused_source_is_named(monkeypatch, tmp_path) -> None:
     source = tmp_path / "x.pdf"
     source.write_text("x")
     monkeypatch.setattr(preflight, "decode", lambda _: object())
@@ -115,7 +126,7 @@ def test_a_print_mode_build_is_never_reused_as_strict(tmp_path, monkeypatch) -> 
     assert build.variant_key(source, "original") != strict
 
 
-def test_a_song_child_hands_back_its_report_or_its_refusal(monkeypatch, tmp_path):
+def test_a_song_child_hands_back_its_report_or_its_refusal(monkeypatch, tmp_path) -> None:
     import json
     import subprocess
     from types import SimpleNamespace
@@ -130,6 +141,7 @@ def test_a_song_child_hands_back_its_report_or_its_refusal(monkeypatch, tmp_path
             if reason is not None:
                 (tmp_path / "Song-refusal.txt").write_text(reason, encoding="utf-8")
             return subprocess.CompletedProcess(argv, code)
+
         return run
 
     monkeypatch.setattr(build.subprocess, "run", finished(0, {"song": "Song"}, None))

@@ -1,28 +1,30 @@
 """Reduce a score to the pianist's sheet: 1 staff, notes only where the piano plays them, chords everywhere."""
+
 from __future__ import annotations
 
 import dataclasses
+import itertools
 import re
 
 from muse.model import Bar, Event, Score, Text
 
-SUNG = re.compile(r"\s*(Verse|Pre-?\s?Chorus|Chorus|Rap|Bridge)[\w-]*\s*:", re.I)
-ENDING = re.compile(r"\s*(End|Ending|Outro)\w*\s*:", re.I)
+SUNG = re.compile(r"\s*(Verse|Pre-?\s?Chorus|Chorus|Rap|Bridge)[\w-]*\s*:", re.IGNORECASE)
+ENDING = re.compile(r"\s*(End|Ending|Outro)\w*\s*:", re.IGNORECASE)
 LETTER = re.compile(r"^[A-Z]\d?$")
-PIANO_CUE = re.compile(r"piano|keys?\b|key/|rhodes", re.I)
-MIN_TAIL = 3  # consecutive bars of notes closing an unlabelled section read as instrumental
+PIANO_CUE = re.compile(r"piano|keys?\b|key/|rhodes", re.IGNORECASE)
+MIN_TAIL = 3
 HINT_WORDS = 4
 
 
 @dataclasses.dataclass
 class Part:
-    name: str  # intro, interlude or outro
+    name: str
     first: int
     last: int
     staff: int = 1
 
 
-HIT_CUE = re.compile(r"fill|tut+i", re.I)
+HIT_CUE = re.compile(r"fill|tut+i", re.IGNORECASE)
 
 
 def label_of(bar: Bar) -> str:
@@ -67,7 +69,7 @@ def segments(score: Score) -> list[tuple[int, int]]:
         if bar.repeat_end and bar.number < len(bars) and piano_cued(by_number_of(bars, bar.number + 1)):
             cuts.add(bar.number + 1)
     ordered = sorted(c for c in cuts if c <= len(bars) + 1)
-    return list(zip(ordered, ordered[1:], strict=False))
+    return list(itertools.pairwise(ordered))
 
 
 def sung_stretches(score: Score) -> list[tuple[int, int]]:
@@ -90,7 +92,7 @@ def sung_stretches(score: Score) -> list[tuple[int, int]]:
         if label:
             closing = end > len(score.bars) or by_number[end - 1].dal_segno
             stop = min(end, first + done[label]) if label in done else end
-            if label not in done and closing and sung:  # a last section with no earlier twin runs as long as the one before
+            if label not in done and closing and sung:
                 stop = min(end, first + list(done.values())[-1]) if done else end
             done.setdefault(label, end - first)
             sung.append((first, stop))
@@ -142,15 +144,11 @@ def by_mark(score: Score, number: int) -> bool:
     return bool(score.bars[number - 1].rehearsal) or bool(score.bars[number - 1].coda)
 
 
-
-
 def lone_lines(starts: list[int], total: int) -> list[int]:
     """Lines holding 1 bar, by bar number."""
     if len(starts) < 2:
-        return []  # a single line has no neighbour to join
+        return []
     return [first for first, stop in zip(starts, [*starts[1:], total + 1], strict=True) if stop - first == 1]
-
-
 
 
 def voices_sound(voices: list[list[Event]]) -> bool:
@@ -162,7 +160,9 @@ def staff_of(bars: list[Bar]) -> int:
     for bar in bars:
         if any(PIANO_CUE.search("".join(run[0] for run in t.runs)) for t in bar.texts2):
             return 2
-    if any(any(e.heads for v in b.voices2 for e in v) for b in bars) and not any(any(e.heads for v in b.voices for e in v) for b in bars):
+    if any(any(e.heads for v in b.voices2 for e in v) for b in bars) and not any(
+        any(e.heads for v in b.voices for e in v) for b in bars
+    ):
         return 2
     return 1
 
@@ -181,9 +181,9 @@ def shorten(text: Text) -> None:
     for content, bold, italic in text.runs:
         if ":" in content:
             runs.append((content, bold, italic))
-            left = HINT_WORDS  # a cue can stack labels, and each keeps its own words
+            left = HINT_WORDS
             continue
-        if bold:  # a band cue sharing the text is no lyric
+        if bold:
             runs.append((content, bold, italic))
             continue
         words = content.split()
@@ -204,7 +204,9 @@ def clean_ties(score: Score) -> None:
         following = events[index + 1][1] if index + 1 < len(events) else None
         if head.tie_stop and not open_ties:
             head.tie_stop = False
-        if head.tie_start and not (following and following.tie_stop and following.step == head.step and following.octave == head.octave):
+        if head.tie_start and not (
+            following and following.tie_stop and following.step == head.step and following.octave == head.octave
+        ):
             head.tie_start = False
         open_ties = head.tie_start
     opened = None
@@ -223,7 +225,11 @@ def clean_ties(score: Score) -> None:
 
 def hit_bars(score: Score) -> set[int]:
     """Bars the pianist plays with: any accent, and a fill or tutti cue through the bars until the next chord change."""
-    found = {bar.number for bar in score.bars if any(event.accent for voices in (bar.voices, bar.voices2) for voice in voices for event in voice)}
+    found = {
+        bar.number
+        for bar in score.bars
+        if any(event.accent for voices in (bar.voices, bar.voices2) for voice in voices for event in voice)
+    }
     for at, bar in enumerate(score.bars):
         if any(HIT_CUE.search("".join(run[0] for run in text.runs)) for text in [*bar.texts, *bar.texts2]):
             found.add(bar.number)

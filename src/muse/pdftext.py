@@ -1,15 +1,18 @@
 """A rendered PDF read once per version of the file: every check shares 1 parse of its text and drawings."""
+
 from __future__ import annotations
 
 import collections
 import pathlib
 import threading
-from collections.abc import Iterator
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pymupdf
 
-KEEP = 64  # documents held, newest first
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+
+KEEP = 64
 
 
 class Page:
@@ -60,7 +63,7 @@ CACHE: collections.OrderedDict[tuple[str, int, int], Document] = collections.Ord
 LOCK = threading.Lock()
 
 
-def open(path: pathlib.Path | str) -> Document:  # noqa: A001 - the name the checks already call
+def open(path: pathlib.Path | str) -> Document:  # ruff: ignore[builtin-variable-shadowing] - the name the checks already call
     """The shared parse of a PDF, keyed by its path, size and change time so a rewrite is read fresh."""
     stat = pathlib.Path(path).stat()
     key = (str(path), stat.st_size, stat.st_mtime_ns)

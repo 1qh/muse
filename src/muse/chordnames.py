@@ -1,4 +1,5 @@
 """Short chord names: each stored as a spelling the score programs parse, so it prints short and plays like the long form."""
+
 from __future__ import annotations
 
 import json
@@ -28,8 +29,7 @@ SHORT = {
     "7(b9)": "7b9",
     "m7(add4)": "m7add4",
 }
-CHECK_SECONDS = 240  # 1 playback check run
-# pitch classes on a root of A, each proved against the long form in both programs
+CHECK_SECONDS = 240
 PLAYS = {
     "^7": [1, 4, 8, 9],
     "^9": [1, 4, 8, 9, 11],
@@ -42,15 +42,13 @@ PLAYS = {
     "7b9": [1, 4, 7, 9, 10],
     "m7add4": [0, 2, 4, 7, 9],
 }
-CHORD_FILE = pathlib.Path(__file__).with_name("chords.xml")  # the pipeline's own chord description: the circle and triangle as SF Pro letters, a slash chord's bass level with its root
+CHORD_FILE = pathlib.Path(__file__).with_name("chords.xml")
 Runner = Callable[..., None]
 
 
 def stored(kind: str) -> str:
     """The spelling a chord kind is written with."""
     return SHORT.get(kind, kind)
-
-
 
 
 CHORD_PATH = re.compile(rb"<chordDescriptionFile>[^<]*</chordDescriptionFile>")
@@ -69,7 +67,12 @@ def drop_chord_path(mscz: pathlib.Path) -> None:
 def chord_path_problems(mscz: pathlib.Path) -> list[str]:
     """Any style in a score that names a chord file by anything but the embedded list."""
     with zipfile.ZipFile(mscz) as source:
-        found = [m for name in source.namelist() if name.endswith((".mss", ".mscx")) for m in CHORD_PATH.findall(source.read(name))]
+        found = [
+            m
+            for name in source.namelist()
+            if name.endswith((".mss", ".mscx"))
+            for m in CHORD_PATH.findall(source.read(name))
+        ]
     return [f"{mscz.name}: chord file {m.decode()}" for m in found if m != STORED_NAME and b"chords_std" not in m]
 
 
@@ -83,15 +86,23 @@ def chord_file(work: pathlib.Path) -> pathlib.Path:
     return path
 
 
-
-
 def bars_xml(kinds: list[str]) -> str:
     """1 bar of A per chord kind."""
     bars = []
     for number, kind in enumerate(kinds, 1):
-        head = '<attributes><divisions>1</divisions><key><fifths>0</fifths></key><time><beats>4</beats><beat-type>4</beat-type></time><clef><sign>G</sign><line>2</line></clef></attributes>' if number == 1 else ""
-        bars.append(f'<measure number="{number}">{head}<harmony><root><root-step>A</root-step></root><kind text="{kind}">other</kind></harmony><note><rest measure="yes"/><duration>4</duration></note></measure>')
-    return '<?xml version="1.0" encoding="UTF-8"?><score-partwise version="3.1"><part-list><score-part id="P1"><part-name>x</part-name></score-part></part-list><part id="P1">' + "".join(bars) + "</part></score-partwise>"
+        head = (
+            "<attributes><divisions>1</divisions><key><fifths>0</fifths></key><time><beats>4</beats><beat-type>4</beat-type></time><clef><sign>G</sign><line>2</line></clef></attributes>"
+            if number == 1
+            else ""
+        )
+        bars.append(
+            f'<measure number="{number}">{head}<harmony><root><root-step>A</root-step></root><kind text="{kind}">other</kind></harmony><note><rest measure="yes"/><duration>4</duration></note></measure>',
+        )
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?><score-partwise version="3.1"><part-list><score-part id="P1"><part-name>x</part-name></score-part></part-list><part id="P1">'
+        + "".join(bars)
+        + "</part></score-partwise>"
+    )
 
 
 def variable_length(track: bytes, at: int) -> tuple[int, int]:
@@ -112,8 +123,8 @@ def sounding(mid: pathlib.Path) -> dict[int, list[int]]:
     at = 14
     found: dict[int, set[int]] = {}
     while at < len(data):
-        size = struct.unpack(">I", data[at + 4:at + 8])[0]
-        track = data[at + 8:at + 8 + size]
+        size = struct.unpack(">I", data[at + 4 : at + 8])[0]
+        track = data[at + 8 : at + 8 + size]
         at += 8 + size
         i = now = status = 0
         while i < len(track):
@@ -125,10 +136,10 @@ def sounding(mid: pathlib.Path) -> dict[int, list[int]]:
             if status == 255:
                 length, i = variable_length(track, i + 1)
                 i += length
-            elif status in (240, 247):
+            elif status in {240, 247}:
                 length, i = variable_length(track, i)
                 i += length
-            elif status >> 4 in (12, 13):
+            elif status >> 4 in {12, 13}:
                 i += 1
             else:
                 pitch, velocity = track[i], track[i + 1]
@@ -140,7 +151,11 @@ def sounding(mid: pathlib.Path) -> dict[int, list[int]]:
 
 def wrong_playback(kinds: list[str], heard: dict[int, list[int]]) -> list[str]:
     """Kinds whose bar does not sound as proved."""
-    return [f"{kind}: plays {heard.get(bar)}, wanted {PLAYS[kind]}" for bar, kind in enumerate(kinds) if heard.get(bar) != PLAYS[kind]]
+    return [
+        f"{kind}: plays {heard.get(bar)}, wanted {PLAYS[kind]}"
+        for bar, kind in enumerate(kinds)
+        if heard.get(bar) != PLAYS[kind]
+    ]
 
 
 def playback_problems(command: str, style: pathlib.Path, work: pathlib.Path, run: Runner) -> list[str]:
@@ -167,12 +182,24 @@ def transposes(command: str, style: pathlib.Path, work: pathlib.Path, run: Runne
     score = folder / "moved-start.mscz"
     moved = folder / "moved.mscz"
     mid = folder / "moved.mid"
-    options = {"mode": "to_key", "direction": "up", "targetKey": 2, "transposeKeySignatures": True, "transposeChordNames": True, "useDoubleSharpsFlats": False, "transposeInterval": 0}
+    options = {
+        "mode": "to_key",
+        "direction": "up",
+        "targetKey": 2,
+        "transposeKeySignatures": True,
+        "transposeChordNames": True,
+        "useDoubleSharpsFlats": False,
+        "transposeInterval": 0,
+    }
     run([command, "-S", str(style), "-o", str(score), str(source)])
     run([command, "-o", str(moved), "--transpose", json.dumps(options), str(score)])
     run([command, "-o", str(mid), str(moved)])
     heard = sounding(mid)
-    return [f"{kind} a tone up: plays {heard.get(bar)}" for bar, kind in enumerate(kinds) if heard.get(bar) != sorted((pc + 2) % 12 for pc in PLAYS[kind])]
+    return [
+        f"{kind} a tone up: plays {heard.get(bar)}"
+        for bar, kind in enumerate(kinds)
+        if heard.get(bar) != sorted((pc + 2) % 12 for pc in PLAYS[kind])
+    ]
 
 
 def checked_run(arguments: list[str]) -> None:

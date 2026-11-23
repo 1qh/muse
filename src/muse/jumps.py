@@ -1,11 +1,15 @@
 """Jump signs and words that a MusicXML import leaves as staff text, rewritten as MuseScore's own playable marker and jump elements."""
+
 from __future__ import annotations
 
 import re
-from collections.abc import Callable
+from typing import TYPE_CHECKING
 
-SIGN_SIZE = 25  # a printed sign may exceed the chords: about 2.5 times the default sign
-LABELS = {"segno": "segno", "coda": "codab"}  # a sign's jump label: the coda sign is where the jump continues
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+SIGN_SIZE = 25
+LABELS = {"segno": "segno", "coda": "codab"}
 
 WORDS = {
     "To Coda": f"<Marker><style>repeat_right</style><text><sym>coda</sym></text><label>coda</label><markerType>coda</markerType><markerCenterOnSymbol>0</markerCenterOnSymbol><musicSymbolSize>{SIGN_SIZE}</musicSymbolSize></Marker>",
@@ -18,11 +22,9 @@ def sign_marker(sym: str) -> str:
     return f"<Marker><style>repeat_left</style><text><sym>{sym}</sym></text><label>{LABELS[sym]}</label><markerType>{LABELS[sym]}</markerType><markerCenterOnSymbol>0</markerCenterOnSymbol><musicSymbolSize>{SIGN_SIZE}</musicSymbolSize></Marker>"
 
 
-
-
 def staff_text(inner: str) -> re.Pattern[str]:
     """A staff text whose whole text is exactly this."""
-    return re.compile(r"\s*<StaffText>(?:(?!</StaffText>).)*?<text>" + inner + r"</text>\s*</StaffText>", re.S)
+    return re.compile(r"\s*<StaffText>(?:(?!</StaffText>).)*?<text>" + inner + r"</text>\s*</StaffText>", re.DOTALL)
 
 
 def rewrite(text: str, words: dict[str, str], sign: Callable[[str], str], clearance: float | None = None) -> str:
@@ -31,14 +33,14 @@ def rewrite(text: str, words: dict[str, str], sign: Callable[[str], str], cleara
         pattern = staff_text(re.escape(word))
         while found := pattern.search(text):
             start = text.rfind("<voice>", 0, found.start())
-            text = text[:start] + element + text[start:found.start()] + text[found.end():]
+            text = text[:start] + element + text[start : found.start()] + text[found.end() :]
     for sym in LABELS:
         pattern = staff_text(f"<sym>{sym}</sym>")
         for found in reversed(list(pattern.finditer(text))):
             start = text.rfind("<voice>", 0, found.start())
-            text = text[:start] + sign(sym) + text[start:found.start()] + text[found.end():]
+            text = text[:start] + sign(sym) + text[start : found.start()] + text[found.end() :]
             chord = text.find("<Harmony>", start)
-            if clearance is not None and chord != -1 and chord < text.find("</Measure>", start):  # a marker ignores its own offset in layout, so the chord beside it makes the room
+            if clearance is not None and chord != -1 and chord < text.find("</Measure>", start):
                 at = chord + len("<Harmony>")
                 text = text[:at] + f'<offset x="{clearance}" y="0"/>' + text[at:]
     return text

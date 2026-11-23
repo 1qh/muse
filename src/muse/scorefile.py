@@ -1,20 +1,34 @@
 """Read what a saved MuseScore file actually holds, in either format, bar by bar."""
+
 from __future__ import annotations
 
 import dataclasses
-import pathlib
 import xml.etree.ElementTree as ET
 import zipfile
 from fractions import Fraction as F
+from typing import TYPE_CHECKING
 
-DURATIONS = {"long": F(4), "breve": F(2), "whole": F(1), "half": F(1, 2), "quarter": F(1, 4), "eighth": F(1, 8), "16th": F(1, 16), "32nd": F(1, 32), "64th": F(1, 64)}
+if TYPE_CHECKING:
+    import pathlib
+
+DURATIONS = {
+    "long": F(4),
+    "breve": F(2),
+    "whole": F(1),
+    "half": F(1, 2),
+    "quarter": F(1, 4),
+    "eighth": F(1, 8),
+    "16th": F(1, 16),
+    "32nd": F(1, 32),
+    "64th": F(1, 64),
+}
 GRACE = ("acciaccatura", "appoggiatura", "grace4", "grace16", "grace32", "grace8after", "grace16after", "grace32after")
 
 
 @dataclasses.dataclass
 class FileBar:
     pitches: list[int] = dataclasses.field(default_factory=list)
-    chords: list[tuple[F, int, int, str]] = dataclasses.field(default_factory=list)  # quarters, root, bass, name
+    chords: list[tuple[F, int, int, str]] = dataclasses.field(default_factory=list)
     signs: list[str] = dataclasses.field(default_factory=list)
     jumps: list[tuple[str, str, str]] = dataclasses.field(default_factory=list)
     length: F = F(0)
@@ -40,7 +54,7 @@ def length_of(event: ET.Element, scale: F) -> F:
         return F(text)
     base = DURATIONS.get(event.findtext("durationType") or "", F(0))
     dots = int(event.findtext("dots") or 0)
-    return base * (2 - F(1, 2 ** dots)) * scale
+    return base * (2 - F(1, 2**dots)) * scale
 
 
 def read_bar(measure: ET.Element) -> FileBar:
@@ -48,7 +62,11 @@ def read_bar(measure: ET.Element) -> FileBar:
     for marker in measure.iter("Marker"):
         bar.signs.append(marker.findtext("label") or "")
     for jump in measure.iter("Jump"):
-        bar.jumps.append((jump.findtext("jumpTo") or "", jump.findtext("playUntil") or "", jump.findtext("continueAt") or ""))
+        bar.jumps.append((
+            jump.findtext("jumpTo") or "",
+            jump.findtext("playUntil") or "",
+            jump.findtext("continueAt") or "",
+        ))
     for voice in measure.findall("voice"):
         at = F(0)
         scale = F(1)
@@ -62,8 +80,13 @@ def read_bar(measure: ET.Element) -> FileBar:
             elif node.tag == "Harmony":
                 info = node.find("harmonyInfo")
                 holder = info if info is not None else node
-                bar.chords.append((at * 4, int(holder.findtext("root") or -1), int(holder.findtext("base") or holder.findtext("bass") or -1), holder.findtext("name") or ""))
-            elif node.tag in ("Chord", "Rest"):
+                bar.chords.append((
+                    at * 4,
+                    int(holder.findtext("root") or -1),
+                    int(holder.findtext("base") or holder.findtext("bass") or -1),
+                    holder.findtext("name") or "",
+                ))
+            elif node.tag in {"Chord", "Rest"}:
                 if node.tag == "Chord":
                     bar.pitches += [int(n.findtext("pitch") or 0) for n in node.findall("Note")]
                 at += length_of(node, scale)
@@ -74,8 +97,6 @@ def read_bar(measure: ET.Element) -> FileBar:
 def read(path: pathlib.Path) -> list[list[FileBar]]:
     """1 list of bars per staff."""
     return [[read_bar(m) for m in staff.findall("Measure")] for staff in staves(root_of(path))]
-
-
 
 
 def difference(a: pathlib.Path, b: pathlib.Path) -> list[str]:
@@ -106,7 +127,7 @@ def builtin_sign_problems(path: pathlib.Path) -> list[str]:
     root = root_of(path)
     for marker in root.iter("Marker"):
         label = marker.findtext("label")
-        if label not in ("segno", "codab"):
+        if label not in {"segno", "codab"}:
             continue
         text = marker.find("text")
         symbols = [s.text for s in text.iter("sym")] if text is not None else []
@@ -129,10 +150,6 @@ def builtin_sign_problems(path: pathlib.Path) -> list[str]:
         elif (box.get("r") == "220") != ("segno" in kind) or (box.get("b") == "220") != ("coda" in kind):
             problems.append(f"jump sign {sorted(kind)} has the wrong box color")
     return problems
-
-
-
-
 
 
 TEXT_ELEMENTS = ("StaffText", "SystemText", "Tempo", "RehearsalMark", "Expression")

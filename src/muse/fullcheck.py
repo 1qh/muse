@@ -1,15 +1,20 @@
 """The checks a full score takes: its parts, bars, pitches, keys and transpositions through MuseScore's own export, its systems, its MuseScore 3 file, its PDF and the optical cross-check."""
+
 from __future__ import annotations
 
 import collections
 import collections.abc
-import pathlib
 import xml.etree.ElementTree as ET
 from fractions import Fraction as F
+from typing import TYPE_CHECKING
 
 from muse import chordnames, fullscore, gate, launch, pdfcheck, pdftext, scorefile, verify
-from muse.model import Orchestra
 from muse.song import Song, orchestra_of
+
+if TYPE_CHECKING:
+    import pathlib
+
+    from muse.model import Orchestra
 
 
 def file_bars(xml: pathlib.Path) -> list[tuple[str, ET.Element]]:
@@ -33,13 +38,31 @@ def content_problems(orchestra: Orchestra, xml: pathlib.Path) -> list[str]:
         if set(fifths) != {part.key}:
             problems.append(f"{part.name}: keys {sorted(set(fifths))} against {part.key}")
         shift = element.find("measure/attributes/transpose")
-        held = None if shift is None else (int(shift.findtext("diatonic") or 0), int(shift.findtext("chromatic") or 0), int(shift.findtext("octave-change") or 0))
-        wanted = None if part.transposition is None else (part.transposition.diatonic, part.transposition.chromatic, part.transposition.octave)
+        held = (
+            None
+            if shift is None
+            else (
+                int(shift.findtext("diatonic") or 0),
+                int(shift.findtext("chromatic") or 0),
+                int(shift.findtext("octave-change") or 0),
+            )
+        )
+        wanted = (
+            None
+            if part.transposition is None
+            else (part.transposition.diatonic, part.transposition.chromatic, part.transposition.octave)
+        )
         if held != wanted:
             problems.append(f"{part.name}: transposition {held} against {wanted}")
         divisions = int(next(element.iter("divisions")).text or 1)
         for measure, bar in zip(measures, part.bars, strict=True):
-            want = sorted(verify.midi(h.step, h.alter, h.octave) for voices in (bar.voices, bar.voices2) for voice in voices for e in voice for h in e.heads)
+            want = sorted(
+                verify.midi(h.step, h.alter, h.octave)
+                for voices in (bar.voices, bar.voices2)
+                for voice in voices
+                for e in voice
+                for h in e.heads
+            )
             got = verify.bar_pitches(measure)
             if got != want:
                 problems.append(f"{part.name} bar {bar.number}: pitches {got} against {want}")
@@ -49,21 +72,25 @@ def content_problems(orchestra: Orchestra, xml: pathlib.Path) -> list[str]:
                     totals[note.findtext("voice") or "1"] += int(note.findtext("duration") or 0)
             for voice, total in totals.items():
                 if F(total, divisions) != bar.length:
-                    problems.append(f"{part.name} bar {bar.number} voice {voice}: {F(total, divisions)} quarters against {bar.length}")
+                    problems.append(
+                        f"{part.name} bar {bar.number} voice {voice}: {F(total, divisions)} quarters against {bar.length}",
+                    )
     return problems
-
-
-
 
 
 def navigation_problems(score_file: pathlib.Path) -> list[str]:
     """The full score reads straight through: the decode reads no repeat or jump, so the file holds none."""
-    found = [f"bar {at}: {bar.signs + [str(j) for j in bar.jumps]}" for staff in scorefile.read(score_file) for at, bar in enumerate(staff, 1) if bar.signs or bar.jumps]
+    found = [
+        f"bar {at}: {bar.signs + [str(j) for j in bar.jumps]}"
+        for staff in scorefile.read(score_file)
+        for at, bar in enumerate(staff, 1)
+        if bar.signs or bar.jumps
+    ]
     return found[:5]
 
 
 def homr_problems(src: pathlib.Path, orchestra: Orchestra, work: pathlib.Path) -> tuple[list[str], str]:
-    """homr's reading of every page against the decode's note letters, page by page in staff order."""
+    """Homr's reading of every page against the decode's note letters, page by page in staff order."""
     command = gate.homr_command()
     if not command:
         return ["homr not found: install it or set MUSE_HOMR"], ""
@@ -83,7 +110,7 @@ def homr_problems(src: pathlib.Path, orchestra: Orchestra, work: pathlib.Path) -
     return failures, f"homr agrees on {share:.0%}; differs near bars {bars[:20]}"
 
 
-CHECKS = ("verify", "systems", "navigate", "chord file", "pdf", "homr")  # every check a full score takes; chord, sign-box, piano, line-layout and even-bar checks do not apply
+CHECKS = ("verify", "systems", "navigate", "chord file", "pdf", "homr")
 
 
 def problems(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path, info: Song) -> tuple[list[str], list[str]]:
@@ -96,7 +123,7 @@ def problems(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path, info: Son
             failures.extend(f"{label}: {problem}" for problem in step())
         except launch.MachineUnavailable:
             raise
-        except Exception as error:  # every check must speak even when another crashed
+        except Exception as error:
             failures.append(f"{label}: could not run: {str(error)[:160]}")
 
     orchestra = orchestra_of(src)
@@ -115,7 +142,13 @@ def problems(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path, info: Son
 
     def page() -> list[str]:
         notes.append(f"{pdf.name}: {len(pdftext.open(pdf))} pages")
-        return pdfcheck.paper_problems(pdf) + pdfcheck.ink_problems(pdf) + verify.pdf_words_problems(pdf, info.title) + pdfcheck.foreign_fonts(pdf) + [f"off the page: {what}" for _, _, what in pdfcheck.off_page(pdf)]
+        return (
+            pdfcheck.paper_problems(pdf)
+            + pdfcheck.ink_problems(pdf)
+            + verify.pdf_words_problems(pdf, info.title)
+            + pdfcheck.foreign_fonts(pdf)
+            + [f"off the page: {what}" for _, _, what in pdfcheck.off_page(pdf)]
+        )
 
     def homr() -> list[str]:
         wrong, note = homr_problems(src, orchestra, work)
@@ -123,7 +156,14 @@ def problems(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path, info: Son
             notes.append(note)
         return wrong
 
-    steps = {"verify": content, "systems": systems, "navigate": lambda: navigation_problems(final), "chord file": lambda: chordnames.chord_path_problems(final), "pdf": page, "homr": homr}
+    steps = {
+        "verify": content,
+        "systems": systems,
+        "navigate": lambda: navigation_problems(final),
+        "chord file": lambda: chordnames.chord_path_problems(final),
+        "pdf": page,
+        "homr": homr,
+    }
     for label in CHECKS:
         guarded(label, steps[label])
     return failures, notes

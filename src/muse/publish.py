@@ -1,4 +1,5 @@
 """The only way sheets reach their repo: pass the gate, push, then purge replaced binaries."""
+
 from __future__ import annotations
 
 import pathlib
@@ -24,7 +25,8 @@ class Refused(RuntimeError):
 def sh(*args: str, cwd: pathlib.Path | None = None) -> str:
     done = subprocess.run(args, cwd=cwd, capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=3000)
     if done.returncode:
-        raise Refused(f"{' '.join(args[:3])}: {done.stdout[-600:]}{done.stderr[-600:]}")
+        msg = f"{' '.join(args[:3])}: {done.stdout[-600:]}{done.stderr[-600:]}"
+        raise Refused(msg)
     return done.stdout.strip()
 
 
@@ -33,7 +35,13 @@ def stray_files(tracked: str) -> list[str]:
     return [name for name in tracked.split("\n") if name and not name.endswith((".pdf", ".mscz"))]
 
 
-def pushed(run: Runner, command: tuple[str, ...], where: pathlib.Path, tries: int = PUSH_TRIES, wait: float = PUSH_WAIT) -> None:
+def pushed(
+    run: Runner,
+    command: tuple[str, ...],
+    where: pathlib.Path,
+    tries: int = PUSH_TRIES,
+    wait: float = PUSH_WAIT,
+) -> None:
     """A forge's server error passes; any other refusal, or the last try, stands."""
     for attempt in range(1, tries + 1):
         try:
@@ -78,7 +86,14 @@ def commit_message(songs: list[str]) -> str:
     return f"feat: publish {', '.join(songs)}" if songs else "chore: refresh sheets"
 
 
-def publish(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path, run: Runner = sh, judge: Judge = gate.verdicts, names: tuple[str, ...] = ()) -> dict[str, list[str]]:
+def publish(
+    src: pathlib.Path,
+    out: pathlib.Path,
+    work: pathlib.Path,
+    run: Runner = sh,
+    judge: Judge = gate.verdicts,
+    names: tuple[str, ...] = (),
+) -> dict[str, list[str]]:
     """Publish every song passing its gate; returns the blocked songs, each keeping its last good folder, with reasons."""
     verdicts = judge(src, out, work, names)
     blocked = {song: failures for song, failures in verdicts.items() if failures}
@@ -89,39 +104,46 @@ def publish(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path, run: Runne
             run("git", "add", "-A", "--", song, cwd=out)
     extras = stray_files(run("git", "ls-files", cwd=out))
     if extras:
-        raise SystemExit(f"the sheets repo holds only PDF and MuseScore files, refusing: {extras}")
+        msg = f"the sheets repo holds only PDF and MuseScore files, refusing: {extras}"
+        raise SystemExit(msg)
     if run("git", "diff", "--cached", "--name-only", cwd=out):
         run("git", "commit", "-m", commit_message(sorted(song for song in verdicts if song not in blocked)), cwd=out)
     elif not run("git", "rev-list", "@{u}..HEAD", cwd=out):
-        return blocked  # nothing new and nothing left unpushed by an earlier run
+        return blocked
     pushed(run, ("git", "push"), out)
     tree = run("git", "rev-parse", "HEAD^{tree}", cwd=out)
     url = run("git", "remote", "get-url", "origin", cwd=out)
     with tempfile.TemporaryDirectory() as tmp:
         mirror = pathlib.Path(tmp) / "mirror.git"
         run("git", "clone", "--mirror", url, str(mirror))
-        stale = superseded(run("git", "ls-tree", "-r", "HEAD", cwd=mirror), run("git", "rev-list", "--objects", "--all", cwd=mirror))
+        stale = superseded(
+            run("git", "ls-tree", "-r", "HEAD", cwd=mirror),
+            run("git", "rev-list", "--objects", "--all", cwd=mirror),
+        )
         if stale:
             listed = pathlib.Path(tmp) / "superseded.txt"
             listed.write_text("\n".join(stale) + "\n", encoding="utf-8")
             run("git", "filter-repo", "--strip-blobs-with-ids", str(listed), "--force", cwd=mirror)
         run("git", "reflog", "expire", "--expire=now", "--all", cwd=mirror)
         run("git", "gc", "--prune=now", "--aggressive", cwd=mirror)
-        if run("git", "rev-parse", "HEAD^{tree}", cwd=mirror) != tree:
-            raise Refused("purge changed the current files; nothing force-pushed")
-        pushed(run, ("git", "push", "--force", url, "refs/heads/*:refs/heads/*"), mirror)  # the rewrite drops the mirror's remote, so the push names it
+        if run("git", "rev-parse", f"HEAD^{tree}", cwd=mirror) != tree:
+            msg = "purge changed the current files; nothing force-pushed"
+            raise Refused(msg)
+        pushed(run, ("git", "push", "--force", url, "refs/heads/*:refs/heads/*"), mirror)
     run("git", "fetch", "origin", cwd=out)
     run("git", "reset", "--hard", "origin/HEAD", cwd=out)
     run("git", "reflog", "expire", "--expire=now", "--all", cwd=out)
     run("git", "gc", "--prune=now", cwd=out)
-    if run("git", "rev-parse", "HEAD^{tree}", cwd=out) != tree:
-        raise Refused("local tree differs after the purge")
+    if run("git", "rev-parse", f"HEAD^{tree}", cwd=out) != tree:
+        msg = "local tree differs after the purge"
+        raise Refused(msg)
     return blocked
 
 
 def main() -> None:
     if not shutil.which("git-filter-repo"):
-        raise SystemExit("git-filter-repo not found")
+        msg = "git-filter-repo not found"
+        raise SystemExit(msg)
     src, out, work = map(pathlib.Path, sys.argv[1:4])
     try:
         blocked = publish(src, out, work, names=tuple(sys.argv[4:]))

@@ -1,4 +1,5 @@
 """Check a finished song against its source decode, through MuseScore's own export of the final file."""
+
 from __future__ import annotations
 
 import os
@@ -9,15 +10,18 @@ import sys
 import xml.etree.ElementTree as ET
 import zipfile
 from fractions import Fraction as F
+from typing import TYPE_CHECKING
 
 from muse import chordnames, launch, scorefile
-from muse.model import Score
 from muse.musicxml import chord_onsets, times
 from muse.pdfcheck import title_problems
 from muse.song import decode, song_of, sources
 
+if TYPE_CHECKING:
+    from muse.model import Score
+
 BANNED = ["Copyright", "Contact", "Sáng tác", "Trình bày"]
-PRIVATE_BANNED = "banned.txt"  # names kept in the private spike repo, in the folder MUSE_PRIVATE names
+PRIVATE_BANNED = "banned.txt"
 PC = {"C": 0, "D": 2, "E": 4, "F": 5, "G": 7, "A": 9, "B": 11}
 
 
@@ -55,20 +59,15 @@ def bar_roots(m: ET.Element) -> list[tuple[int, int]]:
 def stored_chord_names(final: pathlib.Path) -> list[str]:
     with zipfile.ZipFile(final) as z:
         text = z.read(next(n for n in z.namelist() if n.endswith(".mscx"))).decode()
-    return sorted(re.findall(r"<Harmony>(?:(?!</Harmony>).)*?<name>(.*?)</name>", text, re.S))
+    return sorted(re.findall(r"<Harmony>(?:(?!</Harmony>).)*?<name>(.*?)</name>", text, re.DOTALL))
 
 
 def pdf_words_problems(pdf: pathlib.Path, title: str) -> list[str]:
     """No credit, contact or stray text in a finished PDF, and the title where it belongs."""
-    problems = []
     text = subprocess.run(["pdftotext", str(pdf), "-"], capture_output=True, text=True, check=True).stdout
-    for word in BANNED:
-        if word.lower() in text.lower():
-            problems.append(f"banned text in {pdf.name}: {word}")
+    problems = [f"banned text in {pdf.name}: {word}" for word in BANNED if word.lower() in text.lower()]
     names = (pathlib.Path(os.environ["MUSE_PRIVATE"]) / PRIVATE_BANNED).read_text(encoding="utf-8").split("\n")
-    for word in names:  # proper names match by exact case: lyrics can hold the same words in lower case
-        if word.strip() and word in text:
-            problems.append(f"banned text in {pdf.name}: {word}")
+    problems.extend(f"banned text in {pdf.name}: {word}" for word in names if word.strip() and word in text)
     if re.search(r"\d{9,}", text):
         problems.append(f"long digit run in {pdf.name}")
     return problems + title_problems(pdf, title)
@@ -91,7 +90,7 @@ def tempo_text(final: pathlib.Path) -> str:
     """The number the score's tempo mark prints."""
     with zipfile.ZipFile(final) as z:
         name = next(n for n in z.namelist() if n.endswith(".mscx") and "/" not in n)
-        found = re.search(r"<Tempo>.*?=\s*([\d.]+)\s*</text>", z.read(name).decode("utf-8"), re.S)
+        found = re.search(r"<Tempo>.*?=\s*([\d.]+)\s*</text>", z.read(name).decode("utf-8"), re.DOTALL)
     return found[1] if found else ""
 
 
@@ -136,7 +135,10 @@ def check(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> list[str]
             if got != want:
                 problems.append(f"bar {bar.number} part {p_i + 1}: pitches {got} expected {want}")
             if p_i == 0:
-                want_c = sorted(((PC[c.root] + c.root_alter) % 12, -1 if not c.bass else (PC[c.bass] + c.bass_alter) % 12) for c in bar.chords)
+                want_c = sorted(
+                    ((PC[c.root] + c.root_alter) % 12, -1 if not c.bass else (PC[c.bass] + c.bass_alter) % 12)
+                    for c in bar.chords
+                )
                 got_c = bar_roots(m)
                 chords += len(got_c)
                 if want_c != got_c:
@@ -153,7 +155,9 @@ def check(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> list[str]
                 problems.append(f"bar {bar.number} voice {v}: {F(t, div)} quarters vs {bar.length}")
     if stored_chord_names(final) != sorted(chordnames.stored(c.kind) for bar in score.bars for c in bar.chords if c.kind):
         problems.append("stored chord names differ from the source")
-    print(f"{song}: bars {len(score.bars)} notes {notes} chords {chords} corrections {len(score.corrections)} flags {len(score.flags)} problems {len(problems)}")
+    print(
+        f"{song}: bars {len(score.bars)} notes {notes} chords {chords} corrections {len(score.corrections)} flags {len(score.flags)} problems {len(problems)}",
+    )
     return problems
 
 

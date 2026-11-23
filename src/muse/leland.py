@@ -1,6 +1,8 @@
 """Decode a MuseScore Studio vector export set in Leland into the score model."""
+
 from __future__ import annotations
 
+import operator
 import re
 from fractions import Fraction as F
 from typing import Any
@@ -20,30 +22,57 @@ ACCENTS = (0xE4A0, 0xE4A1)
 FERMATA = (0xE4C0, 0xE4C1)
 TIME_DIGITS = range(0xE080, 0xE08A)
 REPEAT_DOT, CLEF, SEGNO, CODA, WIGGLE, TEMPO_NOTE = 0xE044, 0xE050, 0xE047, 0xE048, 0xEAA9, 0xECA5
-KNOWN = {*HEADS, *RESTS, BAR_REST, *FLAGS, *ACCIDENTALS, DOT, *ACCENTS, *FERMATA, *TIME_DIGITS, REPEAT_DOT, CLEF, SEGNO, CODA, WIGGLE, TEMPO_NOTE}
+KNOWN = {
+    *HEADS,
+    *RESTS,
+    BAR_REST,
+    *FLAGS,
+    *ACCIDENTALS,
+    DOT,
+    *ACCENTS,
+    *FERMATA,
+    *TIME_DIGITS,
+    REPEAT_DOT,
+    CLEF,
+    SEGNO,
+    CODA,
+    WIGGLE,
+    TEMPO_NOTE,
+}
 SHARP_ORDER, FLAT_ORDER = "FCGDAEB", "BEADGCF"
 CREDIT_TOP, CREDIT_BOTTOM = 62.0, 770.0
 CHORD_KIND = {"M7": "maj7", "M9": "maj9", "maj": "", "Maj7": "maj7"}
 STAFF_REACH = 60.0
-DISPLACED = 9.5  # points: a head beside its chord across a second
-TUPLET_SIZE = 9.0  # points: an italic digit this large is a tuplet, smaller a bar number
+DISPLACED = 9.5
+TUPLET_SIZE = 9.0
 
 
-def glyphs_and_text(page: Any) -> tuple[list[tuple[int, float, float]], list[tuple[str, float, float, float, str, float, list[Any]]]]:
+def glyphs_and_text(
+    page: Any,
+) -> tuple[list[tuple[int, float, float]], list[tuple[str, float, float, float, str, float, list[Any]]]]:
     glyphs, spans = [], []
     for block in page.get_text("rawdict")["blocks"]:
         for line in block.get("lines", []):
             for span in line["spans"]:
-                if span["font"] in ("Leland", "LelandText", "BravuraText", "Bravura"):
+                if span["font"] in {"Leland", "LelandText", "BravuraText", "Bravura"}:
                     for ch in span["chars"]:
                         if not ch["c"].isspace():
                             if ord(ch["c"]) not in KNOWN:
-                                raise UnknownGlyph(f"music glyph {ord(ch['c']):#x} is not decoded")
+                                msg = f"music glyph {ord(ch['c']):#x} is not decoded"
+                                raise UnknownGlyph(msg)
                             glyphs.append((ord(ch["c"]), ch["origin"][0], ch["origin"][1]))
                 else:
                     text = "".join(c["c"] for c in span["chars"])
                     if text.strip():
-                        spans.append((text, span["chars"][0]["origin"][0], span["origin"][1], span["bbox"][2], span["font"], span["size"], span["chars"]))
+                        spans.append((
+                            text,
+                            span["chars"][0]["origin"][0],
+                            span["origin"][1],
+                            span["bbox"][2],
+                            span["font"],
+                            span["size"],
+                            span["chars"],
+                        ))
     return glyphs, spans
 
 
@@ -66,7 +95,11 @@ def split_chords(span: tuple[str, float, float, float, str, float, list[Any]]) -
 def free_accidentals(content: list[tuple[int, float, float]]) -> list[tuple[int, float, float]]:
     """Accidentals beside no notehead: a key signature, not an alteration."""
     heads = [g for g in content if g[0] in HEADS]
-    return [g for g in content if g[0] in ACCIDENTALS and not any(0 < h[1] - g[1] < 13 and abs(h[2] - g[2]) < 1.6 for h in heads)]
+    return [
+        g
+        for g in content
+        if g[0] in ACCIDENTALS and not any(0 < h[1] - g[1] < 13 and abs(h[2] - g[2]) < 1.6 for h in heads)
+    ]
 
 
 def signature(marks: list[tuple[int, float, float]]) -> int:
@@ -85,7 +118,11 @@ def stems_of(code: int, x: float, y: float, stems: list[Any]) -> list[Any]:
     """Stems of a head: up on its right edge, down on its left; never a neighbour's."""
     margin = 3.5 if code == CROSS else 1.0
     right = (5.0, 12.0) if code == CROSS else (5.0, 9.5)
-    return [s for s in stems if (-1.0 <= s[0] - x <= 1.0 or right[0] <= s[0] - x <= right[1]) and s[1] - margin <= y <= s[2] + margin]
+    return [
+        s
+        for s in stems
+        if (-1.0 <= s[0] - x <= 1.0 or right[0] <= s[0] - x <= right[1]) and s[1] - margin <= y <= s[2] + margin
+    ]
 
 
 def same_chord(one: Event, other: Event, stem_at: dict[int, float]) -> bool:
@@ -106,7 +143,13 @@ def set_tuplets(bar: Bar, events: list[Event], marks: list[tuple[float, int]], f
                 window = events[lo:hi]
                 units = sum((e.nominal for e in window), F(0))
                 fits = any(units == count * unit for unit in (F(1), F(1, 2), F(1, 4), F(1, 8)))
-                if fits and not any(e.tuplet for e in window) and (best is None or abs((window[0].x + window[-1].x) / 2 - at) < abs((best[0].x + best[-1].x) / 2 - at)):
+                if (
+                    fits
+                    and not any(e.tuplet for e in window)
+                    and (
+                        best is None or abs((window[0].x + window[-1].x) / 2 - at) < abs((best[0].x + best[-1].x) / 2 - at)
+                    )
+                ):
                     best = window
         if best is None:
             flags.append(Issue(bar.number, "unplaced tuplet"))
@@ -115,11 +158,21 @@ def set_tuplets(bar: Bar, events: list[Event], marks: list[tuple[float, int]], f
             e.tuplet = True
 
 
-def read_events(bar: Bar, content: list[tuple[int, float, float]], base: float, step: float, stems: list[Any], beams: list[Any], key: int, flags: list[Issue], marks: list[tuple[float, int]] | None = None) -> list[list[Event]]:
+def read_events(
+    bar: Bar,
+    content: list[tuple[int, float, float]],
+    base: float,
+    step: float,
+    stems: list[Any],
+    beams: list[Any],
+    key: int,
+    flags: list[Issue],
+    marks: list[tuple[float, int]] | None = None,
+) -> list[list[Event]]:
     events: list[Event] = []
     state: dict[tuple[str, int], int] = {}
     stem_at: dict[int, float] = {}
-    for code, x, y in sorted(content, key=lambda c: c[1]):
+    for code, x, y in sorted(content, key=operator.itemgetter(1)):
         if code in HEADS:
             near = stems_of(code, x, y, stems)
             nominal, stem, beam = HEADS[code], None, None
@@ -128,22 +181,41 @@ def read_events(bar: Bar, content: list[tuple[int, float, float]], base: float, 
                 st = near[0]
                 stem_x = st[0]
                 stem = "up" if st[0] - x > 3 else "down"
-                hits = [b for b in beams if b[0] - 0.8 <= st[0] <= b[1] + 0.8 and st[1] - 1.5 <= beam_y(b, st[0]) <= st[2] + 1.5]
+                hits = [
+                    b
+                    for b in beams
+                    if b[0] - 0.8 <= st[0] <= b[1] + 0.8 and st[1] - 1.5 <= beam_y(b, st[0]) <= st[2] + 1.5
+                ]
                 level = len(hits)
                 for f in content:
                     if f[0] in FLAGS and abs(f[1] - st[0]) < 1.5 and st[1] - 8 <= f[2] <= st[2] + 8:
                         level = max(level, FLAGS[f[0]])
-                if code in (BLACK, CROSS):
-                    nominal = nominal / 2**level
+                if code in {BLACK, CROSS}:
+                    nominal /= 2**level
                 beam = id(hits[0]) if hits else None
-            dots = sum(1 for d in content if d[0] == DOT and 0 < d[1] - x < 22 and abs(d[2] - y) < step * 1.6 and not any(0 < d[1] - o[1] < d[1] - x for o in content if o[0] in HEADS and o[1] > x + 2))
+            dots = sum(
+                1
+                for d in content
+                if d[0] == DOT
+                and 0 < d[1] - x < 22
+                and abs(d[2] - y) < step * 1.6
+                and not any(0 < d[1] - o[1] < d[1] - x for o in content if o[0] in HEADS and o[1] > x + 2)
+            )
             dots = min(dots, 1)
             index = 2 + round((base - y) / step) + 4 * 7
             letter, octave = LETTERS[index % 7], index // 7
             for f in content:
                 if f[0] in ACCIDENTALS and 0 < x - f[1] < 13 and abs(f[2] - y) < 1.6:
-                    state[(letter, octave)] = ACCIDENTALS[f[0]]
-            head = Head(x, y, letter, octave, None, "x" if code == CROSS else "normal", alter=state.get((letter, octave), alter_in_key(letter, key)))
+                    state[letter, octave] = ACCIDENTALS[f[0]]
+            head = Head(
+                x,
+                y,
+                letter,
+                octave,
+                None,
+                "x" if code == CROSS else "normal",
+                alter=state.get((letter, octave), alter_in_key(letter, key)),
+            )
             event = Event(x, [head], nominal * (F(3, 2) if dots else 1), dots, stem, beam=beam)
             if stem_x is not None:
                 stem_at[id(event)] = stem_x
@@ -210,7 +282,15 @@ def place(voice: list[Event]) -> list[Event]:
 class Staff:
     """1 printed staff: its lines, the glyphs nearest it, and its bar columns."""
 
-    def __init__(self, top: float, base: float, glyphs: list[tuple[int, float, float]], lines: list[Any], heavy: list[Any], walls: list[Any]) -> None:
+    def __init__(
+        self,
+        top: float,
+        base: float,
+        glyphs: list[tuple[int, float, float]],
+        lines: list[Any],
+        heavy: list[Any],
+        walls: list[Any],
+    ) -> None:
         self.top, self.base = top, base
         self.heavy = heavy
         self.step = (base - top) / 8
@@ -219,7 +299,10 @@ class Staff:
         self.glyphs: list[tuple[int, float, float]] = []
         ends = [(a, b) for y, a, b in lines if abs(y - top) < 0.2]
         self.left, self.right = min(a for a, _ in ends), max(b for _, b in ends)
-        strokes = sorted({*(round(x, 1) for x, y0, y1, _ in heavy if y0 - 1 <= top and y1 + 1 >= base), *(round((r.x0 + r.x1) / 2, 1) for r in walls if r.height > base - top - 1 and r.y0 - 1 <= top)})
+        strokes = sorted({
+            *(round(x, 1) for x, y0, y1, _ in heavy if y0 - 1 <= top and y1 + 1 >= base),
+            *(round((r.x0 + r.x1) / 2, 1) for r in walls if r.height > base - top - 1 and r.y0 - 1 <= top),
+        })
         merged: list[float] = []
         for x in strokes:
             if not merged or x - merged[-1] > 6:
@@ -229,14 +312,22 @@ class Staff:
         self.cols = [self.left, *merged]
 
     def claim(self, middles: list[float]) -> None:
-        self.glyphs = [g for g in self.all if min(middles, key=lambda m: abs(m - g[2])) == self.middle and abs(g[2] - self.middle) < STAFF_REACH]
+        self.glyphs = [
+            g
+            for g in self.all
+            if min(middles, key=lambda m: abs(m - g[2])) == self.middle and abs(g[2] - self.middle) < STAFF_REACH
+        ]
 
     def follows(self, above: Staff) -> bool:
         """A second staff of 1 system: every bar line it has falls on 1 of the staff above, and either the 2 end together or a bar line runs down from the staff above into this one; it may start later and end sooner."""
         mine, theirs = self.cols[1:-1], above.cols[1:-1]
         same_end = abs(self.right - above.right) < 1.5
-        joined = any(y0 <= above.base + 1 and y1 >= self.top - 1 for x, y0, y1, _ in self.heavy if any(abs(x - c) < 1.5 for c in mine))
-        return bool(mine) and (same_end or joined) and all(any(abs(a - b) < 1.5 for b in theirs) for a in mine)  # a part entering later or leaving sooner keeps the system's barlines
+        joined = any(
+            y0 <= above.base + 1 and y1 >= self.top - 1
+            for x, y0, y1, _ in self.heavy
+            if any(abs(x - c) < 1.5 for c in mine)
+        )
+        return bool(mine) and (same_end or joined) and all(any(abs(a - b) < 1.5 for b in theirs) for a in mine)
 
 
 def staff_lines(rules: list[tuple[float, float, float]]) -> list[tuple[float, float, float]]:
@@ -288,7 +379,7 @@ def decode(path: str) -> Score:
             if kinds == "l":
                 a, b = d["items"][0][1], d["items"][0][2]
                 if abs(a.y - b.y) < 0.1:
-                    rules.append((a.y, min(a.x, b.x), max(a.x, b.x)))  # every horizontal stroke: a staff drawn 1 bar at a time has short pieces
+                    rules.append((a.y, min(a.x, b.x), max(a.x, b.x)))
                 if abs(a.x - b.x) < 0.1 and d["width"] > 0.9:
                     heavy.append((a.x, r.y0, r.y1, d["width"]))
                 elif abs(a.x - b.x) < 0.1:
@@ -296,9 +387,12 @@ def decode(path: str) -> Score:
             elif kinds == "llll":
                 corners = [p for item in d["items"] for p in (item[1], item[2])]
                 low, high = min(p.x for p in corners), max(p.x for p in corners)
-                ends = [sum(p.y for p in corners if abs(p.x - at) < 0.1) / max(1, sum(abs(p.x - at) < 0.1 for p in corners)) for at in (low, high)]
+                ends = [
+                    sum(p.y for p in corners if abs(p.x - at) < 0.1) / max(1, sum(abs(p.x - at) < 0.1 for p in corners))
+                    for at in (low, high)
+                ]
                 if r.width >= page.rect.width - 1:
-                    continue  # the page background
+                    continue
                 if r.width >= 4:
                     beams.append((low, high, ends[0], ends[1]))
                 else:
@@ -310,7 +404,7 @@ def decode(path: str) -> Score:
         lines = staff_lines(rules)
         ys = sorted({round(y, 1) for y, _, _ in lines})
         tops = staff_tops(ys)
-        staves = [Staff(top, ys[ys.index(top) + 4], glyphs, rules, heavy, walls) for top in tops]  # long strokes find a staff; every stroke at its height bounds it
+        staves = [Staff(top, ys[ys.index(top) + 4], glyphs, rules, heavy, walls) for top in tops]
         for staff in staves:
             staff.claim([other.middle for other in staves])
         groups: list[list[Staff]] = []
@@ -355,10 +449,23 @@ def decode(path: str) -> Score:
                     pending = False
                 elif pending:
                     bar.key, pending = key, False
-                marks = [(sp[1], int(sp[0].strip())) for sp in spans if sp[4] == "Edwin-Italic" and sp[5] > TUPLET_SIZE and sp[0].strip() in ("3", "6") and a <= sp[1] < b and abs(sp[2] - staff.middle) < STAFF_REACH * 0.7]
+                marks = [
+                    (sp[1], int(sp[0].strip()))
+                    for sp in spans
+                    if sp[4] == "Edwin-Italic"
+                    and sp[5] > TUPLET_SIZE
+                    and sp[0].strip() in {"3", "6"}
+                    and a <= sp[1] < b
+                    and abs(sp[2] - staff.middle) < STAFF_REACH * 0.7
+                ]
                 bar.voices = read_events(bar, content, staff.base, staff.step, stems, beams, key, flags, marks)
                 if len(group) > 1:
-                    lower_content = [g for g in group[1].glyphs if a <= g[1] < b - 0.3 and (g[0] in HEADS or g[0] in RESTS or g[0] in FLAGS or g[0] == DOT or g[0] in ACCIDENTALS)]
+                    lower_content = [
+                        g
+                        for g in group[1].glyphs
+                        if a <= g[1] < b - 0.3
+                        and (g[0] in HEADS or g[0] in RESTS or g[0] in FLAGS or g[0] == DOT or g[0] in ACCIDENTALS)
+                    ]
                     bar.voices2 = read_events(bar, lower_content, group[1].base, group[1].step, stems, beams, key, flags)
                     second = True
                 bars.append(bar)
@@ -369,7 +476,10 @@ def decode(path: str) -> Score:
                 continue
             for g in staff.glyphs:
                 if g[0] == REPEAT_DOT:
-                    near = next((n for n in row_bars if n.left <= g[1] < n.right), None) or min(row_bars, key=lambda n: min(abs(n.left - g[1]), abs(n.right - g[1])))  # the bar the dot sits in: a key change can part a start repeat from the double barline ending the bar before
+                    near = next((n for n in row_bars if n.left <= g[1] < n.right), None) or min(
+                        row_bars,
+                        key=lambda n: min(abs(n.left - g[1]), abs(n.right - g[1])),
+                    )
                     if abs(near.left - g[1]) < abs(near.right - g[1]):
                         near.repeat_start = True
                     else:
@@ -378,7 +488,16 @@ def decode(path: str) -> Score:
                     bar_at(row_bars, g[1], 8).segno = True
                 elif g[0] == CODA and g[2] < staff.base:
                     bar_at(row_bars, g[1], 8).coda = True
-            row_text([span for span, owner in zip(spans, owners, strict=True) if owner == at_group], staff.base, staff.top, row_bars, previous, flags, group, boxes)
+            row_text(
+                [span for span, owner in zip(spans, owners, strict=True) if owner == at_group],
+                staff.base,
+                staff.top,
+                row_bars,
+                previous,
+                flags,
+                group,
+                boxes,
+            )
             for bar in row_bars:
                 for chord in bar.chords:
                     previous = chord
@@ -390,16 +509,16 @@ def decode(path: str) -> Score:
     return Score(bars, [], flags, second)
 
 
-TEXT_ABOVE = 40.0  # points above a line's top staff its text window reaches
-TEXT_BELOW = 34.0  # points below its bottom staff
+TEXT_ABOVE = 40.0
+TEXT_BELOW = 34.0
 
 
-LYRIC_FONT = "FreeSerif"  # the font every lyric hint of these sources is set in; cues and marks are Times, chords Edwin
+LYRIC_FONT = "FreeSerif"
 
 
 def is_lyric(font: str) -> bool:
     """A lyric hint, known by the lyric font it is set in."""
-    return font.split("+")[-1].startswith(LYRIC_FONT)
+    return font.rsplit("+", maxsplit=1)[-1].startswith(LYRIC_FONT)
 
 
 def text_owners(spans: list[Any], groups: list[list[Staff]]) -> list[int | None]:
@@ -411,16 +530,25 @@ def text_owners(spans: list[Any], groups: list[list[Staff]]) -> list[int | None]
         if not near:
             owners.append(None)
             continue
-        if is_lyric(span[4]):  # printed plain under its staff: the line it sits under
+        if is_lyric(span[4]):
             under = [at for at in near if y > groups[at][-1].base]
             owners.append(max(under, key=lambda at: groups[at][-1].base) if under else near[0])
-        else:  # chords, cues, marks and endings print above their staff: the line they sit above
+        else:
             above = [at for at in near if y < groups[at][0].top]
             owners.append(min(above, key=lambda at: groups[at][0].top) if above else near[0])
     return owners
 
 
-def row_text(spans: list[Any], base: float, top: float, row: list[Bar], previous: Chord | None, flags: list[Issue], group: list[Staff], boxes: list[Any]) -> None:
+def row_text(
+    spans: list[Any],
+    base: float,
+    top: float,
+    row: list[Bar],
+    previous: Chord | None,
+    flags: list[Issue],
+    group: list[Staff],
+    boxes: list[Any],
+) -> None:
     bottom = group[-1].base
     for span in spans:
         text = span[0].strip()
@@ -447,7 +575,7 @@ def row_text(spans: list[Any], base: float, top: float, row: list[Bar], previous
             target.volta = text[0]
             continue
         box = next((b for b in boxes if b.x0 - 1 <= span[1] <= b.x1 and b.y0 <= span[2] <= b.y1 + 1), None)
-        if box is not None and "Bold" in font:  # a bold label in a box is a section mark, in the chord font or any other
+        if box is not None and "Bold" in font:
             mark_bar(row, box.x0, box.x1).rehearsal.append(text)
             continue
         if re.fullmatch(r"[12]\.", text):
@@ -462,15 +590,33 @@ def row_text(spans: list[Any], base: float, top: float, row: list[Bar], previous
         if low.startswith(("d.s", "dal segno")):
             target.dal_segno = True
             continue
-        low_staff = len(group) > 1 and (span[2] > group[1].base if is_lyric(font) else span[2] > group[1].top - 14)  # a lyric belongs to the staff it sits under, a cue to the staff it sits over
-        (target.texts2 if low_staff else target.texts).append(Text(span[1], span[2], [(words, "Bold" in font, "Italic" in font)], span[2] < (group[1].base if low_staff else base), size=span[5] * 0.9))
+        low_staff = len(group) > 1 and (span[2] > group[1].base if is_lyric(font) else span[2] > group[1].top - 14)
+        (target.texts2 if low_staff else target.texts).append(
+            Text(
+                span[1],
+                span[2],
+                [(words, "Bold" in font, "Italic" in font)],
+                span[2] < (group[1].base if low_staff else base),
+                size=span[5] * 0.9,
+            ),
+        )
 
 
 def wire(bars: list[Bar], ties: list[Any]) -> None:
     for page_number, r in ties:
         events = [e for b in bars if b.page == page_number for v in b.voices for e in v if e.heads]
-        left = [e for e in events if abs(e.x + 6 - r.x0) < 9 and any(abs(h.y - r.y0) < 12 or abs(h.y - r.y1) < 12 for h in e.heads)]
-        right = [e for e in events if abs(e.x - r.x1) < 8 and e.x > r.x0 + 3 and any(abs(h.y - r.y0) < 12 or abs(h.y - r.y1) < 12 for h in e.heads)]
+        left = [
+            e
+            for e in events
+            if abs(e.x + 6 - r.x0) < 9 and any(abs(h.y - r.y0) < 12 or abs(h.y - r.y1) < 12 for h in e.heads)
+        ]
+        right = [
+            e
+            for e in events
+            if abs(e.x - r.x1) < 8
+            and e.x > r.x0 + 3
+            and any(abs(h.y - r.y0) < 12 or abs(h.y - r.y1) < 12 for h in e.heads)
+        ]
         if left and right:
             a, b = min(left, key=lambda e: abs(e.x - r.x0)), min(right, key=lambda e: abs(e.x - r.x1))
             pair = [(p, q) for p in a.heads for q in b.heads if (p.step, p.octave) == (q.step, q.octave)]

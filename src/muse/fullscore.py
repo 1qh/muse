@@ -1,21 +1,30 @@
 """An orchestral full score's files: its MuseScore file and its PDF, in the original key, broken where the source breaks."""
+
 from __future__ import annotations
 
-import pathlib
 import xml.etree.ElementTree as ET
+from typing import TYPE_CHECKING
 
 from muse import chordnames, musicxml, pdftext, port
 from muse.model import Orchestra, Score
 from muse.song import Song, orchestra_of
 
-SPATIUM = 0.9  # millimetres: the source's own staff space, which holds its largest system of 23 staves on 1 page
+if TYPE_CHECKING:
+    import pathlib
+
+SPATIUM = 0.9
 NAMED: dict[str, object] = {
-    "firstSystemInstNameVisibility": 0, "subsSystemInstNameVisibility": 1, "enableIndentationOnFirstSystem": 1,  # full names on the first system, short ones after, the first system indented to hold them
-    "enableVerticalSpread": 1, "maxSystemDistance": 200, "maxStaffSpread": 200, "maxSystemSpread": 200,  # systems spread over the whole page height
-    "maxPageFillSpread": 400,  # "Max page fill distance": the handbook says to raise it so staves are justified however few a page holds
+    "firstSystemInstNameVisibility": 0,
+    "subsSystemInstNameVisibility": 1,
+    "enableIndentationOnFirstSystem": 1,
+    "enableVerticalSpread": 1,
+    "maxSystemDistance": 200,
+    "maxStaffSpread": 200,
+    "maxSystemSpread": 200,
+    "maxPageFillSpread": 400,
 }
-SPATIUM_STEP = 0.05  # millimetres the staff space shrinks by while a source system wraps
-SPATIUM_FLOOR = 0.5  # millimetres: the smallest staff space a full score prints at
+SPATIUM_STEP = 0.05
+SPATIUM_FLOOR = 0.5
 DISTANCE = port.BASE_DISTANCE
 
 
@@ -44,7 +53,9 @@ def build(src: pathlib.Path, out_dir: pathlib.Path, work: pathlib.Path, info: So
 
 def system_problems(orchestra: Orchestra, mpos: pathlib.Path) -> list[str]:
     """Every system of the score opens on the bar its source system opens on."""
-    boxes = [(int(float(e.get("page") or 0)), round(float(e.get("y") or 0))) for e in ET.parse(mpos).getroot().iter("element")]
+    boxes = [
+        (int(float(e.get("page") or 0)), round(float(e.get("y") or 0))) for e in ET.parse(mpos).getroot().iter("element")
+    ]
     starts = [at + 1 for at, box in enumerate(boxes) if not at or box != boxes[at - 1]]
     wanted = [1] + [bar.number for bar in orchestra.parts[0].bars if bar.new_system]
     return [] if starts == wanted else [f"systems open on bars {starts}, the source's on {wanted}"]
@@ -67,6 +78,5 @@ def fit(xml: pathlib.Path, work: pathlib.Path, final: pathlib.Path, info: Song, 
             return spatium
         tried.append(f"{spatium:g}: {problems[0]}")
         spatium = round(spatium - SPATIUM_STEP, 2)
-    raise port.DoesNotFit(f"{info.name}: no staff space holds every source system: {tried[-3:]}")
-
-
+    msg = f"{info.name}: no staff space holds every source system: {tried[-3:]}"
+    raise port.DoesNotFit(msg)

@@ -1,14 +1,18 @@
 """Compare MuseScore's unrolled playing order with the order the source's signs imply."""
+
 from __future__ import annotations
 
 import pathlib
 import sys
 import xml.etree.ElementTree as ET
+from typing import TYPE_CHECKING
 
 from muse import launch
-from muse.model import Bar, Score
 from muse.song import decode, song_of, sources
 from muse.verify import midi
+
+if TYPE_CHECKING:
+    from muse.model import Bar, Score
 
 
 def expected_order(score: Score) -> list[int]:
@@ -26,7 +30,8 @@ def expected_order(score: Score) -> list[int]:
     while i <= len(bars):
         guard += 1
         if guard > 5000:
-            raise RuntimeError("no end to the walk")
+            msg = "no end to the walk"
+            raise RuntimeError(msg)
         bar = by_number[i]
         if bar.repeat_start:
             repeat_from = i
@@ -39,7 +44,7 @@ def expected_order(score: Score) -> list[int]:
         order.append(i)
         if after_jump and bar.to_coda and coda:
             i = coda
-            after_jump = False  # a repeat printed inside the coda still plays
+            after_jump = False
             continue
         if bar.repeat_end and not after_jump and repeat_from not in passed:
             passed.add(repeat_from)
@@ -54,7 +59,13 @@ def expected_order(score: Score) -> list[int]:
 
 
 def signature(bar: Bar, semis: int) -> list[int]:
-    return sorted(midi(h.step, h.alter, h.octave) + semis for voices in (bar.voices, bar.voices2) for v in voices for e in v for h in e.heads)
+    return sorted(
+        midi(h.step, h.alter, h.octave) + semis
+        for voices in (bar.voices, bar.voices2)
+        for v in voices
+        for e in v
+        for h in e.heads
+    )
 
 
 def check(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> tuple[int, int, list[str]]:
@@ -65,9 +76,10 @@ def check(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> tuple[int
     launch.mscore(["--unroll-repeats", "-o", str(mscx), str(final)], 240, check=True)
     root = ET.parse(mscx).getroot()
     staves = [st for st in root.iter("Staff") if st.find("Measure") is not None]
-    played: list[list[int]] = []
-    for row in zip(*(st.findall("Measure") for st in staves), strict=False):
-        played.append(sorted(int(p.text or 0) for m in row for n in m.iter("Note") for p in n.findall("pitch")))
+    played: list[list[int]] = [
+        sorted(int(p.text or 0) for m in row for n in m.iter("Note") for p in n.findall("pitch"))
+        for row in zip(*(st.findall("Measure") for st in staves), strict=False)
+    ]
     score = decode(src)
     by_number = {b.number: b for b in score.bars}
     order = expected_order(score)

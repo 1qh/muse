@@ -1,4 +1,5 @@
 """Print mode: the owner's temporary looser polish rules for a rehearsal; the strict values stay beside them and return when the mode ends."""
+
 from __future__ import annotations
 
 import os

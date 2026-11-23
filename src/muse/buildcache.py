@@ -1,4 +1,5 @@
 """Per-song build and gate state: what each output was built from, and the layout decisions behind it."""
+
 from __future__ import annotations
 
 import ast
@@ -11,7 +12,7 @@ from typing import Any
 
 ROOT = pathlib.Path(__file__).parent
 STYLE = ROOT / "style.mss"
-SHEET_WRITERS = ("layout", "port", "piano", "chordnames", "scorefile", "fullscore")  # the modules a song's build writes its sheets through; every module they import can shape a sheet, and the orchestrating build module, which imports the checks too, is not one
+SHEET_WRITERS = ("layout", "port", "piano", "chordnames", "scorefile", "fullscore")
 STATE_DIR = "build-state"
 
 
@@ -24,7 +25,11 @@ CODE_SUFFIXES = (".py", ".js", ".json")
 
 def code_files(root: pathlib.Path = ROOT, skip: frozenset[str] | set[str] = frozenset()) -> list[pathlib.Path]:
     """Every file of the package that can shape an output: its Python and the MuseScore extension it installs."""
-    return sorted(path for path in root.rglob("*") if path.is_file() and path.suffix in CODE_SUFFIXES and "__pycache__" not in path.parts and path.name not in skip)
+    return sorted(
+        path
+        for path in root.rglob("*")
+        if path.is_file() and path.suffix in CODE_SUFFIXES and "__pycache__" not in path.parts and path.name not in skip
+    )
 
 
 def imports_of(module: str, root: pathlib.Path = ROOT) -> set[str]:
@@ -50,7 +55,14 @@ def sheet_code(root: pathlib.Path = ROOT) -> list[pathlib.Path]:
         if module not in seen:
             seen.add(module)
             todo += imports_of(module, root)
-    return sorted([root / f"{module}.py" for module in seen] + [path for path in root.rglob("*") if path.is_file() and path.suffix in set(CODE_SUFFIXES) - {".py"} and "__pycache__" not in path.parts])
+    return sorted(
+        [root / f"{module}.py" for module in seen]
+        + [
+            path
+            for path in root.rglob("*")
+            if path.is_file() and path.suffix in set(CODE_SUFFIXES) - {".py"} and "__pycache__" not in path.parts
+        ],
+    )
 
 
 def tool_identity() -> str:
@@ -64,10 +76,23 @@ def tool_identity() -> str:
     return "|".join(parts)
 
 
-def key_of(source: pathlib.Path, song: str, files: list[pathlib.Path], extra: str = "", style: pathlib.Path = STYLE) -> str:
+def key_of(
+    source: pathlib.Path,
+    song: str,
+    files: list[pathlib.Path],
+    extra: str = "",
+    style: pathlib.Path = STYLE,
+) -> str:
     """Digest of everything an output depends on: source bytes, song settings, code, style, tools."""
     whole = hashlib.sha256()
-    for part in (file_digest(source), song, file_digest(style), tool_identity(), extra, *(f"{path.name}={file_digest(path)}" for path in files)):
+    for part in (
+        file_digest(source),
+        song,
+        file_digest(style),
+        tool_identity(),
+        extra,
+        *(f"{path.name}={file_digest(path)}" for path in files),
+    ):
         whole.update(part.encode("utf-8"))
         whole.update(b"\0")
     return whole.hexdigest()

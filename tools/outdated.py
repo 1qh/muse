@@ -3,6 +3,10 @@
 import json
 import sys
 
-behind = [f"{entry['name']} {entry['version']} < {entry['latest_version']}" for entry in json.load(sys.stdin) if "editable_project_location" not in entry]
+behind = [
+    f"{entry['name']} {entry['version']} < {entry['latest_version']}"
+    for entry in json.load(sys.stdin)
+    if "editable_project_location" not in entry
+]
 print("\n".join(behind))
 raise SystemExit(1 if behind else 0)

@@ -12,17 +12,19 @@ import signal
 import subprocess
 import sys
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from muse import buildcache, chordnames, fullscore, gate, launch, layout, mode, piano, port, publish
-from muse.model import Score
 from muse.song import decode, song_of
 from muse.song import sources as song_sources
+
+if TYPE_CHECKING:
+    from muse.model import Score
 
 
 def variant_key(src: pathlib.Path, variant: str) -> str:
     """The build key of 1 sheet: its source, settings and every file of code that can shape it."""
-    return buildcache.key_of(src, repr(song_of(src)), buildcache.sheet_code(), mode.label())  # records are kept per variant, so 1 key serves every sheet
+    return buildcache.key_of(src, repr(song_of(src)), buildcache.sheet_code(), mode.label())
 
 
 def decision(found: tuple[Score, pathlib.Path, float, float, int]) -> dict[str, Any]:
@@ -40,12 +42,16 @@ def song(src: pathlib.Path, out_dir: pathlib.Path, work: pathlib.Path) -> dict[s
     report: dict[str, object] = {"song": info.name}
     state = buildcache.load(info.name)
     built = []
-    if info.orchestral:  # a full score keeps the source's breaks and takes no tone or piano sheet
+    if info.orchestral:
         outputs = [out_dir / info.score_file, out_dir / info.original_pdf]
         key = variant_key(src, port.ORIGINAL)
         if not buildcache.fresh(state.get(port.ORIGINAL), key, outputs):
             report.update(fullscore.build(src, out_dir, work, info))
-            state[port.ORIGINAL] = buildcache.record(key, [path for path in outputs if path.exists()], decision={"spatium": fullscore.SPATIUM, "distance": fullscore.DISTANCE})
+            state[port.ORIGINAL] = buildcache.record(
+                key,
+                [path for path in outputs if path.exists()],
+                decision={"spatium": fullscore.SPATIUM, "distance": fullscore.DISTANCE},
+            )
             buildcache.save(info.name, state)
             built.append(port.ORIGINAL)
         report["built"] = built
@@ -58,43 +64,78 @@ def song(src: pathlib.Path, out_dir: pathlib.Path, work: pathlib.Path) -> dict[s
         key = variant_key(src, variant)
         return key, buildcache.fresh(state.get(variant), key, outputs)
 
-    def keep(variant: str, key: str, outputs: list[pathlib.Path], found: tuple[Score, pathlib.Path, float, float, int]) -> None:
+    def keep(
+        variant: str,
+        key: str,
+        outputs: list[pathlib.Path],
+        found: tuple[Score, pathlib.Path, float, float, int],
+    ) -> None:
         state[variant] = buildcache.record(key, outputs, decision=decision(found))
         buildcache.save(info.name, state)
         report[variant] = (found[2], found[3], found[4])
         built.append(variant)
 
-    outputs = [out_dir / info.score_file, out_dir / info.original_pdf, port.paired(work, info.original_pdf), port.paired(work, info.original_pdf).with_suffix(".sha")]
+    outputs = [
+        out_dir / info.score_file,
+        out_dir / info.original_pdf,
+        port.paired(work, info.original_pdf),
+        port.paired(work, info.original_pdf).with_suffix(".sha"),
+    ]
     key, ready = current(port.ORIGINAL, outputs)
     if not ready:
         found = layout.lay(src, work, port.ORIGINAL)
         (out_dir / info.score_file).write_bytes(found[1].read_bytes())
         shutil.copyfile(found[1].with_name(found[1].stem + "-layout.pdf"), out_dir / info.original_pdf)
-        port.keep_pair(found[1].with_name(found[1].stem + "-layout.mpos"), out_dir / info.original_pdf, port.paired(work, info.original_pdf))  # the positions of the render that drew the PDF
+        port.keep_pair(
+            found[1].with_name(found[1].stem + "-layout.mpos"),
+            out_dir / info.original_pdf,
+            port.paired(work, info.original_pdf),
+        )
         chordnames.drop_chord_path(out_dir / info.score_file)
         keep(port.ORIGINAL, key, outputs, found)
     if info.direction:
-        tone_score = work / f"{info.name}-{port.TONE}.mscz"  # the gate reads the tone sheet's own score
-        outputs = [out_dir / info.tone_pdf, tone_score, port.paired(work, info.tone_pdf), port.paired(work, info.tone_pdf).with_suffix(".sha")]
+        tone_score = work / f"{info.name}-{port.TONE}.mscz"
+        outputs = [
+            out_dir / info.tone_pdf,
+            tone_score,
+            port.paired(work, info.tone_pdf),
+            port.paired(work, info.tone_pdf).with_suffix(".sha"),
+        ]
         key, ready = current(port.TONE, outputs)
         if not ready:
             found = layout.lay(src, work, port.TONE)
             shutil.copyfile(found[1].with_name(found[1].stem + "-layout.pdf"), out_dir / info.tone_pdf)
-            port.keep_pair(found[1].with_name(found[1].stem + "-layout.mpos"), out_dir / info.tone_pdf, port.paired(work, info.tone_pdf))
+            port.keep_pair(
+                found[1].with_name(found[1].stem + "-layout.mpos"),
+                out_dir / info.tone_pdf,
+                port.paired(work, info.tone_pdf),
+            )
             shutil.copyfile(found[1], tone_score)
             keep(port.TONE, key, outputs, found)
     final = work / f"{info.name}-piano-final.mscz"
-    outputs = [out_dir / info.piano_pdf, final, port.paired(work, info.piano_pdf), port.paired(work, info.piano_pdf).with_suffix(".sha")]
+    outputs = [
+        out_dir / info.piano_pdf,
+        final,
+        port.paired(work, info.piano_pdf),
+        port.paired(work, info.piano_pdf).with_suffix(".sha"),
+    ]
     key, ready = current(port.PIANO, outputs)
     if not ready:
         found = layout.lay(src, work, port.PIANO)
         shutil.copyfile(found[1].with_name(found[1].stem + "-layout.pdf"), out_dir / info.piano_pdf)
-        port.keep_pair(found[1].with_name(found[1].stem + "-layout.mpos"), out_dir / info.piano_pdf, port.paired(work, info.piano_pdf))
+        port.keep_pair(
+            found[1].with_name(found[1].stem + "-layout.mpos"),
+            out_dir / info.piano_pdf,
+            port.paired(work, info.piano_pdf),
+        )
         final.write_bytes(found[1].read_bytes())
         keep(port.PIANO, key, outputs, found)
     found_parts = piano.parts(decode(src))
     probe_score = decode(src)
-    report["parts"] = [(p.name, p.first, p.last, piano.staff_of([probe_score.bars[n - 1] for n in range(p.first, p.last + 1)])) for p in found_parts]
+    report["parts"] = [
+        (p.name, p.first, p.last, piano.staff_of([probe_score.bars[n - 1] for n in range(p.first, p.last + 1)]))
+        for p in found_parts
+    ]
     report["built"] = built
     report["launches"] = launch.LAUNCHES["count"]
     report["seconds"] = round(time.monotonic() - began, 1)
@@ -108,7 +149,7 @@ def free_workers(count: int, cores: int | None = None) -> int:
     return max(1, min(count, port.MAX_WORKERS, cores))
 
 
-PRIORITY = "PRIORITY.txt"  # in the private repo: song names to build first, in order
+PRIORITY = "PRIORITY.txt"
 
 
 def ordered(sources: list[pathlib.Path]) -> list[pathlib.Path]:
@@ -121,7 +162,7 @@ def ordered(sources: list[pathlib.Path]) -> list[pathlib.Path]:
 
 def publish_song(src_dir: pathlib.Path, out_dir: pathlib.Path, work: pathlib.Path, stage: pathlib.Path, name: str) -> str:
     """1 finished song copied from its staging folder into the sheets repo and published alone; the reason it was blocked, or empty."""
-    publish.resync(out_dir)  # start from what is published, never a copy a stopped build left behind
+    publish.resync(out_dir)
     shutil.rmtree(out_dir / name, ignore_errors=True)
     shutil.copytree(stage / name, out_dir / name)
     blocked = publish.publish(src_dir, out_dir, work, names=(name,))
@@ -136,10 +177,16 @@ def child(src: pathlib.Path, stage: pathlib.Path, work: pathlib.Path) -> tuple[d
     name = song_of(src).name
     refusal = work / f"{name}-refusal.txt"
     refusal.unlink(missing_ok=True)
-    done = subprocess.run([sys.executable, "-m", "muse.build", CHILD_FLAG, str(src), str(stage), str(work)], stdin=subprocess.DEVNULL, check=False)
+    done = subprocess.run(
+        [sys.executable, "-m", "muse.build", CHILD_FLAG, str(src), str(stage), str(work)],
+        stdin=subprocess.DEVNULL,
+        check=False,
+    )
     if done.returncode == 0:
         return json.loads((work / f"{name}-report.json").read_text(encoding="utf-8")), ""
-    return None, refusal.read_text(encoding="utf-8") if refusal.exists() else f"child exited {done.returncode} with no reason"
+    return None, refusal.read_text(
+        encoding="utf-8",
+    ) if refusal.exists() else f"child exited {done.returncode} with no reason"
 
 
 def child_main(src: pathlib.Path, stage: pathlib.Path, work: pathlib.Path) -> None:
@@ -152,7 +199,7 @@ def child_main(src: pathlib.Path, stage: pathlib.Path, work: pathlib.Path) -> No
 
 
 def main() -> None:
-    faulthandler.register(signal.SIGUSR1, all_threads=True)  # `kill -USR1 <pid>` prints where every thread waits, no debugger needed
+    faulthandler.register(signal.SIGUSR1, all_threads=True)
     if sys.argv[1:2] == [CHILD_FLAG]:
         child_main(*map(pathlib.Path, sys.argv[2:5]))
         return
@@ -160,37 +207,39 @@ def main() -> None:
     args = [arg for arg in sys.argv[1:] if arg != "--publish"]
     publishing = "--publish" in sys.argv[1:]
     if publishing and not shutil.which("git-filter-repo"):
-        raise SystemExit("git-filter-repo not found")
-    if publishing and not gate.homr_command():  # the gate needs it for every song; refuse now rather than after the builds
-        raise SystemExit("homr not found: install it or set MUSE_HOMR")
+        msg = "git-filter-repo not found"
+        raise SystemExit(msg)
+    if publishing and not gate.homr_command():
+        msg = "homr not found: install it or set MUSE_HOMR"
+        raise SystemExit(msg)
     src_dir, out_dir, work = map(pathlib.Path, args[:3])
     wanted = args[3:]
     sources = ordered([src for src in song_sources(src_dir) if not wanted or src.stem.split("-")[0] in wanted])
-    stage = work / "stage" if publishing else out_dir  # songs build apart from the repo that publishing rewrites
+    stage = work / "stage" if publishing else out_dir
     began = time.monotonic()
     reports = []
     refused = []
     blocked = []
     workers = free_workers(len(sources))
-    os.environ[launch.SLOTS_VARIABLE] = str(max(1, (os.cpu_count() or 1) // workers))  # each song child's share of the cores, read as it starts
-    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:  # threads only wait on children: no queue crosses a process
+    os.environ[launch.SLOTS_VARIABLE] = str(max(1, (os.cpu_count() or 1) // workers))
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
         jobs = {pool.submit(child, src, stage, work): src for src in sources}
         for job in concurrent.futures.as_completed(jobs):
             src = jobs[job]
             report, reason = job.result()
-            if launch.UNAVAILABLE in reason:  # the machine, not the song: stop rather than refuse every song for it
+            if launch.UNAVAILABLE in reason:
                 pool.shutdown(wait=False, cancel_futures=True)
                 raise SystemExit(reason)
-            if report is None:  # 1 song's failure never stops the others
+            if report is None:
                 refused.append(src.stem)
                 print(f"refused {src.stem}: {reason}", flush=True)
                 continue
             reports.append(report)
             print(json.dumps(report, ensure_ascii=False), flush=True)
-            if publishing:  # this process alone publishes, so songs publish 1 at a time as they finish
+            if publishing:
                 try:
                     reason = publish_song(src_dir, out_dir, work, stage, song_of(src).name)
-                except launch.MachineUnavailable as error:  # the gate's tools refused by the locked Mac
+                except launch.MachineUnavailable as error:
                     pool.shutdown(wait=False, cancel_futures=True)
                     raise SystemExit(str(error)) from error
                 print(f"{'blocked' if reason else 'published'} {song_of(src).name} {reason}".rstrip(), flush=True)
@@ -200,9 +249,12 @@ def main() -> None:
     earlier = json.loads(previous.read_text(encoding="utf-8")) if previous.exists() else {}
     earlier.update({str(r["song"]): r for r in reports})
     previous.write_text(json.dumps(earlier, ensure_ascii=False, indent=1), encoding="utf-8")
-    print(f"songs {len(reports)} launches {sum(int(str(r['launches'])) for r in reports)} seconds {time.monotonic() - began:.1f}")
+    print(
+        f"songs {len(reports)} launches {sum(int(str(r['launches'])) for r in reports)} seconds {time.monotonic() - began:.1f}",
+    )
     if refused or blocked:
-        raise SystemExit(f"refused: {refused} blocked: {blocked}")
+        msg = f"refused: {refused} blocked: {blocked}"
+        raise SystemExit(msg)
 
 
 if __name__ == "__main__":

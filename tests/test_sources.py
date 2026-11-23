@@ -1,6 +1,8 @@
 """Decoders against the real sheets, kept outside the repo; MUSE_SOURCES must name them."""
+
 import collections
 import hashlib
+import itertools
 import json
 import os
 import pathlib
@@ -22,7 +24,9 @@ def pins():
 
 def names():
     path = os.environ.get("MUSE_PINS")
-    return sorted(json.loads(pathlib.Path(path).read_text(encoding="utf-8"))["songs"]) if path else ["MUSE_PINS is not set"]
+    return (
+        sorted(json.loads(pathlib.Path(path).read_text(encoding="utf-8"))["songs"]) if path else ["MUSE_PINS is not set"]
+    )
 
 
 def source(name):
@@ -41,47 +45,66 @@ def reading(score):
     rows = []
     for b in score.bars:
         for voices in (b.voices, b.voices2):
-            for v in voices:
-                rows.append(" ".join(("+".join(f"{h.step}{h.alter}{h.octave}" for h in e.heads) or "r") + f":{e.length}" for e in v))
-        rows.append("|".join(f"{c.root}{c.root_alter}{c.kind}/{c.bass}{c.bass_alter}" for c in b.chords))
-        rows.append(f"{b.repeat_start}{b.repeat_end}{b.volta}{b.segno}{b.coda}{b.to_coda}{b.dal_segno}")
-        rows.append("|".join(f"{'^' if text.above else 'v'}" + "".join(run[0] for run in text.runs) for text in [*b.texts, *b.texts2]))
-        rows.append("|".join(b.rehearsal))
+            rows.extend(
+                " ".join(("+".join(f"{h.step}{h.alter}{h.octave}" for h in e.heads) or "r") + f":{e.length}" for e in v)
+                for v in voices
+            )
+        rows.extend((
+            "|".join(f"{c.root}{c.root_alter}{c.kind}/{c.bass}{c.bass_alter}" for c in b.chords),
+            f"{b.repeat_start}{b.repeat_end}{b.volta}{b.segno}{b.coda}{b.to_coda}{b.dal_segno}",
+            "|".join(
+                f"{'^' if text.above else 'v'}" + "".join(run[0] for run in text.runs) for text in [*b.texts, *b.texts2]
+            ),
+            "|".join(b.rehearsal),
+        ))
     return "\n".join(rows)
 
 
 @pytest.mark.parametrize("name", names())
-def test_bar_count_and_no_flags(name):
+def test_bar_count_and_no_flags(name) -> None:
     score = decode(source(name))
     assert len(score.bars) == pins()["songs"][name]["bars"]
     assert score.flags == []
 
 
 @pytest.mark.parametrize("name", names())
-def test_every_voice_fills_its_bar(name):
+def test_every_voice_fills_its_bar(name) -> None:
     for b in decode(source(name)).bars:
         for voices in (b.voices, b.voices2):
             for v in voices:
                 assert sum((e.length for e in v), F(0)) == b.length, b.number
 
 
-def test_all_notes_of_a_beam_share_a_group():
-    groups = [e.beam for b in decode(source(pins()["beam_song"])).bars[34:35] for v in b.voices2 for e in v if e.heads and e.length == F(1, 4)]
-    assert len(set(groups)) == 4 and len(groups) == 16
+def test_all_notes_of_a_beam_share_a_group() -> None:
+    groups = [
+        e.beam
+        for b in decode(source(pins()["beam_song"])).bars[34:35]
+        for v in b.voices2
+        for e in v
+        if e.heads and e.length == F(1, 4)
+    ]
+    assert len(set(groups)) == 4
+    assert len(groups) == 16
 
 
 @pytest.mark.parametrize("name", names())
-def test_reading_is_pinned(name):
+def test_reading_is_pinned(name) -> None:
     """Digest of the reading proven against the sources; contains no sheet content."""
     digest = hashlib.sha256(reading(decode(source(name))).encode()).hexdigest()[:16]
     assert digest == pins()["songs"][name]["digest"]
 
 
 @pytest.mark.parametrize("name", names())
-def test_derivation_matches_the_confirmed_song_list(name):
+def test_derivation_matches_the_confirmed_song_list(name) -> None:
     pin = pins()["songs"][name]
     song = song_of(source(name))
-    assert (song.tone, song.fifths, song.direction, song.semis, song.title) == (pin["tone"], pin["fifths"], pin["direction"], pin["semis"], pin["title"])
+    assert (song.tone, song.fifths, song.direction, song.semis, song.title) == (
+        pin["tone"],
+        pin["fifths"],
+        pin["direction"],
+        pin["semis"],
+        pin["title"],
+    )
 
 
 def test_no_private_credit_reaches_the_decoded_text() -> None:
@@ -104,12 +127,20 @@ def test_no_cue_joins_a_word_across_two_source_spans() -> None:
         for path in lead_sheets(pathlib.Path(folder)):
             for bar in decode(path).bars:
                 for text in [*bar.texts, *bar.texts2]:
-                    joined += [(path.stem, bar.number) for left, right in zip(text.runs, text.runs[1:], strict=False) if left[0] and right[0] and left[0][-1].isalnum() and right[0][0].isalnum()]
+                    joined += [
+                        (path.stem, bar.number)
+                        for left, right in zip(text.runs, text.runs[1:], strict=False)
+                        if left[0] and right[0] and left[0][-1].isalnum() and right[0][0].isalnum()
+                    ]
     assert not joined
 
 
 def test_every_source_reads_with_no_flag() -> None:
-    flagged = {path.stem: [issue.message for issue in decode(path).flags] for folder in os.environ["MUSE_SOURCES"].split(os.pathsep) for path in lead_sheets(pathlib.Path(folder))}
+    flagged = {
+        path.stem: [issue.message for issue in decode(path).flags]
+        for folder in os.environ["MUSE_SOURCES"].split(os.pathsep)
+        for path in lead_sheets(pathlib.Path(folder))
+    }
     assert not {name: flags for name, flags in flagged.items() if flags}
 
 
@@ -118,7 +149,11 @@ def test_every_change_of_bar_length_prints_its_time_signature() -> None:
     for folder in os.environ["MUSE_SOURCES"].split(os.pathsep):
         for path in lead_sheets(pathlib.Path(folder)):
             bars = decode(path).bars
-            silent += [(path.stem, after.number) for before, after in zip(bars, bars[1:], strict=False) if before.length != after.length and after.time is None]
+            silent += [
+                (path.stem, after.number)
+                for before, after in itertools.pairwise(bars)
+                if before.length != after.length and after.time is None
+            ]
     assert not silent
 
 
@@ -130,14 +165,23 @@ def printed_line_starts(path: pathlib.Path) -> list[int]:
     for at, page in enumerate(pymupdf.open(path)):
         for block in page.get_text("dict")["blocks"]:
             for line in block.get("lines", []):
-                found += [(at, span["origin"][1], int(span["text"])) for span in line["spans"] if span["font"] == "Edwin-Italic" and span["text"].strip().isdigit() and span["origin"][0] < 60]
+                found += [
+                    (at, span["origin"][1], int(span["text"]))
+                    for span in line["spans"]
+                    if span["font"] == "Edwin-Italic" and span["text"].strip().isdigit() and span["origin"][0] < 60
+                ]
     return [number for _, _, number in sorted(found)]
 
 
 def test_every_leland_source_starts_its_lines_on_the_printed_bar_numbers() -> None:
     from muse.song import encoding
 
-    sources = [path for folder in os.environ["MUSE_SOURCES"].split(os.pathsep) for path in sorted(pathlib.Path(folder).glob("*.pdf")) if encoding(path) == "leland"]
+    sources = [
+        path
+        for folder in os.environ["MUSE_SOURCES"].split(os.pathsep)
+        for path in sorted(pathlib.Path(folder).glob("*.pdf"))
+        if encoding(path) == "leland"
+    ]
     assert sources, "no Leland source found: the guard would judge nothing"
     wrong = {}
     for path in sources:
@@ -153,11 +197,23 @@ def test_every_leland_source_decodes_each_printed_ending_once() -> None:
 
     from muse.song import encoding
 
-    sources = [path for folder in os.environ["MUSE_SOURCES"].split(os.pathsep) for path in sorted(pathlib.Path(folder).glob("*.pdf")) if encoding(path) == "leland"]
+    sources = [
+        path
+        for folder in os.environ["MUSE_SOURCES"].split(os.pathsep)
+        for path in sorted(pathlib.Path(folder).glob("*.pdf"))
+        if encoding(path) == "leland"
+    ]
     assert sources, "no Leland source found: the guard would judge nothing"
     wrong = {}
     for path in sources:
-        printed = sum(1 for page in pymupdf.open(path) for block in page.get_text("dict")["blocks"] for line in block.get("lines", []) for span in line["spans"] if span["text"].strip() in ("1.", "2.") and "Bold" in span["font"])
+        printed = sum(
+            1
+            for page in pymupdf.open(path)
+            for block in page.get_text("dict")["blocks"]
+            for line in block.get("lines", [])
+            for span in line["spans"]
+            if span["text"].strip() in {"1.", "2."} and "Bold" in span["font"]
+        )
         decoded = sum(1 for bar in decode(path).bars if bar.volta)
         if printed != decoded:
             wrong[path.stem] = (printed, decoded)
@@ -170,14 +226,26 @@ def test_every_leland_source_decodes_each_printed_repeat_barline_once() -> None:
     from muse import leland
     from muse.song import encoding
 
-    sources = [path for folder in os.environ["MUSE_SOURCES"].split(os.pathsep) for path in sorted(pathlib.Path(folder).glob("*.pdf")) if encoding(path) == "leland"]
+    sources = [
+        path
+        for folder in os.environ["MUSE_SOURCES"].split(os.pathsep)
+        for path in sorted(pathlib.Path(folder).glob("*.pdf"))
+        if encoding(path) == "leland"
+    ]
     assert sources, "no Leland source found: the guard would judge nothing"
     wrong = {}
     for path in sources:
         printed = 0
         for page in pymupdf.open(path):
-            dots = sorted((c["origin"][0], c["origin"][1]) for block in page.get_text("rawdict")["blocks"] for line in block.get("lines", []) for span in line["spans"] for c in span["chars"] if ord(c["c"]) == leland.REPEAT_DOT)
-            barlines: list[tuple[float, float]] = []  # 1 per printed repeat barline: its dots on every staff of the line stand in 1 column
+            dots = sorted(
+                (c["origin"][0], c["origin"][1])
+                for block in page.get_text("rawdict")["blocks"]
+                for line in block.get("lines", [])
+                for span in line["spans"]
+                for c in span["chars"]
+                if ord(c["c"]) == leland.REPEAT_DOT
+            )
+            barlines: list[tuple[float, float]] = []
             for x, y in dots:
                 if not any(abs(x - bx) < 2 and abs(y - by) < 120 for bx, by in barlines):
                     barlines.append((x, y))
@@ -192,7 +260,12 @@ def test_every_leland_source_decodes_each_printed_repeat_barline_once() -> None:
 def test_every_leland_repeat_end_after_another_has_its_own_start() -> None:
     from muse.song import encoding
 
-    sources = [path for folder in os.environ["MUSE_SOURCES"].split(os.pathsep) for path in sorted(pathlib.Path(folder).glob("*.pdf")) if encoding(path) == "leland"]
+    sources = [
+        path
+        for folder in os.environ["MUSE_SOURCES"].split(os.pathsep)
+        for path in sorted(pathlib.Path(folder).glob("*.pdf"))
+        if encoding(path) == "leland"
+    ]
     assert sources, "no Leland source found: the guard would judge nothing"
     wrong = {}
     for path in sources:
@@ -207,7 +280,7 @@ def test_every_leland_repeat_end_after_another_has_its_own_start() -> None:
     assert not wrong
 
 
-SYMBOL_LYRIC_FONTS = ("Times New Roman Italic+FPEF", "CIDFont+F8")  # the italic hint line of the symbol-font sources, at 10.8pt
+SYMBOL_LYRIC_FONTS = ("Times New Roman Italic+FPEF", "CIDFont+F8")
 SYMBOL_LYRIC_SIZE = 10.8
 
 
@@ -218,9 +291,20 @@ def lyric_spans(path: pathlib.Path) -> list[str]:
     from muse.leland import is_lyric
 
     def lyric(span: dict) -> bool:
-        return is_lyric(span["font"]) or (span["font"] in SYMBOL_LYRIC_FONTS and abs(span["size"] - SYMBOL_LYRIC_SIZE) < 0.3 and " " in span["text"].strip())
+        return is_lyric(span["font"]) or (
+            span["font"] in SYMBOL_LYRIC_FONTS
+            and abs(span["size"] - SYMBOL_LYRIC_SIZE) < 0.3
+            and " " in span["text"].strip()
+        )
 
-    return [span["text"].strip() for page in pymupdf.open(path) for block in page.get_text("dict")["blocks"] for line in block.get("lines", []) for span in line["spans"] if lyric(span) and len(span["text"].strip()) > 3]
+    return [
+        span["text"].strip()
+        for page in pymupdf.open(path)
+        for block in page.get_text("dict")["blocks"]
+        for line in block.get("lines", [])
+        for span in line["spans"]
+        if lyric(span) and len(span["text"].strip()) > 3
+    ]
 
 
 def test_every_lyric_hint_reads_under_the_staff_it_is_printed_under() -> None:
@@ -256,7 +340,12 @@ def boxed_labels(path: pathlib.Path) -> list[str]:
                         held.setdefault(at, []).append((span["text"].strip(), "Bold" in span["font"]))
         for pieces in held.values():
             text = " ".join(piece for piece, _ in pieces)
-            if all(bold for _, bold in pieces) and len(text) > 1 and not text.rstrip(".").isdigit() and not text.startswith("("):
+            if (
+                all(bold for _, bold in pieces)
+                and len(text) > 1
+                and not text.rstrip(".").isdigit()
+                and not text.startswith("(")
+            ):
                 found.append(text)
     return found
 
@@ -279,7 +368,12 @@ def orchestral_sources():
     root = os.environ.get("MUSE_SOURCES")
     if not root:
         return ["MUSE_SOURCES is not set"]
-    return sorted(str(pdf) for folder in root.split(os.pathsep) for pdf in pathlib.Path(folder).glob("*.pdf") if song.is_orchestral(pdf)) or ["no orchestral source"]
+    return sorted(
+        str(pdf)
+        for folder in root.split(os.pathsep)
+        for pdf in pathlib.Path(folder).glob("*.pdf")
+        if song.is_orchestral(pdf)
+    ) or ["no orchestral source"]
 
 
 def orchestral_pin(path):
@@ -293,7 +387,7 @@ def orchestral_pin(path):
 
 
 @pytest.mark.parametrize("path", orchestral_sources())
-def test_full_score_reads_every_part_through_every_bar(path):
+def test_full_score_reads_every_part_through_every_bar(path) -> None:
     pin = orchestral_pin(path)
     score = song.orchestra_of(pathlib.Path(path))
     assert [(p.name, p.staves, p.key) for p in score.parts] == [tuple(row) for row in pin["parts"]]
@@ -309,7 +403,7 @@ def spike_reader(pin):
     """The proven spike reader's functions, loaded from the private repo without running its report."""
     text = (pathlib.Path(os.environ["MUSE_PINS"]).parent / pin["reader"]).read_text(encoding="utf-8")
     space = {}
-    exec(compile(text.rsplit("\nmain()", 1)[0], pin["reader"], "exec"), space)  # noqa: S102 - the private spike reader is the reference this decode is held to
+    exec(compile(text.rsplit("\nmain()", 1)[0], pin["reader"], "exec"), space)  # ruff: ignore[exec-builtin] - the private spike reader is the reference this decode is held to
     return space
 
 
@@ -330,7 +424,12 @@ def spike_staff_bars(path, reader):
             rests = [g for g in glyphs if g[0] in reader["RESTS"] and nearest_pair(staves, g[2]) == (top, base)]
             rules = [v for v in verticals if v[3] >= reader["STEM_WIDTH"]]
             spans = [round(x, 0) for x, y0, y1, _ in rules if y0 - 1 <= top and y1 + 1 >= base]
-            bars = sorted({x for x in spans if sum(1 for o, a0, a1, _ in rules if abs(o - x) < 1.5 and a1 - a0 > base - top - 1) >= 3 or any(abs(o - x) < 1.5 and a1 - a0 > 3 * (base - top) for o, a0, a1, _ in rules)})
+            bars = sorted({
+                x
+                for x in spans
+                if sum(1 for o, a0, a1, _ in rules if abs(o - x) < 1.5 and a1 - a0 > base - top - 1) >= 3
+                or any(abs(o - x) < 1.5 and a1 - a0 > 3 * (base - top) for o, a0, a1, _ in rules)
+            })
             merged = []
             for x in bars:
                 if not merged or x - merged[-1] > 5:
@@ -339,15 +438,21 @@ def spike_staff_bars(path, reader):
             if merged and merged[-1] < right - 5:
                 merged.append(right)
             ours = [e for e in sounding if e[0] == (top, base)]
-            for at, (a, b) in enumerate(zip(merged, merged[1:], strict=False)):
+            for at, (a, b) in enumerate(itertools.pairwise(merged)):
                 here = [e for e in ours if a <= e[1] < b - 0.3]
                 quiet = [g for g in rests if a <= g[1] < b - 0.3]
                 if not here and not quiet:
                     continue
-                rest = sum((reader["RESTS"][g[0]] or F(4)) * next((r for s, x0, x1, r in brackets if s == (top, base) and x0 <= g[1] <= x1), 1) for g in quiet)
-                close = lambda p, q: abs(p[0] - q[0]) < 3 or abs(p[1] - q[1]) < 1.5  # noqa: E731
+                rest = sum(
+                    (reader["RESTS"][g[0]] or F(4))
+                    * next((r for s, x0, x1, r in brackets if s == (top, base) and x0 <= g[1] <= x1), 1)
+                    for g in quiet
+                )
+                close = lambda p, q: abs(p[0] - q[0]) < 3 or abs(p[1] - q[1]) < 1.5  # ruff: ignore[lambda-assignment]
                 ups, downs, stemless = ([(e[1], e[4]) for e in here if e[3] == k] for k in "udn")
-                split = any(close(u, d) for u in ups for d in downs) or any(close(n, m) for n in stemless for m in ups + downs)
+                split = any(close(u, d) for u in ups for d in downs) or any(
+                    close(n, m) for n in stemless for m in ups + downs
+                )
                 voice = collections.defaultdict(F)
                 for e in here:
                     voice[e[3] if split or e[3] == "n" else "s"] += e[2]
@@ -355,12 +460,12 @@ def spike_staff_bars(path, reader):
                     voice["s"] += voice.pop("n")
                 totals = list(voice.values())
                 if (totals and all(t == 4 or t + rest == 4 for t in totals)) or (not here and rest == 4):
-                    found[(page.number, round(top, 1), at)] = sum((e[2] for e in here), F(0))
+                    found[page.number, round(top, 1), at] = sum((e[2] for e in here), F(0))
     return found
 
 
 @pytest.mark.parametrize("path", orchestral_sources())
-def test_full_score_adds_up_on_every_staff_bar_the_spike_reader_adds_up_on(path):
+def test_full_score_adds_up_on_every_staff_bar_the_spike_reader_adds_up_on(path) -> None:
     pin = orchestral_pin(path)
     spike = spike_staff_bars(path, spike_reader(pin))
     assert len(spike) == pin["spike_whole"]
@@ -378,19 +483,19 @@ def test_full_score_adds_up_on_every_staff_bar_the_spike_reader_adds_up_on(path)
         for system in orchestral.systems_of(page.number, sheet, staves, braces):
             edges = orchestral.system_bars(system, sheet.verticals)
             for staff in system.staves:
-                for at, (a, b) in enumerate(zip(edges, edges[1:], strict=False)):
+                for at, (a, b) in enumerate(itertools.pairwise(edges)):
                     here = [s for s in sounds if s.staff == staff and a <= s.x < b - 0.3]
                     quiet = [r for r in rests if r.staff == staff and a <= r.x < b - 0.3]
                     try:
                         orchestral.voices_of(here, quiet, F(4), "parity")
                     except orchestral.Unreadable:
                         continue
-                    ours[(page.number, round(staff.top, 1), at)] = sum((s.nominal * (s.ratio or 1) for s in here), F(0))
+                    ours[page.number, round(staff.top, 1), at] = sum((s.nominal * (s.ratio or 1) for s in here), F(0))
     assert {key: ours.get(key) for key in spike} == spike
 
 
 @pytest.mark.parametrize("path", orchestral_sources())
-def test_a_line_crossing_a_braced_pair_reads_as_1_line(path):
+def test_a_line_crossing_a_braced_pair_reads_as_1_line(path) -> None:
     pin = orchestral_pin(path)
     score = song.orchestra_of(pathlib.Path(path))
     for name, numbers in pin["crossing"].items():
@@ -406,7 +511,7 @@ def test_a_line_crossing_a_braced_pair_reads_as_1_line(path):
 
 @pytest.mark.musescore
 @pytest.mark.parametrize("path", orchestral_sources())
-def test_full_score_builds_3_files_that_hold_the_decode_and_the_source_s_systems(path, tmp_path):
+def test_full_score_builds_3_files_that_hold_the_decode_and_the_source_s_systems(path, tmp_path) -> None:
     from muse import fullcheck, fullscore, launch
 
     src = pathlib.Path(path)
@@ -426,16 +531,24 @@ def test_full_score_builds_3_files_that_hold_the_decode_and_the_source_s_systems
 
 
 @pytest.mark.parametrize("path", orchestral_sources())
-def test_every_orchestral_note_lies_in_a_playable_octave(path):
+def test_every_orchestral_note_lies_in_a_playable_octave(path) -> None:
     """A clef of another system read on this staff throws every note dozens of octaves off."""
     score = song.orchestra_of(pathlib.Path(path))
-    heads = [(part.name, bar.number, head.octave) for part in score.parts for bar in part.bars for voices in (bar.voices, bar.voices2) for voice in voices for event in voice for head in event.heads]
+    heads = [
+        (part.name, bar.number, head.octave)
+        for part in score.parts
+        for bar in part.bars
+        for voices in (bar.voices, bar.voices2)
+        for voice in voices
+        for event in voice
+        for head in event.heads
+    ]
     assert heads, "no note read: the guard would judge nothing"
     assert not [head for head in heads if not 0 <= head[2] <= 8]
 
 
 @pytest.mark.parametrize("path", orchestral_sources())
-def test_every_printed_mark_reaches_its_note(path):
+def test_every_printed_mark_reaches_its_note(path) -> None:
     """A bowing or articulation lost, or given to another part, changes how the part is played."""
     import collections
 
@@ -443,7 +556,14 @@ def test_every_printed_mark_reaches_its_note(path):
 
     from muse import symbolfont
 
-    glyphs = {symbolfont.TENUTO: "tenuto", symbolfont.MARCATO: "strong-accent-up", symbolfont.MARCATO_BELOW: "strong-accent-down", symbolfont.UP_BOW: "up-bow", symbolfont.DOWN_BOW: "down-bow", symbolfont.HARMONIC: "harmonic"}
+    glyphs = {
+        symbolfont.TENUTO: "tenuto",
+        symbolfont.MARCATO: "strong-accent-up",
+        symbolfont.MARCATO_BELOW: "strong-accent-down",
+        symbolfont.UP_BOW: "up-bow",
+        symbolfont.DOWN_BOW: "down-bow",
+        symbolfont.HARMONIC: "harmonic",
+    }
     printed: collections.Counter[str] = collections.Counter()
     waves = set()
     for number, page in enumerate(pymupdf.open(path)):
@@ -456,14 +576,22 @@ def test_every_printed_mark_reaches_its_note(path):
                         if code == symbolfont.ARPEGGIO:
                             waves.add((number, round(char["origin"][0])))
     score = song.orchestra_of(pathlib.Path(path))
-    read = collections.Counter(mark for part in score.parts for bar in part.bars for voices in (bar.voices, bar.voices2) for voice in voices for event in voice for mark in event.marks)
+    read = collections.Counter(
+        mark
+        for part in score.parts
+        for bar in part.bars
+        for voices in (bar.voices, bar.voices2)
+        for voice in voices
+        for event in voice
+        for mark in event.marks
+    )
     assert sum(printed.values()), "no mark printed: the guard would judge nothing"
     assert {mark: read[mark] for mark in glyphs.values()} == {mark: printed[mark] for mark in glyphs.values()}
     assert read["arpeggiate"] >= len(waves)
 
 
 @pytest.mark.parametrize("path", orchestral_sources())
-def test_every_hairpin_reads_as_a_wedge_with_its_end(path):
+def test_every_hairpin_reads_as_a_wedge_with_its_end(path) -> None:
     """A hairpin dropped from a part loses its swell; counted here from the raw strokes, apart from the reader."""
     import pymupdf
 
@@ -477,7 +605,7 @@ def test_every_hairpin_reads_as_a_wedge_with_its_end(path):
                 if 0.5 < abs(a.y - b.y) < 9 and b.x - a.x > 10:
                     legs.append((a, b))
         for at, (a, b) in enumerate(legs):
-            for c, d in legs[at + 1:]:
+            for c, d in legs[at + 1 :]:
                 if abs(a.x - c.x) < 1 and abs(a.y - c.y) < 1 and abs(b.y - d.y) > 1.5:
                     pins["crescendo"] += 1
                 elif abs(b.x - d.x) < 1 and abs(b.y - d.y) < 1 and abs(a.y - c.y) > 1.5:

@@ -1,4 +1,5 @@
 """Score model shared by every source decoder and the MusicXML writer."""
+
 from __future__ import annotations
 
 import dataclasses
@@ -33,8 +34,8 @@ class Head:
 @dataclasses.dataclass
 class Event:
     x: float
-    heads: list[Head]  # empty means rest
-    nominal: F  # written length in quarters, dots included
+    heads: list[Head]
+    nominal: F
     dots: int = 0
     stem: str | None = None
     tuplet: bool = False
@@ -44,13 +45,13 @@ class Event:
     trill: bool = False
     accent: bool = False
     fermata: bool = False
-    marks: list[str] = dataclasses.field(default_factory=list)  # a full score's articulations, bowings and ornaments on this note: tenuto, strong-accent-up, strong-accent-down, up-bow, down-bow, harmonic, arpeggiate, tremolo
+    marks: list[str] = dataclasses.field(default_factory=list)
     grace: bool = False
     beam_state: str | None = None
     tuplet_state: str | None = None
     onset: F = F(0)
-    ratio: F = F(2, 3)  # what a tuplet scales its notes by: 2/3 for 3 in the time of 2, 4/5 for 5 in the time of 4
-    staff: int | None = None  # the staff of a part's 2 that the event prints on, where the part has 2
+    ratio: F = F(2, 3)
+    staff: int | None = None
 
     @property
     def length(self) -> F:
@@ -73,13 +74,13 @@ class Chord:
 class Text:
     x: float
     y: float
-    runs: list[tuple[str, bool, bool]]  # text, bold, italic
+    runs: list[tuple[str, bool, bool]]
     above: bool
     kind: str = "cue"
     size: float = 10.0
 
 
-Clef = tuple[str, int, int]  # sign, staff line, octave change
+Clef = tuple[str, int, int]
 
 
 @dataclasses.dataclass
@@ -93,7 +94,7 @@ class Bar:
     time_symbol: str | None = None
     key: int | None = None
     new_system: bool = False
-    source_line: bool = False  # the source opens a line on this bar
+    source_line: bool = False
     new_page: bool = False
     voices: list[list[Event]] = dataclasses.field(default_factory=list)
     voices2: list[list[Event]] = dataclasses.field(default_factory=list)
@@ -117,7 +118,7 @@ class Bar:
     simile: bool = False
     clef_octave: int = 0
     base: float = 0.0
-    clefs: list[tuple[int, F, Clef]] = dataclasses.field(default_factory=list)  # staff, onset, clef: every clef the bar sets, its first bar's included
+    clefs: list[tuple[int, F, Clef]] = dataclasses.field(default_factory=list)
 
 
 @dataclasses.dataclass
@@ -132,7 +133,7 @@ def bar_at(bars: list[Bar], x: float, lead: float) -> Bar:
     return begun[-1] if begun else bars[0]
 
 
-MARK_REACH = 6.0  # points a section label may stand clear of the barline it marks
+MARK_REACH = 6.0
 
 
 def mark_bar(bars: list[Bar], left: float, right: float) -> Bar:
@@ -151,7 +152,7 @@ class Score:
     flags: list[Issue]
     has_second_staff: bool = False
     clef_octave: int = 0
-    minor: bool | None = None  # the key's mode, which only the source's file name states
+    minor: bool | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -171,7 +172,7 @@ class Part:
     abbreviation: str
     staves: int
     transposition: Transposition | None
-    key: int  # the fifths its own staff prints
+    key: int
     bars: list[Bar]
 
 

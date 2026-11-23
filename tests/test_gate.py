@@ -1,6 +1,7 @@
 """Song derivation, refusals, the gate's own checks and the publishing guard."""
 
 from fractions import Fraction as F
+from typing import Never
 
 import pymupdf
 import pytest
@@ -18,16 +19,25 @@ def blank(path, width=595.0, height=842.0, pages=1, text=None):
     return path
 
 
-@pytest.mark.parametrize(("root", "minor", "want"), [
-    ("C", True, ("Am", 0, "down", -3)), ("D", True, ("Em", 1, "up", 2)), ("F", True, ("Em", 1, "down", -1)),
-    ("E", True, ("Em", 1, "", 0)), ("A", True, ("Am", 0, "", 0)), ("G", True, ("Am", 0, "up", 2)),
-    ("B", True, ("Am", 0, "down", -2)), ("D", False, ("C", 0, "down", -2)), ("A", False, ("G", 1, "down", -2)),
-])
-def test_target_is_the_nearest_key(root, minor, want):
+@pytest.mark.parametrize(
+    ("root", "minor", "want"),
+    [
+        ("C", True, ("Am", 0, "down", -3)),
+        ("D", True, ("Em", 1, "up", 2)),
+        ("F", True, ("Em", 1, "down", -1)),
+        ("E", True, ("Em", 1, "", 0)),
+        ("A", True, ("Am", 0, "", 0)),
+        ("G", True, ("Am", 0, "up", 2)),
+        ("B", True, ("Am", 0, "down", -2)),
+        ("D", False, ("C", 0, "down", -2)),
+        ("A", False, ("G", 1, "down", -2)),
+    ],
+)
+def test_target_is_the_nearest_key(root, minor, want) -> None:
     assert song.target_of(root, minor) == want
 
 
-def test_name_and_printed_key_must_agree(tmp_path):
+def test_name_and_printed_key_must_agree(tmp_path) -> None:
     path = blank(tmp_path / "Song-Cm.pdf", text="BIG TITLE")
     score = Score([Bar(1, 0, 0.0, 1.0, F(4), key=-1)], [], [])
     with pytest.raises(song.SongRefused, match="prints -1"):
@@ -35,12 +45,12 @@ def test_name_and_printed_key_must_agree(tmp_path):
     assert song.song_of(path, Score([Bar(1, 0, 0.0, 1.0, F(4), key=-3)], [], [])).tone == "Am"
 
 
-def test_a_name_without_a_key_is_refused(tmp_path):
+def test_a_name_without_a_key_is_refused(tmp_path) -> None:
     with pytest.raises(song.SongRefused, match="must end in"):
         song.song_of(blank(tmp_path / "Song.pdf"))
 
 
-def test_title_comes_from_the_largest_text_and_an_override_wins(tmp_path):
+def test_title_comes_from_the_largest_text_and_an_override_wins(tmp_path) -> None:
     path = tmp_path / "Song-Am.pdf"
     doc = pymupdf.open()
     page = doc.new_page()
@@ -53,12 +63,12 @@ def test_title_comes_from_the_largest_text_and_an_override_wins(tmp_path):
     assert song.song_of(path, score).title == "My Title"
 
 
-def test_unknown_encoding_is_refused_by_font_name(tmp_path):
+def test_unknown_encoding_is_refused_by_font_name(tmp_path) -> None:
     with pytest.raises(UnknownEncoding, match="Helvetica"):
         song.encoding(blank(tmp_path / "Song-Am.pdf"))
 
 
-def test_unknown_music_glyph_is_refused():
+def test_unknown_music_glyph_is_refused() -> None:
     class Page:
         def get_text(self, _kind):
             char = {"c": "", "origin": (1.0, 1.0)}
@@ -68,14 +78,14 @@ def test_unknown_music_glyph_is_refused():
         symbolfont.load(Page(), {"M": "music"})
 
 
-def test_any_page_count_passes_and_every_page_is_a4(tmp_path):
+def test_any_page_count_passes_and_every_page_is_a4(tmp_path) -> None:
     assert pdfcheck.paper_problems(blank(tmp_path / "ok.pdf", pages=2)) == []
     assert pdfcheck.paper_problems(blank(tmp_path / "long.pdf", pages=5)) == []
     assert pdfcheck.paper_problems(blank(tmp_path / "letter.pdf", width=612.0, height=792.0))[0].startswith("p1: not A4")
     assert pdfcheck.paper_problems(blank(tmp_path / "wide.pdf", width=612.0))[0].startswith("p1: not A4")
 
 
-def test_ink_near_any_edge_fails(tmp_path):
+def test_ink_near_any_edge_fails(tmp_path) -> None:
     assert pdfcheck.ink_problems(blank(tmp_path / "ok.pdf")) == []
     path = tmp_path / "top.pdf"
     doc = pymupdf.open()
@@ -84,42 +94,47 @@ def test_ink_near_any_edge_fails(tmp_path):
     assert "ink within" in pdfcheck.ink_problems(path)[0]
 
 
-def test_tie_over_a_line_end_fails_unless_the_run_cannot_fit():
+def test_tie_over_a_line_end_fails_unless_the_run_cannot_fit() -> None:
     tied = [False, True, False, False, False]
     assert port.tie_findings([1, 3], tied)[0] == ["tie over line end into bar 3 (tied run of 2 bars)"]
     assert port.tie_findings([1, 4], tied) == ([], [])
-    assert port.tie_findings([1, 4], [True, True, True, True, False])[1] == ["tie over line end into bar 4 (tied run of 5 bars)"]
+    assert port.tie_findings([1, 4], [True, True, True, True, False])[1] == [
+        "tie over line end into bar 4 (tied run of 5 bars)",
+    ]
 
 
-def test_line_lengths_count_short_lines():
+def test_line_lengths_count_short_lines() -> None:
     assert gate.line_lengths([1, 3, 7], 8) == [2, 4, 2]
 
 
-def test_homr_reading_counts_a_chord_once_and_skips_grace(tmp_path):
+def test_homr_reading_counts_a_chord_once_and_skips_grace(tmp_path) -> None:
     path = tmp_path / "n.musicxml"
-    path.write_text("<score><note><pitch><step>C</step></pitch></note><note><chord/><pitch><step>E</step></pitch></note><note><grace/><pitch><step>G</step></pitch></note><note><pitch><step>A</step></pitch></note></score>")
+    path.write_text(
+        "<score><note><pitch><step>C</step></pitch></note><note><chord/><pitch><step>E</step></pitch></note><note><grace/><pitch><step>G</step></pitch></note><note><pitch><step>A</step></pitch></note></score>",
+    )
     assert gate.musicxml_letters(path) == ["E", "A"]
 
 
-def test_agreement_names_the_bars_that_differ():
+def test_agreement_names_the_bars_that_differ() -> None:
     share, bars = gate.agreement(["C", "D", "E", "F"], [1, 1, 2, 3], ["C", "D", "G", "F"])
     assert share == 0.75
     assert bars == [2]
 
 
-def test_low_homr_agreement_fails(tmp_path, monkeypatch):
+def test_low_homr_agreement_fails(tmp_path, monkeypatch) -> None:
     src = blank(tmp_path / "Song-Am.pdf")
     reading = tmp_path / "r.musicxml"
     reading.write_text("<score><note><pitch><step>A</step></pitch></note></score>")
     monkeypatch.setattr(gate, "homr_command", lambda: "homr")
     monkeypatch.setattr(gate, "homr_reading", lambda *_: reading)
     from muse.model import Event, Head
+
     voice = [Event(0.0, [Head(0.0, 0.0, "C", 5)], F(1)) for _ in range(4)]
     score = Score([Bar(1, 0, 0.0, 1.0, F(4), voices=[voice])], [], [])
     assert gate.homr_findings(src, score, tmp_path)[0] == ["homr agrees on only 0% of notes"]
 
 
-def test_missing_font_names_the_font_and_where_to_install(tmp_path):
+def test_missing_font_names_the_font_and_where_to_install(tmp_path) -> None:
     with pytest.raises(port.MissingFont, match=f"SF Pro Display.*{tmp_path}"):
         port.require_font((tmp_path,))
     for name in port.SF_PRO_FILES:
@@ -135,18 +150,22 @@ def recorder(gate_fails=False, state="PRIVATE"):
         if args[0] == "gh":
             return state
         if "muse.gate" in args and gate_fails:
-            raise publish.Refused("failures 1")
+            msg = "failures 1"
+            raise publish.Refused(msg)
         return "tree"
 
     return run, calls
 
 
-def test_a_failing_song_keeps_its_folder_and_a_passing_song_publishes(tmp_path):
+def test_a_failing_song_keeps_its_folder_and_a_passing_song_publishes(tmp_path) -> None:
     calls = []
 
     def run(*args, cwd=None):
         calls.append(args)
-        return {"view": "PRIVATE", "ls-files": "a/a.pdf", "--cached": "good/x.pdf", "rev-parse": "t", "get-url": "u"}.get(next((x for x in reversed(args) if x in ("view", "ls-files", "--cached", "rev-parse", "get-url")), ""), "PRIVATE" if "visibility" in args else "")
+        return {"view": "PRIVATE", "ls-files": "a/a.pdf", "--cached": "good/x.pdf", "rev-parse": "t", "get-url": "u"}.get(
+            next((x for x in reversed(args) if x in {"view", "ls-files", "--cached", "rev-parse", "get-url"}), ""),
+            "PRIVATE" if "visibility" in args else "",
+        )
 
     blocked = publish.publish(tmp_path, tmp_path, tmp_path, run, lambda *_: {"good": [], "bad": ["bar 1 wrong"]})
     assert blocked == {"bad": ["bar 1 wrong"]}
@@ -192,20 +211,22 @@ def test_words_printed_on_each_other_are_found(tmp_path) -> None:
     assert [c[2] for c in pdfcheck.text_collisions(path)] == ["Chorus"]
 
 
-def test_a_server_error_retries_and_a_real_refusal_does_not(tmp_path):
+def test_a_server_error_retries_and_a_real_refusal_does_not(tmp_path) -> None:
     seen = []
 
-    def run(*args, cwd=None):
+    def run(*args, cwd=None) -> None:
         seen.append(args)
         if len(seen) == 1:
-            raise publish.Refused("remote rejected (Internal Server Error)")
+            msg = "remote rejected (Internal Server Error)"
+            raise publish.Refused(msg)
 
     publish.pushed(run, ("git", "push"), tmp_path, wait=0)
     assert len(seen) == 2
 
-    def refuse(*args, cwd=None):
+    def refuse(*args, cwd=None) -> Never:
         seen.append(args)
-        raise publish.Refused("non-fast-forward")
+        msg = "non-fast-forward"
+        raise publish.Refused(msg)
 
     seen.clear()
     with pytest.raises(publish.Refused):
@@ -213,10 +234,10 @@ def test_a_server_error_retries_and_a_real_refusal_does_not(tmp_path):
     assert len(seen) == 1
 
 
-def test_an_unpushed_commit_is_pushed_even_with_nothing_new(tmp_path):
+def test_an_unpushed_commit_is_pushed_even_with_nothing_new(tmp_path) -> None:
     calls = []
 
-    def run(*args, cwd=None):
+    def run(*args, cwd=None) -> str:
         calls.append(args)
         if "visibility" in args:
             return "PRIVATE"
@@ -226,7 +247,7 @@ def test_an_unpushed_commit_is_pushed_even_with_nothing_new(tmp_path):
     assert ("git", "push") in calls
 
 
-def test_a_label_may_follow_a_mark_that_opens_its_line_on_any_sheet(monkeypatch, tmp_path):
+def test_a_label_may_follow_a_mark_that_opens_its_line_on_any_sheet(monkeypatch, tmp_path) -> None:
     from fractions import Fraction as F
 
     from muse import chordseat
@@ -235,22 +256,32 @@ def test_a_label_may_follow_a_mark_that_opens_its_line_on_any_sheet(monkeypatch,
     def bar(number, **extra):
         return Bar(number, 0, 0.0, 100.0, F(4), voices=[], chords=[Chord(0.0, "A", 0, "")], **extra)
 
-    score = Score([bar(1), bar(2), bar(3, rehearsal=["B"]), bar(4, texts=[Text(0.0, 0.0, [("End: words", True, True)], False)]), bar(5)], [], [])
+    score = Score(
+        [
+            bar(1),
+            bar(2),
+            bar(3, rehearsal=["B"]),
+            bar(4, texts=[Text(0.0, 0.0, [("End: words", True, True)], False)]),
+            bar(5),
+        ],
+        [],
+        [],
+    )
     monkeypatch.setattr(chordseat, "score_text", lambda path: (None, ""))
     monkeypatch.setattr(chordseat, "chordless_starts", lambda text: [])
     monkeypatch.setattr(chordseat, "bar_rows", lambda text: [[1, 2], [3, 4, 5]])
     assert port.chord_starts(tmp_path / "x-piano-final.mscz", score) == []
-    assert port.chord_starts(tmp_path / "x-original.mscz", score) == []  # any sheet: a 1-bar section shares its line with the next
+    assert port.chord_starts(tmp_path / "x-original.mscz", score) == []
 
 
-def test_a_publish_commit_names_its_songs():
+def test_a_publish_commit_names_its_songs() -> None:
     from muse import publish
 
     assert publish.commit_message(["***REMOVED***", "***REMOVED***"]) == "feat: publish ***REMOVED***, ***REMOVED***"
     assert publish.commit_message([]) == "chore: refresh sheets"
 
 
-def test_a_purge_removes_only_sheet_versions_the_current_sheets_do_not_hold():
+def test_a_purge_removes_only_sheet_versions_the_current_sheets_do_not_hold() -> None:
     from muse import publish
 
     tree = "100644 blob aaa\tSong/Song-Em.pdf\n100644 blob bbb\tSong/Song-Em.mscz\n"
@@ -261,7 +292,12 @@ def test_a_purge_removes_only_sheet_versions_the_current_sheets_do_not_hold():
 def test_a_bar_carrying_a_sign_stays_out_of_the_even_bars_judgement() -> None:
     from muse import chordseat
 
-    bars = ["<Measure><voice/></Measure>", "<Measure><Marker><subtype>coda</subtype></Marker></Measure>", "<Measure><Jump><jumpTo>x</jumpTo></Jump></Measure>", "<Measure><voice/></Measure>"]
+    bars = [
+        "<Measure><voice/></Measure>",
+        "<Measure><Marker><subtype>coda</subtype></Marker></Measure>",
+        "<Measure><Jump><jumpTo>x</jumpTo></Jump></Measure>",
+        "<Measure><voice/></Measure>",
+    ]
     lower = "<Measure><Marker><subtype>segno</subtype></Marker></Measure>" * 4
     text = f'<museScore><Score><Part></Part><Staff id="1">{"".join(bars)}</Staff><Staff id="2">{lower}</Staff></Score></museScore>'
     assert chordseat.signed_bars(text) == {2, 3}
@@ -271,14 +307,22 @@ def test_a_sign_bar_leaves_both_the_evening_and_the_judgement_of_empty_bars() ->
     from muse import chordseat
 
     harmony = "<Harmony><harmonyInfo><root>14</root><name></name></harmonyInfo></Harmony>"
-    bars = [f"<Measure><voice>{harmony}</voice></Measure>", f"<Measure><Marker><subtype>coda</subtype></Marker><voice>{harmony}</voice></Measure>", f"<Measure><voice>{harmony}</voice></Measure>"]
+    bars = [
+        f"<Measure><voice>{harmony}</voice></Measure>",
+        f"<Measure><Marker><subtype>coda</subtype></Marker><voice>{harmony}</voice></Measure>",
+        f"<Measure><voice>{harmony}</voice></Measure>",
+    ]
     text = f'<museScore><Score><Part></Part><Staff id="1">{"".join(bars)}</Staff></Score></museScore>'
     line = {"opening": 0.0, "bars": [30.0, 70.0, 100.0]}
     assert chordseat.empty_widths(text, [line], set()) == [(1, 30.0, 30.0), (3, 30.0, 30.0)]
 
 
 @pytest.mark.parametrize("printing", [True, False])
-def test_print_mode_alone_lets_a_bar_of_crowded_chords_out_of_the_even_bars_judgement(monkeypatch, tmp_path, printing) -> None:
+def test_print_mode_alone_lets_a_bar_of_crowded_chords_out_of_the_even_bars_judgement(
+    monkeypatch,
+    tmp_path,
+    printing,
+) -> None:
     from muse.model import Chord
 
     seen = {}
@@ -295,8 +339,13 @@ def test_print_mode_alone_lets_a_bar_of_crowded_chords_out_of_the_even_bars_judg
 def test_a_bar_whose_chord_crowds_the_next_is_chord_bound_and_a_roomy_bar_is_not(monkeypatch, tmp_path) -> None:
     from muse import chordseat
 
-    # 4 bars of 36 pt, the third 41.6 pt; its chord ends 10.3 pt before the next bar's chord, the others leave 13 pt or more
-    line = {"opening": 0.0, "bars": [36.0, 72.0, 113.6, 149.6], "size": 16.0, "lefts": [-1.0, 35.0, 71.0, 112.6], "rights": [22.0, 58.0, 102.3, 130.0]}
+    line = {
+        "opening": 0.0,
+        "bars": [36.0, 72.0, 113.6, 149.6],
+        "size": 16.0,
+        "lefts": [-1.0, 35.0, 71.0, 112.6],
+        "rights": [22.0, 58.0, 102.3, 130.0],
+    }
     monkeypatch.setattr(chordseat, "score_text", lambda path: ("s.mscx", ""))
     monkeypatch.setattr(chordseat, "bar_rows", lambda text: [[1, 2, 3, 4]])
     monkeypatch.setattr(chordseat, "rows_of", lambda text: [[(0, True)]])
@@ -317,7 +366,7 @@ def test_print_mode_hands_chord_bound_bars_to_the_judgement(monkeypatch, tmp_pat
     assert 9 in seen["noted"]
 
 
-def test_the_gate_judges_a_pdf_against_the_positions_of_its_own_render(tmp_path, monkeypatch):
+def test_the_gate_judges_a_pdf_against_the_positions_of_its_own_render(tmp_path, monkeypatch) -> None:
     work = tmp_path / "work"
     work.mkdir()
     pdf = tmp_path / "Song-C.pdf"
@@ -327,8 +376,6 @@ def test_the_gate_judges_a_pdf_against_the_positions_of_its_own_render(tmp_path,
     port.keep_pair(drawn, pdf, port.paired(work, pdf.name))
     measured = gate.measured(pdf, work)
     assert measured.with_suffix(".mpos").read_text() == "<positions of that render/>"
-    pdf.write_bytes(b"%PDF drawn by another render")  # the published PDF moved on; its kept positions no longer describe it
+    pdf.write_bytes(b"%PDF drawn by another render")
     with pytest.raises(port.DoesNotFit):
         gate.measured(pdf, work)
-
-

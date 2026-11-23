@@ -1,4 +1,5 @@
 """Pure logic: chords, note values, playing order, margin check, writer."""
+
 import pathlib
 import time
 from fractions import Fraction as F
@@ -9,33 +10,41 @@ import pytest
 from muse import chordnames, chordseat, launch, musicxml, pdfcheck, piano, port
 from muse.model import Bar, Chord, Event, Head, Score, Text, bar_at
 from muse.navigate import expected_order
-from muse.pdfcheck import chord_collisions, foreign_fonts, idle_staves, margin_words, oversized_text, past_margin, title_problems
+from muse.pdfcheck import (
+    chord_collisions,
+    foreign_fonts,
+    idle_staves,
+    margin_words,
+    oversized_text,
+    past_margin,
+    title_problems,
+)
 from muse.symbolfont import Decoder, assemble_chords, is_dust, nominal_dots, parse_chord
 from muse.verify import midi
 
 
-def test_parse_chord_root_kind_bass():
+def test_parse_chord_root_kind_bass() -> None:
     c = parse_chord("Bbmaj7/D", None, 0)
     assert (c.root, c.root_alter, c.kind, c.bass, c.bass_alter) == ("B", -1, "maj7", "D", 0)
 
 
-def test_slash_alone_keeps_previous_chord():
+def test_slash_alone_keeps_previous_chord() -> None:
     prev = parse_chord("Am7", None, 0)
     c = parse_chord("/G", prev, 9)
     assert (c.root, c.kind, c.bass) == ("A", "m7", "G")
 
 
-def test_assemble_keeps_adjacent_slash_and_splits_far_one():
+def test_assemble_keeps_adjacent_slash_and_splits_far_one() -> None:
     assert [t for _, t in assemble_chords([(0, 5, "C"), (5, 7, "7"), (7.5, 9, "/B"), (9, 10, "b")])] == ["C7/Bb"]
     assert [t for _, t in assemble_chords([(0, 5, "Am"), (20, 25, "/G")])] == ["Am", "/G"]
 
 
-def test_nominal_dots():
+def test_nominal_dots() -> None:
     assert nominal_dots(F(3, 2))[1] == 1
     assert nominal_dots(F(1))[1] == 0
 
 
-def test_midi():
+def test_midi() -> None:
     assert midi("C", 0, 4) == 60
     assert midi("B", -1, 3) == 58
 
@@ -47,17 +56,28 @@ def bar(n, **kw):
     return b
 
 
-def test_order_repeat_volta():
+def test_order_repeat_volta() -> None:
     s = Score([bar(1, repeat_start=True), bar(2, volta="1", repeat_end=True), bar(3, volta="2"), bar(4)], [], [])
     assert expected_order(s) == [1, 2, 1, 3, 4]
 
 
-def test_order_ds_al_coda_skips_repeat_then_coda_repeat_plays():
-    s = Score([bar(1), bar(2, segno=True), bar(3, to_coda=True), bar(4, dal_segno=True), bar(5, coda=True, repeat_start=True), bar(6, repeat_end=True)], [], [])
+def test_order_ds_al_coda_skips_repeat_then_coda_repeat_plays() -> None:
+    s = Score(
+        [
+            bar(1),
+            bar(2, segno=True),
+            bar(3, to_coda=True),
+            bar(4, dal_segno=True),
+            bar(5, coda=True, repeat_start=True),
+            bar(6, repeat_end=True),
+        ],
+        [],
+        [],
+    )
     assert expected_order(s) == [1, 2, 3, 4, 2, 3, 5, 6, 5, 6]
 
 
-def test_margin_check_catches_planted_page_number(tmp_path):
+def test_margin_check_catches_planted_page_number(tmp_path) -> None:
     clean = tmp_path / "clean.pdf"
     doc = pymupdf.open()
     page = doc.new_page(width=595, height=842)
@@ -70,7 +90,7 @@ def test_margin_check_catches_planted_page_number(tmp_path):
     assert margin_words(dirty) == ["p1:Footer"]
 
 
-def test_margin_check_catches_page_number_above_margin(tmp_path):
+def test_margin_check_catches_page_number_above_margin(tmp_path) -> None:
     doc = pymupdf.open()
     page = doc.new_page(width=595, height=842)
     page.insert_text((300, 790), "1")
@@ -79,7 +99,7 @@ def test_margin_check_catches_page_number_above_margin(tmp_path):
     assert margin_words(path) == ["p1:1"]
 
 
-def test_two_rhythms_split_when_long_note_has_no_stem():
+def test_two_rhythms_split_when_long_note_has_no_stem() -> None:
     d = Decoder.__new__(Decoder)
     d.threes, d.flags, d.corrections, d.current_base = [], [], [], 0.0
     b = Bar(1, 0, 0, 100, F(4))
@@ -87,10 +107,11 @@ def test_two_rhythms_split_when_long_note_has_no_stem():
     up = Event(10, [Head(10, 9, "G", 4)], F(2), stem="up")
     down = Event(60, [Head(60, 12, "E", 4)], F(2), stem="down")
     voices = d.voices(b, [whole, up, down], False, [])
-    assert len(voices) == 2 and d.flags == []
+    assert len(voices) == 2
+    assert d.flags == []
 
 
-def test_writer_durations_and_chord_offset():
+def test_writer_durations_and_chord_offset() -> None:
     head = Head(10, 0, "C", 5, alter=0)
     b = Bar(1, 0, 0, 100, F(4), key=0, time=(4, 4))
     b.voices = [[Event(10, [head], F(4), onset=F(0))]]
@@ -195,11 +216,13 @@ def test_short_line_share_counts_lines_of_2_bars_or_fewer() -> None:
 
 def test_beam_pieces_at_1_height_are_1_level() -> None:
     from muse.symbolfont import beam_levels
+
     assert beam_levels([10.0, 10.2, 13.0]) == 2
 
 
 def test_voice_split_keeps_coincident_events_apart() -> None:
     from muse.symbolfont import voice_split
+
     a = Event(0.0, [Head(0.0, 0.0, "C", 5)], F(1))
     b = Event(0.5, [Head(0.5, 0.0, "D", 5)], F(3), 1)
     c = Event(5.0, [Head(5.0, 0.0, "E", 5)], F(3), 1)
@@ -211,6 +234,7 @@ def test_voice_split_keeps_coincident_events_apart() -> None:
 
 def test_stem_split_drops_a_rest_stamped_under_a_note() -> None:
     from muse.symbolfont import stem_split
+
     up = Event(0.0, [Head(0.0, 0.0, "C", 5)], F(4), stem="up")
     down = Event(1.0, [Head(1.0, 0.0, "D", 4)], F(4), stem="down")
     stray = Event(1.5, [], F(1))
@@ -237,7 +261,8 @@ def test_an_unlabelled_coda_keeps_only_its_closing_run() -> None:
     bars = [_bar(1, True), _bar(2, False, label="Verse1: words"), _bar(3, False)]
     bars += [_bar(4, True, coda=True), _bar(5, False), _bar(6, True), _bar(7, True), _bar(8, True)]
     found = {(p.name, p.first, p.last) for p in piano.parts(Score(bars, [], []))}
-    assert ("outro", 6, 8) in found and ("intro", 1, 1) in found
+    assert ("outro", 6, 8) in found
+    assert ("intro", 1, 1) in found
     assert not any(first <= 4 <= last for _, first, last in found)
 
 
@@ -268,22 +293,25 @@ def test_a_cue_leaves_a_staff_with_no_notes() -> None:
     bar.voices2 = [[Event(0.0, [], F(4))]]
     bar.texts2 = [Text(0.0, 0.0, [("PIANO ONLY", True, False)], False)]
     port.lift_idle_cues(Score([bar], [], []))
-    assert bar.texts2 == [] and bar.texts
+    assert bar.texts2 == []
+    assert bar.texts
 
 
-def test_a_lone_dot_is_dust_and_a_cue_is_not():
-    assert is_dust(".") and is_dust("..")
-    assert not is_dust("(Fill)") and not is_dust("N.C")
+def test_a_lone_dot_is_dust_and_a_cue_is_not() -> None:
+    assert is_dust(".")
+    assert is_dust("..")
+    assert not is_dust("(Fill)")
+    assert not is_dust("N.C")
 
 
-def test_a_sign_touching_a_chord_is_found_only_on_its_baseline():
+def test_a_sign_touching_a_chord_is_found_only_on_its_baseline() -> None:
     letter = [(30.0, 40.0, 100.0)]
     assert pdfcheck.sign_touches(20.0, 100.0, 17.0, 13.0, letter)
-    assert not pdfcheck.sign_touches(20.0, 92.0, 17.0, 13.0, letter)  # raised above the letters
-    assert not pdfcheck.sign_touches(0.0, 100.0, 17.0, 13.0, letter)  # clear to the left
+    assert not pdfcheck.sign_touches(20.0, 92.0, 17.0, 13.0, letter)
+    assert not pdfcheck.sign_touches(0.0, 100.0, 17.0, 13.0, letter)
 
 
-def test_the_page_check_includes_the_sign_guard(tmp_path, monkeypatch):
+def test_the_page_check_includes_the_sign_guard(tmp_path, monkeypatch) -> None:
     path = tmp_path / "plain.pdf"
     doc = pymupdf.open()
     doc.new_page().insert_text((100, 100), "Am", fontsize=12)
@@ -292,104 +320,158 @@ def test_the_page_check_includes_the_sign_guard(tmp_path, monkeypatch):
     assert "planted" in pdfcheck.all_problems(path, "x")
 
 
-def test_beat_1_chords_measure_from_their_own_bar_and_later_chords_do_not_count():
+def test_beat_1_chords_measure_from_their_own_bar_and_later_chords_do_not_count() -> None:
     rows = [[(0, True), (1, True), (1, False)]]
-    lines = [{"chords": [50.0, 100.0, 130.0], "bars": [100.0, 150.0], "openings": [100.0], "start": 50.0, "space": 4.0, "crossed": []}]
+    lines = [
+        {
+            "chords": [50.0, 100.0, 130.0],
+            "bars": [100.0, 150.0],
+            "openings": [100.0],
+            "start": 50.0,
+            "space": 4.0,
+            "crossed": [],
+        },
+    ]
     assert chordseat.gaps(rows, lines) == [0.0, 0.0, None]
 
 
-def test_a_chord_off_its_barline_is_a_problem(monkeypatch, tmp_path):
+def test_a_chord_off_its_barline_is_a_problem(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(chordseat, "score_text", lambda _: ("x", ""))
     monkeypatch.setattr(chordseat, "rows_of", lambda _: [[(0, True), (1, True)]])
     monkeypatch.setattr(chordseat, "bar_rows", lambda _: [[1, 2]])
-    monkeypatch.setattr(chordseat, "matched", lambda text, pdf: [{"chords": [50.0, 103.0], "bars": [100.0, 150.0], "openings": [100.0], "start": 50.0, "space": 4.0, "crossed": []}])
+    monkeypatch.setattr(
+        chordseat,
+        "matched",
+        lambda text, pdf: [
+            {
+                "chords": [50.0, 103.0],
+                "bars": [100.0, 150.0],
+                "openings": [100.0],
+                "start": 50.0,
+                "space": 4.0,
+                "crossed": [],
+            },
+        ],
+    )
     assert len(chordseat.problems(tmp_path, tmp_path)) == 1
 
 
-def test_a_chord_count_the_score_does_not_hold_refuses():
+def test_a_chord_count_the_score_does_not_hold_refuses() -> None:
     import pytest
+
     with pytest.raises(ValueError, match="lines with chords"):
         chordseat.gaps([[(0, True)]], [])
 
 
-def test_a_chord_high_above_an_empty_staff_is_a_problem(monkeypatch, tmp_path):
+def test_a_chord_high_above_an_empty_staff_is_a_problem(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(pdfcheck, "chord_seating", lambda _: [(0, 0.0, 3.0, "Am"), (0, 0.0, 1.0, "G")])
     assert len(pdfcheck.seating_problems(tmp_path)) == 1
 
 
-def test_uneven_empty_bars_are_found_and_notes_are_ignored(monkeypatch, tmp_path):
+def test_uneven_empty_bars_are_found_and_notes_are_ignored(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(chordseat, "score_text", lambda _: ("x", ""))
     monkeypatch.setattr(chordseat, "signed_bars", lambda _: set())
     monkeypatch.setattr(chordseat, "bar_rows", lambda _: [[1, 2, 3, 4]])
     monkeypatch.setattr(chordseat, "rows_of", lambda _: [[(0, True)]])
     line = {"chords": [50.0], "bars": [100.0, 150.0, 210.0, 300.0], "start": 50.0, "opening": 50.0, "space": 4.0}
     monkeypatch.setattr(chordseat, "matched", lambda text, pdf: [line])
-    assert [m.split(":")[0] for m in chordseat.uneven(tmp_path, tmp_path, {4})] == ["bar 1", "bar 3"] or chordseat.uneven(tmp_path, tmp_path, {4})
+    assert [m.split(":")[0] for m in chordseat.uneven(tmp_path, tmp_path, {4})] == ["bar 1", "bar 3"] or chordseat.uneven(
+        tmp_path,
+        tmp_path,
+        {4},
+    )
     line["bars"] = [100.0, 150.0, 200.0, 300.0]
     assert chordseat.uneven(tmp_path, tmp_path, {4}) == []
-    line["start"] = 62.0  # a sign opening the line moves where its chord starts, never how wide its first bar is
+    line["start"] = 62.0
     assert chordseat.uneven(tmp_path, tmp_path, {4}) == []
 
 
-def test_measure_boxes_are_read_in_points(tmp_path):
+def test_measure_boxes_are_read_in_points(tmp_path) -> None:
     mpos = tmp_path / "x.mpos"
-    mpos.write_text('<score><elements><element id="0" x="4320" y="11776" sx="2000" sy="2607" page="1"></element></elements></score>')
-    mpos.write_text('<score><elements><element id="0" x="4320" y="11776" sx="110000" sy="2607" page="1"></element></elements></score>')
+    mpos.write_text(
+        '<score><elements><element id="0" x="4320" y="11776" sx="2000" sy="2607" page="1"></element></elements></score>',
+    )
+    mpos.write_text(
+        '<score><elements><element id="0" x="4320" y="11776" sx="110000" sy="2607" page="1"></element></elements></score>',
+    )
     assert chordseat.measure_boxes(mpos) == [{"x": 21.6, "y": 58.88, "w": 550.0, "page": 1.0}]
 
 
-def test_a_staff_is_5_equal_lines_and_a_stray_line_is_not():
-    rule = lambda y: pymupdf.Rect(20, y, 300, y)  # noqa: E731
+def test_a_staff_is_5_equal_lines_and_a_stray_line_is_not() -> None:
+    rule = lambda y: pymupdf.Rect(20, y, 300, y)  # ruff: ignore[lambda-assignment]
     shapes = [rule(y) for y in (0.0, 60.0, 64.0, 68.0, 72.0, 76.0, 90.0, 100.0, 104.0, 108.0, 112.0, 116.0)]
     assert [staff[0] for staff in chordseat.staves_of(shapes)] == [60.0, 100.0]
 
 
-def test_a_chord_past_its_barline_is_off_target(monkeypatch, tmp_path):
+def test_a_chord_past_its_barline_is_off_target(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(chordseat, "score_text", lambda _: ("x", ""))
     monkeypatch.setattr(chordseat, "rows_of", lambda _: [[(0, True), (1, True)]])
     monkeypatch.setattr(chordseat, "bar_rows", lambda _: [[1, 2]])
-    monkeypatch.setattr(chordseat, "matched", lambda text, pdf: [{"chords": [50.0, 105.0], "bars": [100.0, 150.0], "openings": [100.0], "start": 50.0, "space": 4.0, "crossed": []}])
-    assert len(chordseat.problems(tmp_path, tmp_path)) == 1  # 5 points past its barline
+    monkeypatch.setattr(
+        chordseat,
+        "matched",
+        lambda text, pdf: [
+            {
+                "chords": [50.0, 105.0],
+                "bars": [100.0, 150.0],
+                "openings": [100.0],
+                "start": 50.0,
+                "space": 4.0,
+                "crossed": [],
+            },
+        ],
+    )
+    assert len(chordseat.problems(tmp_path, tmp_path)) == 1
 
 
-def test_signatures_end_at_the_first_glyph_that_is_no_signature():
+def test_signatures_end_at_the_first_glyph_that_is_no_signature() -> None:
     clef, flat, time, head, accidental = 0xE050, 0xE260, 0xE084, 0xE0A4, 0xE260
-    glyphs = [(20.0, 0.0, 30.0, clef), (31.0, 0.0, 35.0, flat), (36.0, 0.0, 40.0, time), (60.0, 0.0, 65.0, head), (120.0, 0.0, 125.0, accidental)]
+    glyphs = [
+        (20.0, 0.0, 30.0, clef),
+        (31.0, 0.0, 35.0, flat),
+        (36.0, 0.0, 40.0, time),
+        (60.0, 0.0, 65.0, head),
+        (120.0, 0.0, 125.0, accidental),
+    ]
     assert max(chordseat.signature_ends(glyphs)) == 40.0
 
 
-def test_a_full_height_stem_is_no_barline():
+def test_a_full_height_stem_is_no_barline() -> None:
     heads = [(80.0, 89.0)]
     assert chordseat.is_stem(89.3, heads)
     assert chordseat.is_stem(80.2, heads)
     assert not chordseat.is_stem(153.7, heads)
 
 
-def test_a_stray_long_line_inside_a_staff_does_not_hide_it():
-    rule = lambda y: pymupdf.Rect(20, y, 300, y)  # noqa: E731
+def test_a_stray_long_line_inside_a_staff_does_not_hide_it() -> None:
+    rule = lambda y: pymupdf.Rect(20, y, 300, y)  # ruff: ignore[lambda-assignment]
     shapes = [rule(y) for y in (60.0, 64.0, 66.0, 68.0, 72.0, 76.0)]
     assert chordseat.staves_of(shapes) == [[60.0, 64.0, 68.0, 72.0, 76.0]]
 
 
-def test_a_chordless_line_start_is_found(monkeypatch):
+def test_a_chordless_line_start_is_found(monkeypatch) -> None:
     monkeypatch.setattr(chordseat, "bar_rows", lambda _: [[1, 2], [3, 4], [5, 6]])
     monkeypatch.setattr(chordseat, "rows_of", lambda _: [[(0, True)], [(1, True)], [(0, True)]])
     assert chordseat.chordless_starts("") == [3]
 
 
-def test_a_cue_at_chord_size_is_no_chord():
-    assert chordseat.CHORD_SHAPE.match("Am7") and chordseat.CHORD_SHAPE.match("A") and chordseat.CHORD_SHAPE.match("Bb")
-    assert not chordseat.CHORD_SHAPE.match("AcousticGtr") and not chordseat.CHORD_SHAPE.match("After") and not chordseat.CHORD_SHAPE.match("Dizi")
+def test_a_cue_at_chord_size_is_no_chord() -> None:
+    assert chordseat.CHORD_SHAPE.match("Am7")
+    assert chordseat.CHORD_SHAPE.match("A")
+    assert chordseat.CHORD_SHAPE.match("Bb")
+    assert not chordseat.CHORD_SHAPE.match("AcousticGtr")
+    assert not chordseat.CHORD_SHAPE.match("After")
+    assert not chordseat.CHORD_SHAPE.match("Dizi")
 
 
-def test_a_lyric_label_starts_a_line():
+def test_a_lyric_label_starts_a_line() -> None:
     plain = Bar(1, 0, 0.0, 100.0, F(4), voices=[])
     labelled = Bar(2, 0, 0.0, 100.0, F(4), voices=[], texts=[Text(0.0, 0.0, [("Chorus-a: words", True, True)], False)])
     assert port.must_start_line(labelled, plain)
     assert not port.must_start_line(plain, plain)
 
 
-def test_the_gate_refuses_a_label_inside_a_line(monkeypatch, tmp_path):
+def test_the_gate_refuses_a_label_inside_a_line(monkeypatch, tmp_path) -> None:
     plain = [Bar(n, 0, 0.0, 100.0, F(4), voices=[]) for n in (1, 2, 4)]
     labelled = Bar(3, 0, 0.0, 100.0, F(4), voices=[], texts=[Text(0.0, 0.0, [("Chorus-a: words", True, True)], False)])
     score = Score([plain[0], plain[1], labelled, plain[2]], [], [])
@@ -403,23 +485,26 @@ def test_the_gate_refuses_a_label_inside_a_line(monkeypatch, tmp_path):
     assert port.chord_starts(tmp_path, score) == ["bar 3: lone bar on a line", "bar 4: lone bar on a line"]
 
 
-def test_no_chord_stretches_a_bar():
+def test_no_chord_stretches_a_bar() -> None:
     import inspect
+
     source = inspect.getsource(port)
-    assert "chord_stretch" not in source and "widen_chord_bars" not in source
+    assert "chord_stretch" not in source
+    assert "widen_chord_bars" not in source
 
 
-def test_every_short_spelling_has_proved_playback():
+def test_every_short_spelling_has_proved_playback() -> None:
     assert set(chordnames.SHORT.values()) == set(chordnames.PLAYS)
-    assert chordnames.stored("maj7") == "^7" and chordnames.stored("m7") == "m7"
+    assert chordnames.stored("maj7") == "^7"
+    assert chordnames.stored("m7") == "m7"
 
 
-def test_a_wrong_playback_is_found():
+def test_a_wrong_playback_is_found() -> None:
     assert chordnames.wrong_playback(["^7", "o"], {0: [1, 4, 8, 9], 1: [0, 3, 9]}) == []
     assert len(chordnames.wrong_playback(["^7", "o"], {0: [9], 1: [0, 3, 9]})) == 1
 
 
-def test_a_wrong_mapping_breaks_its_chord():
+def test_a_wrong_mapping_breaks_its_chord() -> None:
     chord = parse_chord("Amaj7", None, 0)
     assert 'text="^7"' in musicxml.harmony(chord, F(0))
 
@@ -448,13 +533,13 @@ def test_a_flag_far_from_a_stem_does_not_shorten_its_note() -> None:
     assert voices[0][0].nominal == 1
 
 
-def test_a_saved_layout_with_a_label_inside_a_line_fails_its_proof():
+def test_a_saved_layout_with_a_label_inside_a_line_fails_its_proof() -> None:
     plain = Bar(1, 0, 0.0, 100.0, F(4), voices=[], new_system=False)
-    second = Bar(2, 0, 0.0, 100.0, F(4), voices=[], new_system=False)  # the first section holds 2 bars, so the label after it may not sit inside their line
+    second = Bar(2, 0, 0.0, 100.0, F(4), voices=[], new_system=False)
     labelled = Bar(3, 0, 0.0, 100.0, F(4), voices=[], texts=[Text(0.0, 0.0, [("Chorus-a: words", True, True)], False)])
     from muse.model import Chord, Score
 
-    after = Bar(4, 0, 0.0, 100.0, F(4), voices=[])  # the labelled line holds 2 bars, so no line is a lone bar
+    after = Bar(4, 0, 0.0, 100.0, F(4), voices=[])
     plain.chords = second.chords = labelled.chords = after.chords = [Chord(0.0, "A", 0, "")]
     assert port.line_rule_breaks(Score([plain, second, labelled, after], [], [])) == [3]
     labelled.new_system = True
@@ -472,7 +557,7 @@ def _chord(x, kind=""):
     return Chord(x, "D", 0, kind)
 
 
-def test_a_long_chord_past_its_last_note_moves_over_the_barline():
+def test_a_long_chord_past_its_last_note_moves_over_the_barline() -> None:
     from muse import song
     from muse.model import Event, Score
 
@@ -483,7 +568,7 @@ def test_a_long_chord_past_its_last_note_moves_over_the_barline():
     assert [c.kind for c in after.chords] == ["m7(b5)", "7"]
 
 
-def test_a_short_chord_inside_its_bar_stays_past_its_last_note():
+def test_a_short_chord_inside_its_bar_stays_past_its_last_note() -> None:
     from muse import song
     from muse.model import Event, Score
 
@@ -493,41 +578,58 @@ def test_a_short_chord_inside_its_bar_stays_past_its_last_note():
     assert len(held.chords) == 1
 
 
-def test_piano_keeps_accents_and_a_fill_until_the_next_chord():
+def test_piano_keeps_accents_and_a_fill_until_the_next_chord() -> None:
     from muse import piano
     from muse.model import Event, Score
 
     hit = Event(0.0, [], F(4))
     hit.accent = True
-    bars = [_plain_bar(1, voices=[[hit]]), _plain_bar(2, chords=[_chord(0.0)]), _plain_bar(3, texts=[Text(0.0, 0.0, [("(Fill)", False, False)], False)]), _plain_bar(4), _plain_bar(5, chords=[_chord(0.0)]), _plain_bar(6)]
+    bars = [
+        _plain_bar(1, voices=[[hit]]),
+        _plain_bar(2, chords=[_chord(0.0)]),
+        _plain_bar(3, texts=[Text(0.0, 0.0, [("(Fill)", False, False)], False)]),
+        _plain_bar(4),
+        _plain_bar(5, chords=[_chord(0.0)]),
+        _plain_bar(6),
+    ]
     assert piano.hit_bars(Score(bars, [], [])) == {1, 3, 4}
 
 
-def test_a_jump_prints_only_its_boxed_sign():
+def test_a_jump_prints_only_its_boxed_sign() -> None:
     out = port.boxed_sign("<Jump><text>D.S. al Coda</text><jumpTo>segno</jumpTo></Jump>")
-    assert "<sym>segno</sym>" in out and "D.S." not in out and '<frameFgColor r="220"' in out and "<jumpTo>segno</jumpTo>" in out
-    out = port.boxed_sign('<Marker>\n<style>Repeat Text Right</style><offset x="0" y="-7"/><text>To Coda</text><label>coda</label></Marker>')
-    assert "<sym>coda</sym>" in out and "offset" not in out and 'b="220"' in out
+    assert "<sym>segno</sym>" in out
+    assert "D.S." not in out
+    assert '<frameFgColor r="220"' in out
+    assert "<jumpTo>segno</jumpTo>" in out
+    out = port.boxed_sign(
+        '<Marker>\n<style>Repeat Text Right</style><offset x="0" y="-7"/><text>To Coda</text><label>coda</label></Marker>',
+    )
+    assert "<sym>coda</sym>" in out
+    assert "offset" not in out
+    assert 'b="220"' in out
     assert out.index("</style>") < out.index("<frameType>")
 
 
-def test_2_jump_signs_in_1_bar_stand_side_by_side_and_a_lone_one_stays():
+def test_2_jump_signs_in_1_bar_stand_side_by_side_and_a_lone_one_stays() -> None:
     both = "<Measure><Marker><label>coda</label></Marker><Jump><text/></Jump></Measure>"
     alone = "<Measure><Jump><text/></Jump></Measure>"
     widened = port.beside_each_other(both)
-    assert f'offset x="{port.SIGN_STEP}"' in widened and "<autoplace>0</autoplace>" in widened
+    assert f'offset x="{port.SIGN_STEP}"' in widened
+    assert "<autoplace>0</autoplace>" in widened
     assert widened.startswith(f"<Measure><stretch>{port.SIGN_BAR_STRETCH}</stretch>")
     assert "offset" not in port.beside_each_other(alone)
 
 
-def test_a_target_sign_is_held_in_its_own_line_and_a_jump_is_not():
-    target = port.boxed_sign("<Marker><style>repeat_left</style><text><sym>segno</sym></text><label>segno</label></Marker>")
+def test_a_target_sign_is_held_in_its_own_line_and_a_jump_is_not() -> None:
+    target = port.boxed_sign(
+        "<Marker><style>repeat_left</style><text><sym>segno</sym></text><label>segno</label></Marker>",
+    )
     jump = port.boxed_sign("<Marker><style>repeat_right</style><text>To Coda</text><label>coda</label></Marker>")
     assert port.TARGET_HOLD in target
     assert port.TARGET_HOLD not in jump
 
 
-def test_an_import_is_rebuilt_when_what_it_came_from_changes(tmp_path, monkeypatch):
+def test_an_import_is_rebuilt_when_what_it_came_from_changes(tmp_path, monkeypatch) -> None:
     from muse.model import Score
 
     made = []
@@ -541,19 +643,19 @@ def test_an_import_is_rebuilt_when_what_it_came_from_changes(tmp_path, monkeypat
     style.write_text("<Style>1</Style>", encoding="utf-8")
     score = Score([], [], [])
     first = port.imported(score, tmp_path, "x", style, False)
-    assert port.imported(score, tmp_path, "x", style, False) == first and len(made) == 1
+    assert port.imported(score, tmp_path, "x", style, False) == first
+    assert len(made) == 1
     style.write_text("<Style>2</Style>", encoding="utf-8")
-    assert port.imported(score, tmp_path, "x", style, False) != first and len(made) == 2
+    assert port.imported(score, tmp_path, "x", style, False) != first
+    assert len(made) == 2
 
 
-
-
-def test_a_staff_whose_line_pair_rounds_short_is_still_found():
+def test_a_staff_whose_line_pair_rounds_short_is_still_found() -> None:
     import pymupdf
 
     from muse import chordseat
 
-    lines = [pymupdf.Rect(40, y, 560, y + 0.1) for y in (164.4, 170.0, 175.7, 181.4, 187.1)]  # spacing 5.675, the first pair rounds to 5.6
+    lines = [pymupdf.Rect(40, y, 560, y + 0.1) for y in (164.4, 170.0, 175.7, 181.4, 187.1)]
     assert chordseat.staves_of(lines) == [[164.4, 170.0, 175.7, 181.4, 187.1]]
 
 
@@ -582,7 +684,18 @@ def test_a_chord_row_lifted_over_a_bracket_is_not_too_high_and_one_lifted_over_n
 
 def test_a_chord_the_print_lacks_is_a_problem_never_an_error(monkeypatch, tmp_path) -> None:
     rows = [[(0, True), (0, False)]]
-    lines = [{"chords": [143.9], "lefts": [143.0], "rights": [170.0], "bars": [573.7], "start": 40.0, "opening": 40.0, "space": 4.5, "size": 16.0}]
+    lines = [
+        {
+            "chords": [143.9],
+            "lefts": [143.0],
+            "rights": [170.0],
+            "bars": [573.7],
+            "start": 40.0,
+            "opening": 40.0,
+            "space": 4.5,
+            "size": 16.0,
+        },
+    ]
     monkeypatch.setattr(chordseat, "score_text", lambda path: ("s.mscx", ""))
     monkeypatch.setattr(chordseat, "rows_of", lambda text: rows)
     monkeypatch.setattr(chordseat, "matched", lambda text, pdf: lines)
@@ -592,8 +705,14 @@ def test_a_chord_the_print_lacks_is_a_problem_never_an_error(monkeypatch, tmp_pa
 
 def test_a_key_signature_opens_a_bar_and_a_note_accidental_does_not() -> None:
     sharp = 0xE262
-    signature = [(100.0, 50.0, 104.0, sharp), (105.0, 48.0, 109.0, sharp), (110.0, 52.0, 114.0, sharp), (120.0, 49.0, 126.0, 0xE0A4)]
+    signature = [
+        (100.0, 50.0, 104.0, sharp),
+        (105.0, 48.0, 109.0, sharp),
+        (110.0, 52.0, 114.0, sharp),
+        (120.0, 49.0, 126.0, 0xE0A4),
+    ]
     note = [(100.0, 50.0, 104.0, sharp), (104.5, 50.0, 110.0, 0xE0A4)]
+
     def heads(glyphs: list[tuple[float, float, float, int]]) -> list[tuple[float, float, float, int]]:
         return [g for g in glyphs if g[3] == 0xE0A4]
 
@@ -626,9 +745,7 @@ def test_ink_past_the_top_edge_is_still_off_the_page(tmp_path) -> None:
 
 
 def test_a_staff_holding_only_its_chord_row_is_not_idle_and_no_other_chord_row_saves_a_staff() -> None:
-    # 2 staves at clef heights 100 and 150; the top one holds only rests under its chords at 80
     assert idle_staves([100.0, 150.0], [148.0], [], [80.0]) == []
-    # the lower staff holds nothing: neither the top staff's chords nor the next line's chords below it count for it
     assert idle_staves([100.0, 150.0], [95.0], [], [80.0, 185.0]) == [150.0]
 
 
@@ -636,13 +753,13 @@ def test_the_key_check_expects_every_key_the_song_uses_moved_by_its_transpositio
     from muse import verify
 
     bars = [Bar(n, 0, 0.0, 100.0, F(4)) for n in range(1, 5)]
-    bars[0].key, bars[2].key = 3, -2  # A major, then a change to B flat
+    bars[0].key, bars[2].key = 3, -2
     score = Score(bars, [], [])
     assert verify.expected_keys(score, 3) == {3, -2}
-    assert verify.expected_keys(score, 1) == {1, -4}  # 2 fifths down, the change moves with it
+    assert verify.expected_keys(score, 1) == {1, -4}
     assert verify.same_keys({"-2", "3"}, {3, -2})
-    assert not verify.same_keys({"3"}, {3, -2})  # a dropped key change is still caught
-    assert verify.same_keys({"-6"}, {6})  # G flat and F sharp are 1 key
+    assert not verify.same_keys({"3"}, {3, -2})
+    assert verify.same_keys({"-6"}, {6})
 
 
 def test_a_chord_row_lifted_over_an_ending_number_is_not_too_high(tmp_path) -> None:
@@ -669,7 +786,10 @@ def test_a_chord_row_lifted_over_an_ending_number_is_not_too_high(tmp_path) -> N
 
 def test_a_cue_above_1_line_too_close_to_a_cue_below_the_line_above_is_text_on_text(monkeypatch, tmp_path) -> None:
     def page_with(gap: float):
-        spans = [{"text": "Sáo", "bbox": (60.0, 190.0, 80.0, 205.0)}, {"text": "Sáo", "bbox": (60.0, 205.0 + gap, 80.0, 220.0 + gap)}]
+        spans = [
+            {"text": "Sáo", "bbox": (60.0, 190.0, 80.0, 205.0)},
+            {"text": "Sáo", "bbox": (60.0, 205.0 + gap, 80.0, 220.0 + gap)},
+        ]
 
         class Page:
             def get_text(self, kind, flags=None):
@@ -679,11 +799,13 @@ def test_a_cue_above_1_line_too_close_to_a_cue_below_the_line_above_is_text_on_t
 
     monkeypatch.setattr(chordseat, "score_text", lambda path: ("s.mscx", ""))
     monkeypatch.setattr(chordseat, "bar_rows", lambda text: [[1], [2]])
-    monkeypatch.setattr(chordseat, "line_texts", lambda text: [([], ["Sáo"]), (["Sáo"], [])])  # the same words: 1 below line 1, 1 above line 2
+    monkeypatch.setattr(chordseat, "line_texts", lambda text: [([], ["Sáo"]), (["Sáo"], [])])
     monkeypatch.setattr(chordseat, "measure_boxes", lambda mpos: [{"page": 0.0, "y": 150.0}, {"page": 0.0, "y": 260.0}])
     monkeypatch.setattr(chordseat, "space_points", lambda path: 4.5)
     monkeypatch.setattr(chordseat.pdftext, "open", lambda pdf: page_with(3.0))
-    assert chordseat.crowded_line_texts(tmp_path / "s.mscz", tmp_path / "s.pdf") == ["text on text: 'Sáo' above line 2 sits too close to a cue below line 1"]
+    assert chordseat.crowded_line_texts(tmp_path / "s.mscz", tmp_path / "s.pdf") == [
+        "text on text: 'Sáo' above line 2 sits too close to a cue below line 1",
+    ]
     monkeypatch.setattr(chordseat.pdftext, "open", lambda pdf: page_with(20.0))
     assert chordseat.crowded_line_texts(tmp_path / "s.mscz", tmp_path / "s.pdf") == []
 
@@ -694,7 +816,7 @@ def test_a_sign_box_over_a_word_is_found_and_the_signs_own_glyph_is_not(tmp_path
         page = doc.new_page()
         frame = pymupdf.Rect(100, 100, 130, 130)
         page.draw_rect(frame, color=(0, 0, 0.86), width=1.2)
-        page.insert_text((105, 125), "S", fontsize=20)  # stands for text inside the box only when asked
+        page.insert_text((105, 125), "S", fontsize=20)
         if not over:
             doc = pymupdf.open()
             page = doc.new_page()
@@ -707,7 +829,8 @@ def test_a_sign_box_over_a_word_is_found_and_the_signs_own_glyph_is_not(tmp_path
     assert pdfcheck.sign_text_overlaps(sheet(True)) == ["text on text: p1: sign box over 'S'"]
     assert pdfcheck.sign_text_overlaps(sheet(False)) == []
     widths = pdfcheck.sign_word_overlaps(sheet(True))
-    assert len(widths) == 1 and 3.0 < widths[0] < 30.0  # the 'S' ink lies inside the 30 pt box: the overlap is its width
+    assert len(widths) == 1
+    assert 3.0 < widths[0] < 30.0
     assert pdfcheck.sign_word_overlaps(sheet(False)) == []
 
 
@@ -715,26 +838,33 @@ def test_an_imported_expression_becomes_staff_text_with_its_placement() -> None:
     text = "<Measure><voice><Expression><direction>down</direction><eid>x</eid><text><i>(Fill)</i></text></Expression></voice></Measure>"
     out = port.staff_texts(text)
     assert "<Expression>" not in out
-    assert "<StaffText><placement>below</placement>" in out and "<i>(Fill)</i>" in out
+    assert "<StaffText><placement>below</placement>" in out
+    assert "<i>(Fill)</i>" in out
 
 
 def test_every_edited_score_carries_staff_text_where_the_import_made_an_expression(tmp_path) -> None:
     import zipfile
 
-    measure = "<Measure><voice><Expression><direction>down</direction><text><i>(Fill)</i></text></Expression></voice></Measure>"
+    measure = (
+        "<Measure><voice><Expression><direction>down</direction><text><i>(Fill)</i></text></Expression></voice></Measure>"
+    )
     source = tmp_path / "in.mscz"
     with zipfile.ZipFile(source, "w") as z:
-        z.writestr("in.mscx", f"<museScore><Score><Spatium>1.7</Spatium><Staff id=\"1\">{measure}</Staff></Score></museScore>")
+        z.writestr(
+            "in.mscx",
+            f'<museScore><Score><Spatium>1.7</Spatium><Staff id="1">{measure}</Staff></Score></museScore>',
+        )
     target = tmp_path / "out.mscz"
     port.edited(source, target, 1.6, 6.0, Score([Bar(1, 0, 0.0, 100.0, F(4))], [], []))
     with zipfile.ZipFile(target) as z:
         text = z.read("in.mscx").decode("utf-8")
-    assert "<Expression>" not in text and "<StaffText><placement>below</placement>" in text
+    assert "<Expression>" not in text
+    assert "<StaffText><placement>below</placement>" in text
 
 
 def test_ink_widths_run_from_each_chords_box_left_never_its_ink_left() -> None:
     rows = [[(0, True), (1, True)]]
-    lines = [{"chords": [52.0, 112.0], "lefts": [50.0, 110.0], "rights": [70.0, 125.0]}]  # ink starts 2 pt inside each box
+    lines = [{"chords": [52.0, 112.0], "lefts": [50.0, 110.0], "rights": [70.0, 125.0]}]
     assert chordseat.ink_widths(rows, lines) == [20.0, 15.0]
 
 
@@ -751,7 +881,8 @@ def test_a_job_that_raises_fails_its_renders_and_the_batcher_keeps_serving(tmp_p
     def run(batch):
         calls.append(len(batch))
         if len(calls) == 1:
-            raise OSError("mscore vanished")
+            msg = "mscore vanished"
+            raise OSError(msg)
         return {item["ticket"]: None for item in batch}
 
     batcher.run = run  # type: ignore[method-assign]
@@ -769,11 +900,11 @@ def test_a_job_that_raises_fails_its_renders_and_the_batcher_keeps_serving(tmp_p
 
 def test_a_bars_signature_starts_at_its_barline_and_a_courtesy_signature_at_its_end_is_none() -> None:
     four = 0xE084
-    courtesy = [(562.7, 66.2, 571.6, four), (562.7, 75.8, 571.6, four)]  # at the bar's far end, before the next line
-    opening = [(350.0, 66.2, 358.0, four), (350.0, 75.8, 358.0, four)]  # right after the barline at 347.6
+    courtesy = [(562.7, 66.2, 571.6, four), (562.7, 75.8, 571.6, four)]
+    opening = [(350.0, 66.2, 358.0, four), (350.0, 75.8, 358.0, four)]
     assert chordseat.signature_ends(courtesy, [], 4.5, 347.6) == []
     assert chordseat.signature_ends(opening, [], 4.5, 347.6) == [358.0, 358.0]
-    spread = [(350.0, 66.2, 358.0, four), (400.0, 66.2, 408.0, four)]  # 2 glyphs far apart are no 1 signature
+    spread = [(350.0, 66.2, 358.0, four), (400.0, 66.2, 408.0, four)]
     assert chordseat.signature_ends(spread, [], 4.5, 347.6) == [358.0]
 
 
@@ -787,7 +918,7 @@ def test_a_run_past_its_deadline_is_sampled_before_it_is_killed(monkeypatch, tmp
     if shutil.which("sample") is None:
         pytest.skip("the native sampler ships only on macOS; elsewhere a timeout carries no sample by design")
     monkeypatch.setattr(launch, "HANGS", tmp_path)
-    monkeypatch.setattr(launch, "free_core", lambda: None)  # the machine's own load must not decide a unit test
+    monkeypatch.setattr(launch, "free_core", lambda: None)
     with pytest.raises(subprocess.TimeoutExpired) as caught:
         launch.heavy(["sleep", "30"], 1.0)
     where = str(caught.value.output).removeprefix("stack sampled to ")
@@ -812,7 +943,7 @@ def test_a_launch_waits_while_the_load_fills_every_core_and_starts_once_one_free
         return taken[-1]
 
     launch.free_core(idle=idle, cores=8)
-    assert taken == [5.0, 12.0, 30.0]  # 5% and 12% of 8 cores leave under 1 idle core; 30% leaves 2.4
+    assert taken == [5.0, 12.0, 30.0]
 
 
 def test_a_launch_that_never_sees_a_free_core_names_the_load() -> None:
@@ -829,18 +960,28 @@ def test_a_launch_drops_only_the_logs_whose_every_conversion_is_its_own(tmp_path
 
     def log(name: str, *reads: pathlib.Path) -> pathlib.Path:
         path = logs / f"MuseScore_{name}.log"
-        path.write_text("".join(f"x | ConverterController::convertFile | in: {read}, out: {read}.pdf\n" for read in reads) or "x | INFO | session\n", encoding="utf-8")
+        path.write_text(
+            "".join(f"x | ConverterController::convertFile | in: {read}, out: {read}.pdf\n" for read in reads)
+            or "x | INFO | session\n",
+            encoding="utf-8",
+        )
         return path
 
     ours = log(second, work / "a.mscz", work / "b.mscz")
-    session = log("261108_100001")  # the owner's own MuseScore session converts nothing
+    session = log("261108_100001")
     shared = log("261108_100002", work / "a.mscz", other / "c.mscz")
     late = log("261108_110000", work / "a.mscz")
     assert launch.drop_own_logs([work], at - 1, at + 5, logs) == 1
-    assert not ours.exists() and session.exists() and shared.exists() and late.exists()
+    assert not ours.exists()
+    assert session.exists()
+    assert shared.exists()
+    assert late.exists()
 
 
-def test_a_log_another_launch_removes_mid_sweep_is_skipped(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_log_another_launch_removes_mid_sweep_is_skipped(
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     work, logs = tmp_path / "work", tmp_path / "logs"
     work.mkdir()
     logs.mkdir()
@@ -852,7 +993,7 @@ def test_a_log_another_launch_removes_mid_sweep_is_skipped(tmp_path: pathlib.Pat
 
     def vanishing(path: pathlib.Path, *args: object, **kwargs: object) -> str:
         if path == gone:
-            path.unlink()  # a concurrent launch's sweep wins the race
+            path.unlink()
         return real(path, *args, **kwargs)  # type: ignore[arg-type]
 
     monkeypatch.setattr(pathlib.Path, "read_text", vanishing)
@@ -865,7 +1006,14 @@ def test_a_sheets_copy_left_behind_a_rewritten_history_resyncs_to_the_remote(tmp
     from muse import publish
 
     def git(*args: str, cwd: pathlib.Path) -> str:
-        return subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True, stdin=subprocess.DEVNULL).stdout.strip()
+        return subprocess.run(
+            ["git", *args],
+            cwd=cwd,
+            check=True,
+            capture_output=True,
+            text=True,
+            stdin=subprocess.DEVNULL,
+        ).stdout.strip()
 
     remote, ours, theirs = tmp_path / "remote.git", tmp_path / "ours", tmp_path / "theirs"
     git("init", "--quiet", "--bare", "--initial-branch=main", str(remote), cwd=tmp_path)
@@ -878,34 +1026,42 @@ def test_a_sheets_copy_left_behind_a_rewritten_history_resyncs_to_the_remote(tmp
     git("commit", "--quiet", "-m", "one", cwd=ours)
     git("push", "--quiet", "-u", "origin", "main", cwd=ours)
     git("pull", "--quiet", "origin", "main", cwd=theirs)
-    git("commit", "--quiet", "--amend", "-m", "rewritten", cwd=theirs)  # another publish rewrites the history ours still holds
+    git("commit", "--quiet", "--amend", "-m", "rewritten", cwd=theirs)
     git("push", "--quiet", "--force", "origin", "main", cwd=theirs)
     (ours / "b.pdf").write_text("2")
     git("add", "b.pdf", cwd=ours)
-    git("commit", "--quiet", "-m", "left behind", cwd=ours)  # a stopped build's commit that never reached the remote
+    git("commit", "--quiet", "-m", "left behind", cwd=ours)
     publish.resync(ours)
     assert git("rev-parse", "HEAD", cwd=ours) == git("rev-parse", "main", cwd=remote)
 
 
 def test_a_launch_the_window_server_refuses_stops_as_the_machines_fault(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(launch, "free_core", lambda: None)  # the machine's own load must not decide a unit test
-    refused = ["sh", "-c", "echo 'PasteBoard: Error creating pasteboard: com.apple.pasteboard.clipboard [-4960]' >&2; kill -ABRT $$"]
+    monkeypatch.setattr(launch, "free_core", lambda: None)
+    refused = [
+        "sh",
+        "-c",
+        "echo 'PasteBoard: Error creating pasteboard: com.apple.pasteboard.clipboard [-4960]' >&2; kill -ABRT $$",
+    ]
     with pytest.raises(launch.MachineUnavailable, match=launch.UNAVAILABLE):
         launch.heavy(refused, 10.0)
-    coreml = ["sh", "-c", "echo 'Status Message: Error executing model: Unable to compute the prediction using a neural network model.' >&2; exit 1"]
+    coreml = [
+        "sh",
+        "-c",
+        "echo 'Status Message: Error executing model: Unable to compute the prediction using a neural network model.' >&2; exit 1",
+    ]
     with pytest.raises(launch.MachineUnavailable, match=launch.UNAVAILABLE):
-        launch.heavy(coreml, 10.0)  # homr's model refused on the locked Mac
-    plain = launch.heavy(["sh", "-c", "kill -ABRT $$"], 10.0)  # an abort without the refusal stays the song's own failure
+        launch.heavy(coreml, 10.0)
+    plain = launch.heavy(["sh", "-c", "kill -ABRT $$"], 10.0)
     assert plain.returncode == -6
 
 
-def test_a_mark_starting_just_left_of_a_barline_belongs_to_the_bar_it_runs_into():
+def test_a_mark_starting_just_left_of_a_barline_belongs_to_the_bar_it_runs_into() -> None:
     row = [Bar(n, 0, left, left + 100, F(4)) for n, left in ((1, 40.0), (2, 140.0), (3, 240.0))]
     assert [bar_at(row, x, 4).number for x in (20.0, 60.0, 137.0, 139.0, 141.0, 236.5, 300.0)] == [1, 1, 2, 2, 2, 3, 3]
     assert bar_at(row, 135.0, 4).number == 1
 
 
-def test_a_lyric_between_2_lines_belongs_to_the_line_it_sits_under_and_a_cue_to_the_line_it_sits_above():
+def test_a_lyric_between_2_lines_belongs_to_the_line_it_sits_under_and_a_cue_to_the_line_it_sits_above() -> None:
     from muse.leland import text_owners
 
     class Staff:
@@ -919,48 +1075,56 @@ def test_a_lyric_between_2_lines_belongs_to_the_line_it_sits_under_and_a_cue_to_
     assert text_owners([lyric, cue, chord], groups) == [0, 1, 1]
 
 
-def test_a_chords_ink_is_read_from_its_own_letters_never_a_sharp_beside_it():
+def test_a_chords_ink_is_read_from_its_own_letters_never_a_sharp_beside_it() -> None:
     from muse.chordseat import INK_REACH, ink_left
 
     def page_with(mark: bool) -> pymupdf.Page:
         doc = pymupdf.open()
         page = doc.new_page(width=200, height=100)
         page.insert_text((60, 60), "C", fontsize=13)
-        if mark:  # a tall stroke on another baseline, standing in the chord's band just left of its ink, as a key signature's sharp does beside a chord set low
-            page.insert_text((57.6, 66), "|", fontsize=13)  # its stroke inks 58.9 to 59.6: inside the window that opens at 59.2, left of the C
+        if mark:
+            page.insert_text((57.6, 66), "|", fontsize=13)
         return page
 
     alone = ink_left(page_with(False), 60, 60, 13)
     marked = page_with(True)
-    stroke = next(pymupdf.Rect(span["bbox"]) for block in marked.get_text("dict")["blocks"] for line in block["lines"] for span in line["spans"] if span["text"] == "|")
-    assert stroke.x1 > 60 - INK_REACH and stroke.x0 < 60, "the stroke must stand inside the ink window, or the guard judges nothing"
+    stroke = next(
+        pymupdf.Rect(span["bbox"])
+        for block in marked.get_text("dict")["blocks"]
+        for line in block["lines"]
+        for span in line["spans"]
+        if span["text"] == "|"
+    )
+    assert stroke.x1 > 60 - INK_REACH and stroke.x0 < 60, (
+        "the stroke must stand inside the ink window, or the guard judges nothing"
+    )
     assert abs(ink_left(marked, 60, 60, 13) - alone) < 0.2
 
 
-def test_a_chords_next_correction_is_scaled_by_how_far_its_ink_moved():
+def test_a_chords_next_correction_is_scaled_by_how_far_its_ink_moved() -> None:
     from muse.layout import next_bias
 
-    # asked 0.5 space of a 1-point space, the gap went from 1 to -1: the ink moved 4 times as far as asked, so the next step is a quarter of the gap
     assert next_bias([0.5], [-1.0], [1.0], [0.0], [1.0]) == [0.25]
     assert next_bias([0.0], [1.0], [1.0]) == [1.0]
 
 
-def test_a_chords_ink_is_never_a_coloured_sign_box_beside_it():
+def test_a_chords_ink_is_never_a_coloured_sign_box_beside_it() -> None:
     from muse.chordseat import ink_left
 
     def page_with(box: bool) -> pymupdf.Page:
         doc = pymupdf.open()
         page = doc.new_page(width=200, height=100)
         page.insert_text((60, 60), "C", fontsize=13)
-        if box:  # a red sign box whose right edge stands in the chord's ink window, as a line-opening segno's does
+        if box:
             page.draw_rect(pymupdf.Rect(40, 45, 59.5, 62), color=(1, 0, 0), width=1.2)
         return page
 
     assert abs(ink_left(page_with(True), 60, 60, 13) - ink_left(page_with(False), 60, 60, 13)) < 0.2
 
 
-def test_a_line_rule_refusal_names_its_bar_and_its_rule():
+def test_a_line_rule_refusal_names_its_bar_and_its_rule() -> None:
     from muse.model import Score
+
     bars = [Bar(n, 0, 0, 100, F(4)) for n in (1, 2, 3)]
     for bar in bars:
         bar.chords.append(Chord("C", 0, "", None, 0, 0.0))
@@ -968,21 +1132,21 @@ def test_a_line_rule_refusal_names_its_bar_and_its_rule():
     assert port.line_rule_reasons(Score(bars, [], [])) == ["bar 3: lone bar on a line"]
 
 
-def test_a_crowded_chord_takes_its_letters_bearing_from_the_clean_chords():
+def test_a_crowded_chord_takes_its_letters_bearing_from_the_clean_chords() -> None:
     from muse.chordseat import clean_bearings, crowded
 
     doc = pymupdf.open()
     page = doc.new_page(width=200, height=100)
     page.insert_text((60, 60), "C", fontsize=13)
     assert not crowded(page, 60, 60, 13)
-    page.insert_text((57.6, 66), "|", fontsize=13)  # a stroke on another baseline inside the chord's ink window
+    page.insert_text((57.6, 66), "|", fontsize=13)
     assert crowded(page, 60, 60, 13)
-    lines = [{"chords": [100.8, 300.1]}]  # the crowded chord's raster reads the stroke, 0.7 short of its true ink
+    lines = [{"chords": [100.8, 300.1]}]
     readings = [(0, 0, "C", 13.0, 100.0, False), (0, 1, "C", 13.0, 300.0, True)]
     assert clean_bearings(lines, readings) == {("C", 13.0): pytest.approx(0.8 / 13)}
 
 
-def test_the_gate_passes_a_chordless_line_start_only_where_the_source_opens_one(monkeypatch, tmp_path):
+def test_the_gate_passes_a_chordless_line_start_only_where_the_source_opens_one(monkeypatch, tmp_path) -> None:
     bars = [Bar(n, 0, 0.0, 100.0, F(4), voices=[]) for n in (1, 2, 3, 4)]
     score = Score(bars, [], [])
     monkeypatch.setattr(chordseat, "score_text", lambda _: ("x", ""))
@@ -993,8 +1157,9 @@ def test_the_gate_passes_a_chordless_line_start_only_where_the_source_opens_one(
     assert port.chord_starts(tmp_path, score) == []
 
 
-def test_decoding_keeps_the_sources_line_starts(monkeypatch):
+def test_decoding_keeps_the_sources_line_starts(monkeypatch) -> None:
     from muse import song
+
     decoded = Score([Bar(n, 0, 0.0, 100.0, F(4), voices=[], new_system=n == 3) for n in (1, 2, 3)], [], [])
     monkeypatch.setattr(song, "encoding", lambda _: "leland")
     monkeypatch.setattr(song.leland, "decode", lambda _: decoded)
@@ -1002,49 +1167,53 @@ def test_decoding_keeps_the_sources_line_starts(monkeypatch):
     assert [bar.source_line for bar in song.decode(pathlib.Path("X-C.pdf")).bars] == [False, False, True]
 
 
-def test_a_section_box_marks_the_barline_under_or_beside_it():
+def test_a_section_box_marks_the_barline_under_or_beside_it() -> None:
     from muse.model import mark_bar
 
-    row = [Bar(n, 0, left, right, F(4)) for n, (left, right) in enumerate([(42.5, 186.2), (186.2, 290.4), (290.4, 341.4)], 1)]
-    assert mark_bar(row, 172.1, 198.4).number == 2  # centred on the barline
-    assert mark_bar(row, 168.0, 183.0).number == 2  # ending just before it
-    assert mark_bar(row, 188.0, 205.0).number == 2  # starting just after it
-    assert mark_bar(row, 50.8, 77.0).number == 1  # at the line's start, clear of every later barline
-    assert mark_bar(row, 230.0, 250.0).number == 2  # inside a bar, clear of its barlines
+    row = [
+        Bar(n, 0, left, right, F(4)) for n, (left, right) in enumerate([(42.5, 186.2), (186.2, 290.4), (290.4, 341.4)], 1)
+    ]
+    assert mark_bar(row, 172.1, 198.4).number == 2
+    assert mark_bar(row, 168.0, 183.0).number == 2
+    assert mark_bar(row, 188.0, 205.0).number == 2
+    assert mark_bar(row, 50.8, 77.0).number == 1
+    assert mark_bar(row, 230.0, 250.0).number == 2
 
 
-def test_a_chord_seated_where_the_seating_aims_after_a_sign_never_touches_it():
+def test_a_chord_seated_where_the_seating_aims_after_a_sign_never_touches_it() -> None:
     from muse.chordseat import TOLERANCE, sign_end
     from muse.pdfcheck import sign_touches
 
     sign = {"origin": (37.4, 245.7), "bbox": (37.4, 229.7, 46.1, 249.7)}
-    box = pymupdf.Rect(33.1, 231.1, 50.6, 248.6)  # the measured segno, its red box and a 20-point sign font
+    box = pymupdf.Rect(33.1, 231.1, 50.6, 248.6)
     target = sign_end(sign, 20.0, [box])
-    for bearing in (0.4, 0.8, 1.2):  # a chord letter's ink starts this far past its text box
+    for bearing in (0.4, 0.8, 1.2):
         for stray in (-TOLERANCE, 0.0, TOLERANCE):
             left = target + stray - bearing
             assert not sign_touches(37.4, 245.7, 20.0, 11.2, [(left, left + 7.6, 246.5)]), (bearing, stray)
 
 
-def test_a_printed_tempo_becomes_words_and_a_metronome_mark():
+def test_a_printed_tempo_becomes_words_and_a_metronome_mark() -> None:
     out = musicxml.words(Text(0.0, 0.0, [("Andante religioso♩= 58", True, False)], True))
     assert "♩" not in out
-    assert "<words" in out and "Andante religioso</words>" in out
+    assert "<words" in out
+    assert "Andante religioso</words>" in out
     assert "<metronome><beat-unit>quarter</beat-unit><per-minute>58</per-minute></metronome>" in out
     assert '<sound tempo="58"/>' in out
 
 
-def test_a_text_with_nothing_to_print_writes_nothing():
+def test_a_text_with_nothing_to_print_writes_nothing() -> None:
     assert musicxml.words(Text(0.0, 0.0, [("", True, True)], True)) == ""
     bar = Bar(1, 0, 0, 100, F(4), key=0, time=(4, 4))
     bar.tempo = ("", 68.0)
     score = Score([bar], [], [])
     score.minor = False
     out = musicxml.measure(bar, 1, score)
-    assert "<words" not in out and "<per-minute>68</per-minute>" in out  # a tempo printed without words keeps its metronome mark
+    assert "<words" not in out
+    assert "<per-minute>68</per-minute>" in out
 
 
-def test_a_page_with_a_tall_blank_band_is_refused(tmp_path):
+def test_a_page_with_a_tall_blank_band_is_refused(tmp_path) -> None:
     def page_with(gap: float) -> pathlib.Path:
         doc = pymupdf.open()
         page = doc.new_page(width=595, height=842)
@@ -1058,13 +1227,26 @@ def test_a_page_with_a_tall_blank_band_is_refused(tmp_path):
     assert pdfcheck.blank_bands(page_with(300)) != []
 
 
-DISTINCT_FACTS = {  # a name 2 modules define for different facts: each font's own codes, or a module re-exporting its owner's value
-    "ACCIDENTALS", "BAR_REST", "CHORD", "CHORD_GAP", "CREDIT_ROW", "DYNAMICS", "FLAGS", "GRACE", "HEADS",
-    "JUMP_WORDS", "KNOWN_GLYPHS", "MUSIC_FONTS", "RESTS", "STAFF_REACH", "STYLE",
+DISTINCT_FACTS = {
+    "ACCIDENTALS",
+    "BAR_REST",
+    "CHORD",
+    "CHORD_GAP",
+    "CREDIT_ROW",
+    "DYNAMICS",
+    "FLAGS",
+    "GRACE",
+    "HEADS",
+    "JUMP_WORDS",
+    "KNOWN_GLYPHS",
+    "MUSIC_FONTS",
+    "RESTS",
+    "STAFF_REACH",
+    "STYLE",
 }
 
 
-def test_no_fact_has_2_homes():
+def test_no_fact_has_2_homes() -> None:
     """A constant written twice drifts: the sign's extent once disagreed between the seating and the touch check."""
     import collections
     import re
@@ -1078,7 +1260,7 @@ def test_no_fact_has_2_homes():
     assert {name for name, homes in defined.items() if len(homes) > 1} <= DISTINCT_FACTS
 
 
-def test_ink_is_read_off_a_page_in_1_place():
+def test_ink_is_read_off_a_page_in_1_place() -> None:
     """Every reading of which rows and columns of a page hold ink goes through 1 reader, so a threshold or a row stride is decided once."""
     import re
 
@@ -1087,10 +1269,10 @@ def test_ink_is_read_off_a_page_in_1_place():
         found = len(re.findall(r"\.get_pixmap\(", path.read_text(encoding="utf-8")))
         if found:
             readers[path.name] = found
-    assert readers == {"pdfcheck.py": 2, "chordseat.py": 1, "gate.py": 1}  # the 2 ink readers, the chord-ink seat in colour, and the image the optical check reads
+    assert readers == {"pdfcheck.py": 2, "chordseat.py": 1, "gate.py": 1}
 
 
-def test_the_ink_reader_finds_a_mark_where_it_is_drawn(tmp_path):
+def test_the_ink_reader_finds_a_mark_where_it_is_drawn(tmp_path) -> None:
     import pymupdf
 
     doc = pymupdf.open()
@@ -1099,18 +1281,29 @@ def test_the_ink_reader_finds_a_mark_where_it_is_drawn(tmp_path):
     rows, height = pdfcheck.inked_rows(page, 72)
     cols, width = pdfcheck.inked_columns(page, 72)
     assert (height, width) == (842, 595)
-    assert 199 <= rows[0] <= 201 and 209 <= rows[-1] <= 211
-    assert 99 <= cols[0] <= 101 and 299 <= cols[-1] <= 301
+    assert 199 <= rows[0] <= 201
+    assert 209 <= rows[-1] <= 211
+    assert 99 <= cols[0] <= 101
+    assert 299 <= cols[-1] <= 301
     blank = doc.new_page(width=595, height=842)
     assert pdfcheck.inked_rows(blank, 72)[0] == []
 
 
-def test_no_code_names_anything_by_age():
+def test_no_code_names_anything_by_age() -> None:
     """The pipeline builds for the newest release of everything, so nothing in it is named by age."""
     import re
 
     root = pathlib.Path(port.__file__).parents[2]
     words = re.compile(r"\b(legacy|outdated|deprecated)\b", re.IGNORECASE)
-    files = [path for path in sorted([*root.glob("src/muse/**/*"), *root.glob("tests/*"), root / "README.md"]) if path.is_file() and path.suffix in {".py", ".js", ".md", ".json"}]
-    found = [f"{path.relative_to(root)}:{at}" for path in files for at, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1) if words.search(line) and "words = re.compile" not in line]
+    files = [
+        path
+        for path in sorted([*root.glob("src/muse/**/*"), *root.glob("tests/*"), root / "README.md"])
+        if path.is_file() and path.suffix in {".py", ".js", ".md", ".json"}
+    ]
+    found = [
+        f"{path.relative_to(root)}:{at}"
+        for path in files
+        for at, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
+        if words.search(line) and "words = re.compile" not in line
+    ]
     assert found == []

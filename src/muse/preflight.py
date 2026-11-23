@@ -1,13 +1,17 @@
 """Everything that fails in seconds, before any build: code checks stop the chain, a song's own failure stops that song."""
+
 from __future__ import annotations
 
 import pathlib
 import subprocess
 import sys
-from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 from muse import buildcache, oracle, piano
 from muse.song import decode, is_orchestral, orchestra_of, song_of, sources
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 CODE_CHECKS = (
     ("tests", (sys.executable, "-m", "pytest", "-q", "-x")),
@@ -20,7 +24,7 @@ CODE_CHECKS = (
 def song_problem(src: pathlib.Path) -> str:
     """Why a source cannot be built, or an empty string: decode, song key, tone, piano parts."""
     try:
-        if is_orchestral(src):  # a full score: its own reader and its concert key; it has no piano part
+        if is_orchestral(src):
             orchestra_of(src)
             buildcache.key_of(src, repr(song_of(src)), buildcache.code_files())
             return ""
@@ -32,7 +36,7 @@ def song_problem(src: pathlib.Path) -> str:
         lost = oracle.problems(src, score, info.title)
         if lost:
             return lost[0]
-    except Exception as error:  # every refusal names its song and the others go on
+    except Exception as error:
         return f"{type(error).__name__}: {str(error)[:200]}"
     return ""
 

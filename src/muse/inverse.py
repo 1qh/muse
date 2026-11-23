@@ -1,4 +1,5 @@
 """Transpose the original-tone score through MuseScore, as the favourite-tone sheets are, and compare it with the source reading."""
+
 from __future__ import annotations
 
 import json
@@ -17,7 +18,15 @@ def check(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> list[str]
     final = out / info.score_file
     moved = work / f"{song}-moved.mscz"
     if semis:
-        options = {"mode": "to_key", "direction": info.direction, "targetKey": fifths, "transposeKeySignatures": True, "transposeChordNames": True, "useDoubleSharpsFlats": False, "transposeInterval": 0}
+        options = {
+            "mode": "to_key",
+            "direction": info.direction,
+            "targetKey": fifths,
+            "transposeKeySignatures": True,
+            "transposeChordNames": True,
+            "useDoubleSharpsFlats": False,
+            "transposeInterval": 0,
+        }
         launch.mscore(["-o", str(moved), "--transpose", json.dumps(options), str(final)], 240, check=True)
     else:
         moved.write_bytes(final.read_bytes())
@@ -37,7 +46,13 @@ def check(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> list[str]
             if want != got:
                 problems.append(f"bar {bar.number} part {p_i + 1}: {got} vs {want}")
             if p_i == 0:
-                want_c = sorted(((PC[c.root] + c.root_alter + semis) % 12, -1 if not c.bass else (PC[c.bass] + c.bass_alter + semis) % 12) for c in bar.chords)
+                want_c = sorted(
+                    (
+                        (PC[c.root] + c.root_alter + semis) % 12,
+                        -1 if not c.bass else (PC[c.bass] + c.bass_alter + semis) % 12,
+                    )
+                    for c in bar.chords
+                )
                 if want_c != bar_roots(m):
                     problems.append(f"bar {bar.number}: chords {bar_roots(m)} vs {want_c}")
     if stored_chord_names(moved) != sorted(chordnames.stored(c.kind) for b in score.bars for c in b.chords if c.kind):
