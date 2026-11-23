@@ -518,12 +518,21 @@ def lay(src: pathlib.Path, work: pathlib.Path, variant: str) -> tuple[Score, pat
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(sizes)) as pool:
         found = list(pool.map(lambda size: candidate(src, work, variant, size), sizes))
     refusals = []
+    planned = {c["size"]: c["lines"] for c in found}
+    best: tuple[Score, pathlib.Path, float, float, int] | None = None
     for size in choose(found, variant):
+        if best is not None and planned.get(size, 0) >= len(port.rows(best[0])):
+            continue  # a plan no shorter than a finished sheet cannot finish shorter: finishing only adds lines
         try:
-            return finish(src, work, variant, size)
+            done = finish(src, work, variant, size)
         except port.DoesNotFit as error:
             refusals.append(str(error))
             print(f"refused {error}", flush=True)  # each refused size and its reason, as it happens
+            continue
+        if best is None or len(port.rows(done[0])) < len(port.rows(best[0])):
+            best = done  # the finished sheet with the fewest lines; among equals the first in the ranking
+    if best is not None:
+        return best
     summary = [(c["size"], "held" if c["held"] else "wrapped", f"short {c['share']:.0%}", "lone bar" if c["lone"] else "") for c in found]
     raise port.DoesNotFit(f"{src.stem} {variant}: no size passes: {refusals[:3] or summary}")
 

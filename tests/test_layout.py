@@ -396,3 +396,17 @@ def test_a_score_written_after_its_render_is_rendered_again(tmp_path) -> None:
     assert layout.current_render(score, probe, lambda: fresh) == fresh  # the file changed after its render
     os.utime(probe, ns=(3_000_000_000, 3_000_000_000))
     assert layout.current_render(score, probe, lambda: fresh) == probe
+
+
+def test_the_size_is_chosen_on_finished_sheets(monkeypatch, tmp_path) -> None:
+    """The best plan can finish with more lines than a plan ranked after it; the finished counts decide."""
+    def sheet_of(lines: int) -> Score:
+        bars = [noted(n, new_system=n > 1) for n in range(1, lines + 1)]
+        return Score(bars, [], [])
+
+    planned = {1.5: 10, 1.3: 12, 1.2: 14}
+    finished = {1.5: 16, 1.3: 13, 1.2: 15}
+    monkeypatch.setattr(layout, "candidate", lambda src, work, variant, size: {"size": size, "lines": planned.get(size, 99), "fill": 0.9, "held": True, "share": 0.0, "good": True, "lone": False})
+    monkeypatch.setattr(layout, "choose", lambda found, variant: [1.5, 1.3, 1.2])
+    monkeypatch.setattr(layout, "finish", lambda src, work, variant, size: (sheet_of(finished[size]), tmp_path / f"{size}.mscz", size, 1.0, 1))
+    assert layout.lay(tmp_path / "s.pdf", tmp_path, port.ORIGINAL)[2] == 1.3
