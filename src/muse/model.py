@@ -115,7 +115,6 @@ class Bar:
     rehearsal: list[str] = dataclasses.field(default_factory=list)
     tempo: tuple[str, float] | None = None
     wedges: list[tuple[float, float, str]] = dataclasses.field(default_factory=list)
-    simile: bool = False
     clef_octave: int = 0
     base: float = 0.0
     clefs: list[tuple[int, Fraction, Clef]] = dataclasses.field(default_factory=list)

@@ -11,7 +11,6 @@ import pathlib
 import subprocess
 import tempfile
 import threading
-import time
 from typing import TYPE_CHECKING, Any
 
 from muse import launch
@@ -39,8 +38,6 @@ class Batcher:
         self.done: dict[int, str | None] = {}
         self.ticket = 0
         self.jobs = 0
-        self.renders = 0
-        self.seconds = 0.0
 
     @contextlib.contextmanager
     def worker(self) -> Generator[None, None, None]:
@@ -76,19 +73,16 @@ class Batcher:
                     if not self.flushing and self.pending and self.waiting >= max(1, self.working):
                         batch, self.pending, self.flushing = self.pending, [], True
                         self.lock.release()
-                        began = time.monotonic()
                         try:
                             results = self.run(batch)
                         except (OSError, subprocess.SubprocessError, ValueError) as error:
                             results = {item["ticket"]: f"job failed: {error}" for item in batch}
                         finally:
                             self.lock.acquire()
-                            self.seconds += time.monotonic() - began
                             self.flushing = False
                             self.lock.notify_all()
                         self.done.update(results)
                         self.jobs += 1
-                        self.renders += len(batch)
                     else:
                         self.lock.wait(timeout=1.0)
                 failure = self.done.pop(ticket)

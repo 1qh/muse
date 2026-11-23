@@ -13,3 +13,6 @@ markers = [
 ]
 pythonpath = ["src"]
 testpaths = ["tests"]
+
+[tool.typos.default.extend-words]
+tuplets = "tuplets"
