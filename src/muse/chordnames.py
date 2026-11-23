@@ -49,7 +49,8 @@ CHORD_FILE_RENDERS = (
     ("<render>triangle</render>", "<render>\u0394</render>"),
     ("<renderBase>m:-0.2:1 / m:0.2:1 :n :a m:0:-2</renderBase>", "<renderBase>/ :n :a</renderBase>"),  # the shipped form drops the bass below the root
 )
-SHIPPED_CHORD_FILE = pathlib.Path.home() / "Applications" / "MuseScore 3.app" / "Contents" / "Resources" / "styles" / "chords_std.xml"
+LEGACY_APP = pathlib.Path.home() / "Applications" / "MuseScore 3.7.app"  # MuseScore 3.7, native on Apple silicon; the pinned build is named in the pipeline ADR
+SHIPPED_CHORD_FILE = LEGACY_APP / "Contents" / "Resources" / "styles" / "chords_std.xml"
 Runner = Callable[..., None]
 
 

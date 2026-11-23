@@ -78,7 +78,7 @@ def fit(xml: pathlib.Path, work: pathlib.Path, final: pathlib.Path, info: Song, 
 
 
 def build_legacy(xml: pathlib.Path, work: pathlib.Path, target: pathlib.Path, latest: pathlib.Path, info: Song, orchestra: Orchestra, spatium: float) -> list[str]:
-    """The MuseScore 3 file, from the pipeline's own MusicXML, in MuseScore 3.6.2; what keeps it from matching the latest file, or nothing."""
+    """The MuseScore 3 file, from the pipeline's own MusicXML, in MuseScore 3.7; what keeps it from matching the latest file, or nothing."""
     style = port.styled(work, f"{info.name}-score-legacy.mss", info.title, spatium, DISTANCE, NAMED)  # the same size and named staves as the latest file
     fonts = "".join(f"<{tag}>SF Pro Display</{tag}>" for tag in port.LEGACY_ONLY_FONTS)
     text = style.read_text(encoding="utf-8").replace('version="4.70"', 'version="3.02"').replace("</Style>", fonts + "</Style>")

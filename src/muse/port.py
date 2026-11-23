@@ -593,8 +593,8 @@ def sizes_between(low: float, high: float) -> list[float]:
 
 
 def legacy_command() -> str:
-    """MuseScore 3's own executable; it is frozen at its last release."""
-    return os.environ.get("MUSE_MS3") or str(pathlib.Path.home() / "Applications" / "MuseScore 3.app" / "Contents" / "MacOS" / "mscore")
+    """MuseScore 3.7's own executable, native on Apple silicon; the pinned build is named in the pipeline ADR."""
+    return os.environ.get("MUSE_MS3") or str(chordnames.LEGACY_APP / "Contents" / "MacOS" / "mscore")
 
 
 def build_legacy(src: pathlib.Path, work: pathlib.Path, target: pathlib.Path, spatium: float, distance: float, info: Song) -> None:
