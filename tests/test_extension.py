@@ -428,10 +428,10 @@ def text_lifts(score_path: pathlib.Path) -> list[float]:
 
     with zipfile.ZipFile(score_path) as archive:
         text = archive.read(next(n for n in archive.namelist() if n.endswith(".mscx") and "/" not in n)).decode()
-    return [float(y) for y in re.findall(r'<StaffText>.*?<offset x="[^"]*" y="([^"]*)"', text, re.S)]
+    return [float(y) for y in re.findall(r'<(?:StaffText|Harmony)>.*?<offset x="[^"]*" y="([^"]*)"', text, re.S)]
 
 
-def test_raising_a_text_again_never_lifts_it_further(tmp_path: pathlib.Path) -> None:
+def test_raising_a_text_again_never_lifts_it_or_its_chords_further(tmp_path: pathlib.Path) -> None:
     """The extension runs many times per sheet; a lift that stacks run after run pushes the line's staff down the page."""
     from muse.model import Text
 

@@ -400,6 +400,7 @@ function main() {
     var noted = curScore.metaTag("museNoted")
     NOTED = noted ? noted.split(",").map(Number) : []
     clearOpeningSigns()
+    undoRaises()  // first of all: every later step, the chords' lift above their texts included, measures the texts where they stood before any raising
     if (curScore.metaTag("museMode") === "measure") { measureMode(all); return }
     var rounds = 0
     for (; rounds < FIT_ROUNDS; rounds++) {
@@ -442,7 +443,6 @@ function undoRaises() {
 
 function raiseText(all) {
     // a line's cues, marks and tempi, in reading order, each started above every chord and every text already placed over the same span; automatic placement then stacks them and reserves their height
-    undoRaises()
     var raised = {}
     var placed = {}
     for (var i = 0; i < all.length; i++) {

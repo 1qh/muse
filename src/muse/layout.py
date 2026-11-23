@@ -405,7 +405,7 @@ def seat_inked(score_path: pathlib.Path, rendered: Callable[[], pathlib.Path], h
             reach += max(overlaps) / spaces[0] + SIGN_REACH_MARGIN  # the box still covers a word by this much: keep cues that much farther off
         if not evened and not overlaps and all(gap is None or abs(gap - chordseat.GAP) <= chordseat.TOLERANCE for gap in gaps) and not pdfcheck.chord_collisions(probe):
             break
-    for _ in range(INK_ROUNDS):  # however the rounds ended, measure the latest render and seat again until every chord is on target
+    for round_number in range(INK_ROUNDS):  # however the rounds ended, measure the latest render and correct it until every chord is on target and every line's empty bars are even
         _, text = chordseat.score_text(score_path)
         rows = chordseat.rows_of(text)
         lines = chordseat.matched(text, probe)
@@ -413,11 +413,14 @@ def seat_inked(score_path: pathlib.Path, rendered: Callable[[], pathlib.Path], h
             break  # chords ran together: the caller plans the line again
         gaps = chordseat.gaps(rows, lines)
         off = [(at + 1, round(gap, 2)) for at, gap in enumerate(gaps) if gap is not None and abs(gap - chordseat.GAP) > chordseat.TOLERANCE]
-        evened = noted is not None and chordseat.equalize(score_path, probe, {index + 1 for index in noted})  # an empty bar widened for its chords: its line's empty bars follow it
+        noted_bars = {index + 1 for index in noted} if noted is not None else set()
+        uneven = chordseat.uneven(score_path, probe, noted_bars) if noted is not None else []  # the final checks' own judgement
         if os.environ.get("MUSE_LAYOUT_TRACE"):
-            print(f"{score_path.name}: settling, chords off target {off}, evened {evened}", flush=True)
-        if not off and not evened:
-            break
+            print(f"{score_path.name}: settling, chords off target {off}, uneven {uneven}", flush=True)
+        if (not off and not uneven) or round_number == INK_ROUNDS - 1:
+            break  # the returned render is always the measured one, matching the file
+        if uneven:
+            chordseat.equalize(score_path, probe, noted_bars)
         spaces = [chordseat.space_points(score_path)] * len(gaps)
         bias, before, gaps_before = next_bias(bias, gaps, spaces, before, gaps_before), bias, gaps
         set_tags(score_path, {"museSignReach": f"{reach:.4f}", "museInkBias": ",".join(f"{b:.4f}" for b in bias), "museInkWidth": ",".join(f"{w:.4f}" for w in inks), "museEven": "0"})
