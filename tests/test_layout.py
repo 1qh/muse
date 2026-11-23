@@ -410,3 +410,10 @@ def test_the_size_is_chosen_on_finished_sheets(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(layout, "choose", lambda found, variant: [1.5, 1.3, 1.2])
     monkeypatch.setattr(layout, "finish", lambda src, work, variant, size: (sheet_of(finished[size]), tmp_path / f"{size}.mscz", size, 1.0, 1))
     assert layout.lay(tmp_path / "s.pdf", tmp_path, port.ORIGINAL)[2] == 1.3
+
+
+def test_a_finished_sheet_past_the_widest_short_line_share_is_refused() -> None:
+    sparse = [[1, 2], [3, 4], [5, 6, 7, 8], [9, 10]]  # 3 of 4 lines hold 2 bars
+    full = [[1, 2, 3, 4], [5, 6, 7, 8], [9, 10, 11, 12], [13, 14]]
+    assert port.short_line_problems(sparse) != []
+    assert port.short_line_problems(full) == []

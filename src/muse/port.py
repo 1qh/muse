@@ -208,6 +208,12 @@ def sections(score: Score) -> list[list[int]]:
 
 
 
+def short_line_problems(lines: list[list[int]]) -> list[str]:
+    """A finished sheet whose lines of 2 bars or fewer pass the widest share any song is allowed."""
+    share = short_line_share(lines)
+    return [f"{share:.0%} of lines hold 2 bars or fewer, past {RELAXED_SHORT_SHARE:.0%}"] if share > RELAXED_SHORT_SHARE else []
+
+
 def short_line_share(lines: list[list[int]]) -> float:
     """Share of lines with 2 bars or fewer."""
     return sum(1 for line in lines if len(line) <= 2) / len(lines)

@@ -220,6 +220,7 @@ def check_song(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> tupl
             lengths = line_lengths(starts, len(score.bars))
             short = sum(1 for length in lengths if length <= 2)
             notes.append(f"{final.name}: {short} of {len(lengths)} lines hold 2 bars or fewer")
+            wrong += port.short_line_problems([list(range(first, first + length)) for first, length in zip(starts, lengths, strict=True)])
             notes.extend(long_runs)
             wrong += bad
         return wrong

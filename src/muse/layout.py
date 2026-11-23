@@ -311,7 +311,7 @@ def ranked(fit: list[dict[str, Any]]) -> list[float]:
 
 
 def choose(found: list[dict[str, Any]], variant: str) -> list[float]:
-    """Sizes to finish, best first, within the base short-line share, then the wider one: a band sheet's largest whose lines fill their pages; a piano sheet's fewest lines, then its largest of those, so a pianist sees the most chords at once."""
+    """Sizes to finish, best first, within the base short-line share, then the wider one, each tier by fewest lines, then filling their pages, then largest."""
     order: list[float] = []
     for share in (port.MAX_SHORT_SHARE, port.RELAXED_SHORT_SHARE):
         fit = [c for c in found if c["good"] and not c["lone"] and c["share"] <= share]
@@ -507,6 +507,7 @@ def finish_at(src: pathlib.Path, work: pathlib.Path, variant: str, size: float, 
         raise port.DoesNotFit(f"{sheet.name} at {size}: lines still overflow after {REPLAN_ROUNDS} plans")
     probe = current_render(score_path, probe, lambda: render(sheet, "final", seated=True)[1])
     problems = pdfcheck.all_problems(probe, sheet.title) + chordseat.problems(score_path, probe) + chordseat.crowded_line_texts(score_path, probe) + port.line_rule_reasons(sheet.score, sheet.variant) + uneven_empty_bars(sheet, score_path, probe) + port.page_problems(sheet.score, probe)
+    problems += port.short_line_problems(port.rows(sheet.score))  # judged on the finished sheet, never on the plan alone
     if problems:
         raise port.DoesNotFit(f"{sheet.name} at {size}: {problems[:3]}")
     return sheet.score, score_path, size, sheet.distance, len(pdftext.open(probe))
