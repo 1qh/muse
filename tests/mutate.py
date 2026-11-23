@@ -13,6 +13,24 @@ CONTROL_WORKERS = 8
 CONTROL_SECONDS = 240
 HEAVY_SECONDS = 1500
 HEAVY = ("extension/", "layout.py", "launch.py", "render.py")
+LONG_ANCHOR_1 = (
+    "                other != box\n                and other.y0 < "
+    "box.y0\n                and box.x0 < other.x1\n                "
+    "and other.x0 < box.x1\n                and box.y0 - other.y1 "
+    "< space * LINE_TEXT_CLEAR\n"
+)
+LONG_ANCHOR_2 = (
+    "                False\n                and other.y0 < box.y0\n "
+    "               and box.x0 < other.x1\n                and "
+    "other.x0 < box.x1\n                and box.y0 - other.y1 < "
+    "space * LINE_TEXT_CLEAR\n"
+)
+LONG_ANCHOR_3 = (
+    "        names.append(\n            options[sum(1 for earlier "
+    "in printed[: len(names)] if earlier == label)] if "
+    "len(options) > 1 else options[0],\n        )"
+)
+
 MUTATIONS = [
     (
         "pdfcheck.py",
@@ -22,11 +40,11 @@ MUTATIONS = [
     ),
     (
         "chordseat.py",
-        "            if any(other != box and other.y0 < box.y0",
-        "            if False and any(other != box and other.y0 < box.y0",
+        LONG_ANCHOR_1,
+        LONG_ANCHOR_2,
         "cues of 2 lines crowd",
     ),
-    ("chordseat.py", "    noted = noted | signed_bars(text)\n", "\n", "sign bar evened"),
+    ("chordseat.py", "    noted |= signed_bars(text)", "    noted |= set()", "sign bar evened"),
     ("chordseat.py", "    lost = missing(rows, lines)\n    if lost:\n        return lost\n", "", "missing chord crashes"),
     (
         "layout.py",
@@ -40,12 +58,17 @@ MUTATIONS = [
         "port.crowded_rows(probe, wanted) if seated",
         "merged chords not crowded",
     ),
-    ("port.py", "after_mark)] + lone", "after_mark)]", "band lone bar passes"),
-    ("leland.py", "if owner == at_group], staff.base", "], staff.base", "text read by 2 lines"),
+    ("port.py", "after_mark)]\n        + lone", "after_mark)]", "band lone bar passes"),
     (
         "leland.py",
-        "near = next((n for n in row_bars if n.left <= g[1] < n.right), None) or min(row_bars",
-        "near = min(row_bars",
+        "        [span for span, owner in zip(page.spans, page.owners, strict=True) if owner == at_group],\n",
+        "        [span for span, owner in zip(page.spans, page.owners, strict=True) if False],\n",
+        "text read by 2 lines",
+    ),
+    (
+        "leland.py",
+        "near = next((n for n in row_bars if n.left <= g[1] < n.right), None) or min(\n",
+        "near = min(\n",
         "repeat dot by nearest edge",
     ),
     (
@@ -56,8 +79,8 @@ MUTATIONS = [
     ),
     (
         "pdfcheck.py",
-        'page.get_text("dict", flags=pymupdf.TEXT_ACCURATE_BBOXES)["blocks"]:  # ink boxes',
-        'page.get_text("dict")["blocks"]:  # ink boxes',
+        'page.get_text("dict", flags=pymupdf.TEXT_ACCURATE_BBOXES)["blocks"]',
+        'page.get_text("dict")["blocks"]',
         "font box judged off page",
     ),
     ("extension/main.js", "var OPENING_SIGN_SHIFT = 4 ", "var OPENING_SIGN_SHIFT = 0 ", "sign over bar number"),
@@ -70,8 +93,8 @@ MUTATIONS = [
     ("port.py", "            text = staff_texts(text)\n", "", "expressions overprint"),
     (
         "layout.py",
-        "port.BASE_DISTANCE + step * GAP_STEP, learned)",
-        "port.BASE_DISTANCE + step * GAP_STEP, [])",
+        "port.Sizing(size, port.BASE_DISTANCE + step * GAP_STEP), learned)",
+        "port.Sizing(size, port.BASE_DISTANCE + step * GAP_STEP), [])",
         "gap retry forgets widths",
     ),
     ("layout.py", "OVERFLOW_BREAKS = 1000", "OVERFLOW_BREAKS = 1", "overflow weighs as a soft rule"),
@@ -172,7 +195,7 @@ MUTATIONS = [
     ("layout.py", 'c["fill"] < port.PAGE_FILL, ', "", "choose ignores fill"),
     (
         "layout.py",
-        "        if len(line) == 2:\n            cost += SHORT_COST",
+        "        if len(line) == SHORT_LINE_BAR_COUNT:\n            cost += SHORT_COST",
         "        if False:\n            cost += SHORT_COST",
         "plan ignores short lines",
     ),
@@ -213,26 +236,36 @@ MUTATIONS = [
     ),
     (
         "chordseat.py",
-        "    if size is None:\n        raise ValueError",
-        "    if False:\n        raise ValueError",
+        '    if size is None:\n        msg = f"{path.name}: no chord text to size against"\n        raise ValueError(msg)',
+        '    if False:\n        msg = f"{path.name}: no chord text to size against"\n        raise ValueError(msg)',
         "chordless page judged",
     ),
     (
         "pdfcheck.py",
-        "if any(overlap(box, letter) > COVER_SLACK for letter in letters)]",
-        "if False]",
+        "            if any(overlap(box, letter) > COVER_SLACK for letter in letters)",
+        "            if False",
         "sign over chord unchecked",
     ),
     ("port.py", 'f"<Measure{m[1]}><stretch>{SIGN_BAR_STRETCH}</stretch>"', 'f"<Measure{m[1]}>"', "2-sign bar not widened"),
     ("pdfcheck.py", "if y < min(row, default=below[0][0]) - ROW_SLACK:", "if False:", "sign row unchecked"),
     ("port.py", '"repeat_left" in bare or "Repeat Text Left" in bare else ""', 'False else ""', "target not held"),
-    ("port.py", 'measures[at] = measure.replace("<Jump>",', 'measures[at] = measure.replace("<None>",', "signs stacked"),
-    ("song.py", "if events and max(events) < chord.x - PAST_EVENT and", "if False and", "chord stays past its bar"),
+    (
+        "port.py",
+        '            measures[at] = stretched.replace(\n                "<Jump>",\n',
+        '            measures[at] = stretched.replace(\n                "<None>",\n',
+        "signs stacked",
+    ),
+    (
+        "song.py",
+        "            if (\n                events\n                and max(events) < chord.x - PAST_EVENT\n",
+        "            if (\n                False\n",
+        "chord stays past its bar",
+    ),
     ("song.py", "chord.x + name * CHORD_LETTER > bar.right + CROSSING", "True", "chord moved without crossing"),
     (
         "piano.py",
-        "found = {bar.number for bar in score.bars if any(event.accent",
-        "found = {bar.number for bar in score.bars if False and any(event.accent",
+        "        if any(event.accent for voices in (bar.voices, bar.voices2) for voice in voices for event in voice)",
+        "        if False",
         "accent dropped",
     ),
     ("piano.py", "if later.chords or later.rehearsal or later.final:", "if True:", "fill stops at its cue"),
@@ -248,17 +281,17 @@ MUTATIONS = [
     ("leland.py", "and st[1] - 8 <= f[2] <= st[2] + 8:", ":", "flag of another staff"),
     (
         "leland.py",
-        "return abs(stem_at[id(one)] - stem_at[id(other)]) < 0.3",
+        "        return abs(stem_at[id(one)] - stem_at[id(other)]) < STEM_MATCH",
         "return abs(one.x - other.x) < DISPLACED",
         "chord by distance",
     ),
     ("leland.py", "e.tuplet = True", "e.tuplet = False", "tuplet ignored"),
     ("leland.py", "bar.time = changed", "bar.time = None", "time change"),
-    ("symbolfont.py", "or (piece[0].isalnum() and runs[-1][0][-1].isalnum()))", "or False)", "cue words joined"),
+    ("symbolfont.py", "piece[0].isalnum() and prev[-1].isalnum()", "False", "cue words joined"),
     (
         "oracle.py",
-        "if count > decoded[word] and word not in excluded and word not in joined and not CHORD.fullmatch(word)}",
-        "if False}",
+        "if count > decoded[word] and word not in excluded and word not in joined and not CHORD.fullmatch(word)",
+        "if False",
         "lost word",
     ),
     (
@@ -298,7 +331,7 @@ MUTATIONS = [
     ),
     ("musicxml.py", "if not has_heads(bar.voices) and not has_heads(bar.voices2):", "if False:", "silent bar rule"),
     ("musicxml.py", "at = round(wanted / step) * step", "at = wanted", "real beats"),
-    ("musicxml.py", "return F(3, 2)", "return F(1)", "compound beat"),
+    ("musicxml.py", "        return Fraction(3, 2)", "        return Fraction(1)", "compound beat"),
     ("verify.py", "if got != sorted(want):", "if False:", "chord beat check"),
     ("scorefile.py", "if wanted not in symbols:", "if False:", "built-in sign"),
     ("scorefile.py", 'if marker.find("family") is not None:', "if False:", "forced sign font"),
@@ -317,7 +350,12 @@ MUTATIONS = [
     ("scorefile.py", "if sorted(x.pitches) != sorted(y.pitches):", "if False:", "score notes"),
     ("scorefile.py", "if sorted(x.signs) != sorted(y.signs):", "if False:", "score signs"),
     ("scorefile.py", "if sorted(x.jumps) != sorted(y.jumps):", "if False:", "score jumps"),
-    ("scorefile.py", "scale = F(int(node.findtext", "_ = F(int(node.findtext", "saved triplet"),
+    (
+        "scorefile.py",
+        '            scale = Fraction(int(node.findtext("normalNotes") or 1), int(node.findtext("actualNotes") or 1))',
+        '            _ = Fraction(int(node.findtext("normalNotes") or 1), int(node.findtext("actualNotes") or 1))',
+        "saved triplet",
+    ),
     (
         "gate.py",
         (
@@ -339,7 +377,7 @@ MUTATIONS = [
     ("piano.py", "if held is None:\n            empty_bar(bar)", "if False:\n            empty_bar(bar)", "piano empties"),
     ("piano.py", "left -= len(taken)", "left -= 0", "hint length"),
     ("chordnames.py", '"maj7": "^7",', '"maj7": "\u03947",', "wrong chord mapping"),
-    ("chordnames.py", "if heard.get(bar) != PLAYS[kind]]", "if False]", "playback check"),
+    ("chordnames.py", "        if heard.get(bar) != PLAYS[kind]", "        if False", "playback check"),
     ("musicxml.py", "chordnames.stored(chord.kind)", "chord.kind", "stored spelling"),
     ("port.py", "or previous.final or piano.label_of(bar))", "or previous.final)", "label starts a line"),
     ("port.py", "for bar in sorted(labels - opening - tied_in - after_mark)]", "for bar in []]", "label inside a line"),
@@ -361,15 +399,20 @@ MUTATIONS = [
         "        if not is_signature(glyph[3]):\n            continue\n",
         "signature run",
     ),
-    ("chordseat.py", "if abs(width - mean) > EQUAL_TOLERANCE]", "if False]", "uneven bars"),
-    ("chordseat.py", "if gap is not None and abs(gap - GAP) > TOLERANCE]", "if False]", "chord off its barline"),
+    ("chordseat.py", "        if abs(width - mean) > EQUAL_TOLERANCE", "        if False", "uneven bars"),
+    (
+        "chordseat.py",
+        "        if gap is not None and abs(gap - GAP) > TOLERANCE",
+        "        if False",
+        "chord off its barline",
+    ),
     (
         "chordseat.py",
         'edge = line["start"] if place == 0 else line["openings"][place - 1]',
         'edge = line["start"]',
         "bar edge",
     ),
-    ("pdfcheck.py", "if spaces > MAX_CHORD_SPACES]", "if False]", "chord too high"),
+    ("pdfcheck.py", "        if spaces > MAX_CHORD_SPACES", "        if False", "chord too high"),
     ("piano.py", "if stop - first == 1]", "if False]", "lone bar found"),
     ("buildcache.py", 'if not entry or entry.get("key") != key:', "if not entry:", "stale key"),
     (
@@ -378,8 +421,8 @@ MUTATIONS = [
         "return True",
         "tampered output",
     ),
-    ("buildcache.py", "for part in (file_digest(source), song,", "for part in (song,", "source in key"),
-    ("buildcache.py", "file_digest(style), tool_identity()", "tool_identity()", "style in key"),
+    ("buildcache.py", "        file_digest(source),\n        song,", "        song,", "source in key"),
+    ("buildcache.py", "        file_digest(style),\n        tool_identity()", "        tool_identity()", "style in key"),
     ("buildcache.py", '*(f"{path.name}={file_digest(path)}" for path in files)', "", "code in key"),
     (
         "build.py",
@@ -387,10 +430,15 @@ MUTATIONS = [
         "return min(count, port.MAX_WORKERS, cores)",
         "free workers",
     ),
-    ("piano.py", "if bold:  # a band cue", "if False:  # a band cue", "shared cue"),
+    (
+        "piano.py",
+        '        if any(HIT_CUE.search("".join(run[0] for run in text.runs)) for text in [*bar.texts, *bar.texts2])',
+        "        if False",
+        "shared cue",
+    ),
     ("symbolfont.py", 'return bool(re.fullmatch(r"[.,;:…·\'`-]+", text))', "return False", "print dust"),
-    ("pdfcheck.py", "+ sign_on_chord(path) +", "+", "sign on chord"),
-    ("piano.py", "left = HINT_WORDS  # a cue can stack", "pass  # a cue can stack", "stacked hint"),
+    ("pdfcheck.py", "        + sign_on_chord(path)\n", "        + []\n", "sign on chord"),
+    ("piano.py", "    left = HINT_WORDS\n    runs", "    left = 0\n    runs", "stacked hint"),
     ("piano.py", "bar.voices2 = []", "pass", "second staff"),
     (
         "song.py",
@@ -402,9 +450,14 @@ MUTATIONS = [
     ("symbolfont.py", "if any((x in a) == (y in a) for x, y in close):", "if False:", "voice split apart"),
     ("pdfcheck.py", "if size < chords * SIGN_OVER_CHORD", "if False", "sign size"),
     ("pdfcheck.py", "if wide > (-JUMP_GAP if jump else TEXT_OVERLAP) and tall >", "if False and tall >", "text on text"),
-    ("symbolfont.py", "steps = round((base - 0.2 - g.y) / step)", "steps = round((base - 0.2 - g.y) / step) + 1", "pitch"),
-    ("symbolfont.py", "nominal = nominal * F(3, 2)", "nominal = nominal", "dot"),
-    ("symbolfont.py", "0xF0EE: F(2)", "0xF0EE: F(4)", "half rest"),
+    (
+        "symbolfont.py",
+        "    steps = round((staff.base - 0.2 - g.y) / staff.step)",
+        "    steps = round((staff.base - 0.2 - g.y) / staff.step) + 1",
+        "pitch",
+    ),
+    ("symbolfont.py", "        nominal *= Fraction(3, 2)", "        nominal *= Fraction(1)", "dot"),
+    ("symbolfont.py", "0xF0EE: Fraction(2)", "0xF0EE: Fraction(4)", "half rest"),
     ("symbolfont.py", "level = beam_levels(", "level = 0 * beam_levels(", "beam"),
     ("symbolfont.py", "return (best[1], best[2]) if best else None", "return None", "voice split"),
     (
@@ -417,18 +470,18 @@ MUTATIONS = [
     ("symbolfont.py", "ev.heads = list({(h.step, h.octave): h for h in ev.heads}.values())", "pass", "doubled head"),
     (
         "symbolfont.py",
-        "id(max(hits, key=lambda b: b.width))",
+        "id(max(hits, key=_rect_width))",
         "id(min(hits, key=lambda b: abs((b.y0 + b.y1) / 2 - tip)))",
         "beam group",
     ),
     ("bravura.py", "e.tuplet = True", "e.tuplet = False", "triplet"),
     ("bravura.py", '1 if step_name == "F" else 0', "0", "key signature"),
     ("navigate.py", 'if bar.volta == "1" and second_time:', "if False:", "volta order"),
-    ("navigate.py", "after_jump = False  # a repeat", "after_jump = True  # a repeat", "coda repeat"),
+    ("navigate.py", "    after_jump = False\n", "    after_jump = True\n", "coda repeat"),
     ("pdfcheck.py", "y1 > height * BOTTOM_BAND", "y1 > height * 2", "margin band"),
     ("chordseat.py", "CHORD_GAP = mode.pick(0.75, 0.5)", "CHORD_GAP = mode.pick(0.0, 0.0)", "chord gap"),
     ("pdfcheck.py", "if len(hits) != 1:", "if len(hits) > 99:", "title"),
-    ("pdfcheck.py", 'if not name.startswith(MUSIC_FONTS + ("SFPro", "SF-Pro", "SF Pro"))', "if False", "font"),
+    ("pdfcheck.py", 'if not name.startswith((*MUSIC_FONTS, "SFPro", "SF-Pro", "SF Pro"))', "if False", "font"),
     ("pdfcheck.py", "and not CHORD.fullmatch(text)", "and False", "chord biggest"),
     ("pdfcheck.py", "abs(page.rect.width - A4[0]) > A4_TOLERANCE", "False", "a4 width"),
     ("pdfcheck.py", "rows[0] < EDGE or", "False or", "ink top"),
@@ -436,7 +489,7 @@ MUTATIONS = [
     ("gate.py", "share < MIN_HOMR_AGREEMENT", "False", "homr floor"),
     ("gate.py", "letters[-1] = step", "letters.append(step)", "homr chord"),
     ("port.py", "if missing:", "if False:", "missing font"),
-    ("song.py", "if printed != table[root]:", "if False:", "key disagreement"),
+    ("song.py", "    if printed != fifths:", "    if False:", "key disagreement"),
     (
         "song.py",
         "semis = (PITCH[target_root] - pitch + 6) % 12 - 6",
@@ -457,13 +510,13 @@ MUTATIONS = [
     ("musicxml.py", 'return "major" if not kind else "other"', 'return "major"', "chord kind"),
     (
         "symbolfont.py",
-        '    OCTAVE_BELOW: "treble-8vb clef\'s 8", DIAMOND_WHOLE: "diamond notehead",\n',
-        '    OCTAVE_BELOW: "treble-8vb clef\'s 8",\n',
+        '    DIAMOND_WHOLE: "diamond notehead",\n',
+        "",
         "full score a glyph meaning dropped",
     ),
     (
         "orchestral.py",
-        'raise UnknownGlyphError(f"music glyph {code:#x} of the {kind} font is not decoded")',
+        "            raise UnknownGlyphError(msg)",
         "continue",
         "full score unknown glyph skipped",
     ),
@@ -475,24 +528,26 @@ MUTATIONS = [
     ),
     (
         "orchestral.py",
-        (
-            "        names.append(options[sum(1 for earlier in printed[: len(names)] "
-            "if earlier == label)] if len(options) > 1 else options[0])"
-        ),
+        (LONG_ANCHOR_3),
         "        names.append(options[0])",
         "full score shared label by order",
     ),
-    ("orchestral.py", "value * (2 - F(1, 2**count))", "value * (1 + F(count, 2))", "full score double dot as 3/2"),
     (
         "orchestral.py",
-        '                    scale[("stem", st)] = ratio\n',
-        "                    pass\n",
+        "value * (2 - Fraction(1, 2**count))",
+        "value * (1 + Fraction(count, 2))",
+        "full score double dot as 3/2",
+    ),
+    (
+        "orchestral.py",
+        '                stems.scale["stem", st] = ratio\n',
+        "                pass\n",
         "full score bracketed tuplet ignored",
     ),
     (
         "orchestral.py",
-        "        held |= {s for s in found for b0, b1 in braces",
-        "        held |= {s for s in found[:0] for b0, b1 in braces",
+        "        for b0, b1 in layout.braces\n",
+        "        for b0, b1 in []\n",
         "full score beam home ignores the brace",
     ),
     (
@@ -511,14 +566,20 @@ MUTATIONS = [
     ("musicxml.py", '        attrs.append("<staves>2</staves>")', "        pass", "full score harp as 1 staff"),
     (
         "musicxml.py",
-        '    staff = f"<staff>{ev.staff}</staff>" if ev.staff else ""',
+        '    staff = f"<staff>{ev.staff}</staff>" if _given_number(ev.staff) else ""',
         '    staff = ""',
         "full score crossing staff not written",
     ),
     ("musicxml.py", "        if orphaned:\n", "        if False:\n", "full score voiceless staff loses its marks"),
     (
         "musicxml.py",
-        "<actual-notes>{ev.ratio.denominator}</actual-notes><normal-notes>{ev.ratio.numerator}</normal-notes>",
+        (
+            '        f"<time-modification><actual-notes>{ev.ratio.denominator}</actual-notes>"\n'
+            '        f"<normal-notes>{ev.ratio.numerator}</normal-notes></time-modification>"\n'
+            "        if ev.tuplet\n"
+            '        else ""\n'
+            "    )"
+        ),
         "<actual-notes>3</actual-notes><normal-notes>2</normal-notes>",
         "full score quintuplet written as triplet",
     ),
@@ -538,14 +599,14 @@ MUTATIONS = [
     ("song.py", "    if wrong or not any(", "    if False and not any(", "full score concert key unchecked"),
     (
         "build.py",
-        "    if info.orchestral:  # a full score keeps",
-        "    if False:  # a full score keeps",
+        "    if info.orchestral:\n",
+        "    if False:\n",
         "full score full score through layout",
     ),
     (
         "gate.py",
-        "    if info.orchestral:  # a full score takes",
-        "    if False:  # a full score takes",
+        "    if info.orchestral:\n",
+        "    if False:\n",
         "full score full score through lead-sheet checks",
     ),
     (
