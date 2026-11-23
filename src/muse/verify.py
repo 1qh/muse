@@ -71,6 +71,9 @@ def pdf_words_problems(pdf: pathlib.Path, title: str) -> list[str]:
     Returns:
         Every problem found; empty when the PDF is clean.
 
+    Raises:
+        FileNotFoundError: If ``pdftotext`` is unavailable.
+
     """
     executable = shutil.which("pdftotext")
     if executable is None:

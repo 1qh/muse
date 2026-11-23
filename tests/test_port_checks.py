@@ -158,13 +158,13 @@ def test_a_pdf_is_parsed_once_until_it_changes(tmp_path: pathlib.Path) -> None:
     doc = pymupdf.open()
     doc.new_page().insert_text((50, 50), "Am", fontsize=12)
     doc.save(path)
-    first = pdftext.open(path)
-    assert pdftext.open(path) is first
+    first = pdftext.read(path)
+    assert pdftext.read(path) is first
     assert first[0].get_text("dict") is first[0].get_text("dict")
     doc = pymupdf.open()
     doc.new_page().insert_text((50, 50), "Dm7", fontsize=12)
     doc.save(path)
-    assert "Dm7" in pdftext.open(path)[0].get_text("text")
+    assert "Dm7" in pdftext.read(path)[0].get_text("text")
 
 
 def test_a_sign_over_a_chord_marks_its_line_for_a_wider_plan(

@@ -6,15 +6,11 @@ import itertools
 import pathlib
 import re
 import sys
-from typing import TYPE_CHECKING
 
 import pymupdf
 
 from muse import chordseat, pdftext
 from muse.smufl import HEAD_CODES, PRIVATE_USE
-
-if TYPE_CHECKING:
-    from typing import Any
 
 CHORD = re.compile(r"(?:[A-G][#b♯♭]?)?(?:maj|min|dim|sus|add|aug|m|\d|[#b♯♭()/ Δø°]|[A-G][#b♯♭]?)*")
 MIN_CHORD_GAP = chordseat.CHORD_GAP
@@ -44,7 +40,7 @@ STAFF_SPACING_TOLERANCE = 0.5
 MIN_STAVES_PER_LINE = 2
 
 
-def _raw_spans(page: pdftext.Page) -> list[dict[str, Any]]:
+def _raw_spans(page: pdftext.Page) -> list[pdftext.Span]:
     """Return every span of a page's raw text, in reading order.
 
     Returns:
@@ -58,7 +54,7 @@ def _raw_spans(page: pdftext.Page) -> list[dict[str, Any]]:
 
 def margin_words(path: pathlib.Path) -> list[str]:
     found = []
-    for number, page in enumerate(pdftext.open(path), 1):
+    for number, page in enumerate(pdftext.read(path), 1):
         height = page.rect.height
         italic = {
             (round(span["bbox"][0]), round(span["bbox"][1]))
@@ -89,7 +85,12 @@ def foreign_fonts(path: pathlib.Path) -> list[str]:
         The sorted names of every text font outside the style's own.
 
     """
-    names = {font[3].split("+")[-1] for page in pdftext.open(path) for font in page.get_fonts()}
+    names = {
+        font[3].split("+")[-1]
+        for page in pdftext.read(path)
+        for font in page.get_fonts()
+        if isinstance(font[3], str)
+    }
     return sorted(name for name in names if not name.startswith((*MUSIC_FONTS, "SFPro", "SF-Pro", "SF Pro")))
 
 
@@ -101,7 +102,7 @@ def oversized_text(path: pathlib.Path) -> list[str]:
 
     """
     spans = []
-    for page in pdftext.open(path):
+    for page in pdftext.read(path):
         for block in page.get_text("dict")["blocks"]:
             for line in block.get("lines", []):
                 for span in line["spans"]:
@@ -120,7 +121,7 @@ def chord_collisions(path: pathlib.Path) -> list[tuple[int, float, str]]:
 
     """
     found: list[tuple[int, float, str]] = []
-    for number, page in enumerate(pdftext.open(path), 1):
+    for number, page in enumerate(pdftext.read(path), 1):
         chars = []
         for block in page.get_text("rawdict")["blocks"]:
             for line in block.get("lines", []):
@@ -153,7 +154,7 @@ def title_problems(path: pathlib.Path, title: str) -> list[str]:
     """
     problems = []
     spellings = {title, title.replace("Đ", "Ð")}
-    for number, page in enumerate(pdftext.open(path), 1):
+    for number, page in enumerate(pdftext.read(path), 1):
         hits = [
             hit
             for spelling in spellings
@@ -173,7 +174,7 @@ def off_page(path: pathlib.Path) -> list[tuple[int, float, str]]:
 
     """
     found: list[tuple[int, float, str]] = []
-    for number, page in enumerate(pdftext.open(path), 1):
+    for number, page in enumerate(pdftext.read(path), 1):
         box = page.rect
         for block in page.get_text("dict", flags=pymupdf.TEXT_ACCURATE_BBOXES)["blocks"]:
             for line in block.get("lines", []):
@@ -192,7 +193,7 @@ def past_margin(path: pathlib.Path) -> list[tuple[int, float, str]]:
 
     """
     found: list[tuple[int, float, str]] = []
-    for number, page in enumerate(pdftext.open(path), 1):
+    for number, page in enumerate(pdftext.read(path), 1):
         found.extend(
             (number - 1, word[1], word[4])
             for word in page.get_text("words")
@@ -220,7 +221,7 @@ def sign_sizes(path: pathlib.Path) -> tuple[list[float], float]:
 
     """
     signs: list[float] = []
-    for page in pdftext.open(path):
+    for page in pdftext.read(path):
         for block in page.get_text("rawdict")["blocks"]:
             for line in block.get("lines", []):
                 for span in line["spans"]:
@@ -240,7 +241,7 @@ def sign_row_problems(path: pathlib.Path) -> list[str]:
 
     """
     problems = []
-    for number, page in enumerate(pdftext.open(path), 1):
+    for number, page in enumerate(pdftext.read(path), 1):
         ys = sorted({
             round(d["rect"].y0, 1)
             for d in page.get_drawings()
@@ -286,7 +287,7 @@ def sign_problems(path: pathlib.Path) -> list[str]:
         for size in signs
         if size < chords * SIGN_OVER_CHORD
     ]
-    for page in pdftext.open(path):
+    for page in pdftext.read(path):
         for block in page.get_text("dict")["blocks"]:
             for line in block.get("lines", []):
                 problems.extend(
@@ -315,7 +316,7 @@ def sign_chord_hits(path: pathlib.Path) -> list[tuple[int, float, str]]:
 
     """
     found: list[tuple[int, float, str]] = []
-    for number, page in enumerate(pdftext.open(path), 1):
+    for number, page in enumerate(pdftext.read(path), 1):
         signs, chars, sign_boxes = [], [], []
         for span in _raw_spans(page):
             for ch in span["chars"]:
@@ -345,6 +346,7 @@ def overlap(a: tuple[float, float, float, float], b: tuple[float, float, float, 
 
     Returns:
         The shared distance in the narrower direction.
+
     """
     return max(0.0, min(min(a[2], b[2]) - max(a[0], b[0]), min(a[3], b[3]) - max(a[1], b[1])))
 
@@ -360,6 +362,7 @@ def sign_touches(
 
     Returns:
         Whether the sign's ink runs into any chord letter.
+
     """
     ink_end = chordseat.sign_ink_end(x, size)
     return any(
@@ -378,7 +381,7 @@ def chord_seating(path: pathlib.Path) -> list[tuple[int, float, float, str]]:
 
     """
     found: list[tuple[int, float, float, str]] = []
-    for number, page in enumerate(pdftext.open(path), 1):
+    for number, page in enumerate(pdftext.read(path), 1):
         spans, heads = [], []
         tops: list[tuple[float, float]] = []
         for block in page.get_text("rawdict")["blocks"]:
@@ -442,7 +445,7 @@ def text_collisions(path: pathlib.Path) -> list[tuple[int, float, str]]:
 
     """
     found: list[tuple[int, float, str]] = []
-    for number, page in enumerate(pdftext.open(path), 1):
+    for number, page in enumerate(pdftext.read(path), 1):
         words = [
             w
             for w in page.get_text("words")
@@ -472,7 +475,7 @@ def empty_staves(path: pathlib.Path) -> list[str]:
         size: float | None = chordseat.chord_size(path)
     except ValueError:
         size = None
-    for number, page in enumerate(pdftext.open(path), 1):
+    for number, page in enumerate(pdftext.read(path), 1):
         clefs: list[float] = []
         heads: list[float] = []
         chords: list[float] = []
@@ -585,6 +588,16 @@ def words_over(number: int, words: list[tuple[str, pymupdf.Rect]], boxes: list[p
     return found
 
 
+def _is_colored_sign_frame(drawing: pdftext.Drawing) -> bool:
+    color = drawing.get("color")
+    return (
+        color is not None
+        and len(color) > 0
+        and tuple(color) != (0.0, 0.0, 0.0)
+        and chordseat.SIGN_FRAME[0] < drawing["rect"].width < chordseat.SIGN_FRAME[1]
+    )
+
+
 def sign_word_overlaps(path: pathlib.Path) -> list[float]:
     """Measure the width in points of every overlap between a sign's coloured box and a printed word's ink.
 
@@ -593,13 +606,11 @@ def sign_word_overlaps(path: pathlib.Path) -> list[float]:
 
     """
     found: list[float] = []
-    for page in pdftext.open(path):
+    for page in pdftext.read(path):
         frames = [
             d["rect"]
             for d in page.get_drawings()
-            if d.get("color")
-            and tuple(d["color"]) != (0.0, 0.0, 0.0)
-            and chordseat.SIGN_FRAME[0] < d["rect"].width < chordseat.SIGN_FRAME[1]
+            if _is_colored_sign_frame(d)
         ]
         for _, box in ink_words(page) if frames else []:
             for frame in frames:
@@ -619,13 +630,11 @@ def sign_text_overlaps(path: pathlib.Path) -> list[str]:
 
     """
     found: list[str] = []
-    for number, page in enumerate(pdftext.open(path), 1):
+    for number, page in enumerate(pdftext.read(path), 1):
         frames = [
             d["rect"]
             for d in page.get_drawings()
-            if d.get("color")
-            and tuple(d["color"]) != (0.0, 0.0, 0.0)
-            and chordseat.SIGN_FRAME[0] < d["rect"].width < chordseat.SIGN_FRAME[1]
+            if _is_colored_sign_frame(d)
         ]
         if frames:
             found += words_over(number, ink_words(page), frames, "sign box")
@@ -642,7 +651,7 @@ def symbol_text_overlaps(path: pathlib.Path) -> list[str]:
 
     """
     found: list[str] = []
-    for number, page in enumerate(pdftext.open(path), 1):
+    for number, page in enumerate(pdftext.read(path), 1):
         boxes = symbol_boxes(page)
         if boxes:
             found += words_over(number, ink_words(page), boxes, "dynamic or tempo note")
@@ -689,7 +698,7 @@ def blank_bands(path: pathlib.Path) -> list[str]:
 
     """
     found = []
-    for number, page in enumerate(pdftext.open(path), 1):
+    for number, page in enumerate(pdftext.read(path), 1):
         rows, height = inked_rows(page.page, 36)
         gap = max((b - a for a, b in itertools.pairwise(rows)), default=0) / height
         if gap > BLANK_BAND:
@@ -766,7 +775,7 @@ def bass_problems(pdf: pathlib.Path) -> list[str]:
 
     """
     problems = []
-    for number, page in enumerate(pdftext.open(pdf), 1):
+    for number, page in enumerate(pdftext.read(pdf), 1):
         for block in page.get_text("rawdict")["blocks"]:
             for line in block.get("lines", []):
                 text = "".join(c["c"] for span in line["spans"] for c in span["chars"]).strip()

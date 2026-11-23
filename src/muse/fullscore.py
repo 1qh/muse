@@ -60,7 +60,7 @@ def build(src: pathlib.Path, out_dir: pathlib.Path, work: pathlib.Path, info: So
     chordnames.drop_chord_path(final)
     pdf = out_dir / info.original_pdf
     port.run("-o", str(pdf), str(final))
-    report: dict[str, object] = {"pdf pages": len(pdftext.open(pdf)), "spatium": spatium}
+    report: dict[str, object] = {"pdf pages": len(pdftext.read(pdf)), "spatium": spatium}
     return report
 
 
@@ -94,7 +94,7 @@ def fit(xml: pathlib.Path, work: pathlib.Path, final: pathlib.Path, info: Song, 
     tried = []
     spatium = SPATIUM
     while spatium >= SPATIUM_FLOOR - 1e-9:
-        style = port.styled(work, f"{info.name}-score-{spatium:g}.mss", info.title, spatium, DISTANCE, NAMED)
+        style = port.styled(work, f"{info.name}-score-{spatium:g}.mss", info.title, port.Sizing(spatium, DISTANCE), NAMED)
         raw = work / f"{info.name}-score-{spatium:g}-import.mscz"
         port.run("-S", str(style), "-o", str(raw), str(xml))
         port.strip_title_frame(raw)

@@ -51,7 +51,7 @@ def length_of(event: ET.Element, scale: Fraction) -> Fraction:
     if any(event.find(tag) is not None for tag in GRACE):
         return Fraction(0)
     text = event.findtext("duration")
-    if text and event.findtext("durationType") == "measure":
+    if text is not None and text != "" and event.findtext("durationType") == "measure":
         return Fraction(text)
     base = DURATIONS.get(event.findtext("durationType") or "", Fraction(0))
     dots = int(event.findtext("dots") or 0)

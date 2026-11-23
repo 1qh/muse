@@ -180,7 +180,7 @@ def test_a_failing_song_keeps_its_folder_and_a_passing_song_publishes(tmp_path: 
             "PRIVATE" if "visibility" in args else "",
         )
 
-    blocked = publish.publish(tmp_path, tmp_path, tmp_path, run, lambda *_: {"good": [], "bad": ["bar 1 wrong"]})
+    blocked = publish.publish(publish.Places(tmp_path, tmp_path, tmp_path), run, lambda *_: {"good": [], "bad": ["bar 1 wrong"]})
     assert blocked == {"bad": ["bar 1 wrong"]}
     assert ("git", "add", "-A", "--", "good") in calls
     assert ("git", "add", "-A", "--", "bad") not in calls
@@ -207,7 +207,7 @@ def test_signs_must_stand_above_the_chords(tmp_path: pathlib.Path) -> None:
 
 def test_small_sign_is_refused(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
     monkeypatch.setattr(pdfcheck, "sign_sizes", lambda *_: ([10.0], 14.0))
-    monkeypatch.setattr(pdftext, "open", lambda *_: [])
+    monkeypatch.setattr(pdftext, "read", lambda *_: [])
     assert pdfcheck.sign_problems(tmp_path / "x.pdf") == ["sign of 10.0 under 1.6 times chords of 14.0"]
     monkeypatch.setattr(pdfcheck, "sign_sizes", lambda *_: ([25.0], 14.0))
     assert pdfcheck.sign_problems(tmp_path / "x.pdf") == []
@@ -263,7 +263,7 @@ def test_an_unpushed_commit_is_pushed_even_with_nothing_new(tmp_path: pathlib.Pa
             return "PRIVATE"
         return "abc" if "@{u}..HEAD" in args else ""
 
-    publish.publish(tmp_path, tmp_path, tmp_path, run, lambda *_: {})
+    publish.publish(publish.Places(tmp_path, tmp_path, tmp_path), run, lambda *_: {})
     assert ("git", "push") in calls
 
 

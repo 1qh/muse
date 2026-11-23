@@ -1,5 +1,6 @@
 """Decoders against the real sheets, kept outside the repo; MUSE_SOURCES must name them."""
 
+import builtins
 import collections
 import hashlib
 import itertools
@@ -20,7 +21,7 @@ from muse.song import decode, encoding, song_of
 
 def pins() -> dict[str, Any]:
     path = os.environ.get("MUSE_PINS")
-    if path is None or path == "":
+    if not path:
         pytest.fail("MUSE_PINS is not set")
     return json.loads(pathlib.Path(path).read_text(encoding="utf-8"))
 
@@ -29,14 +30,14 @@ def names() -> list[str]:
     path = os.environ.get("MUSE_PINS")
     return (
         sorted(json.loads(pathlib.Path(path).read_text(encoding="utf-8"))["songs"])
-        if path is not None and path != ""
+        if path
         else ["MUSE_PINS is not set"]
     )
 
 
 def source(name: str) -> pathlib.Path:
     root = os.environ.get("MUSE_SOURCES")
-    if root is None or root == "":
+    if not root:
         pytest.fail("MUSE_SOURCES is not set")
     for folder in root.split(os.pathsep):
         path = pathlib.Path(folder) / f"{name}.pdf"
@@ -228,7 +229,7 @@ def test_every_leland_source_decodes_each_printed_ending_once() -> None:
             for span in line["spans"]
             if span["text"].strip() in {"1.", "2."} and "Bold" in span["font"]
         )
-        decoded = sum(1 for bar in decode(path).bars if bar.volta is not None and bar.volta != "")
+        decoded = sum(1 for bar in decode(path).bars if bar.volta)
         if printed != decoded:
             wrong[path.stem] = (printed, decoded)
     assert not wrong
@@ -302,11 +303,14 @@ def lyric_spans(path: pathlib.Path) -> list[str]:
     """
 
     def lyric(span: dict[str, Any]) -> bool:
-        return bool(is_lyric(span["font"]) or (
-            span["font"] in SYMBOL_LYRIC_FONTS
-            and abs(span["size"] - SYMBOL_LYRIC_SIZE) < 0.3
-            and " " in span["text"].strip()
-        ))
+        return bool(
+            is_lyric(span["font"])
+            or (
+                span["font"] in SYMBOL_LYRIC_FONTS
+                and abs(span["size"] - SYMBOL_LYRIC_SIZE) < 0.3
+                and " " in span["text"].strip()
+            ),
+        )
 
     return [
         span["text"].strip()
@@ -391,7 +395,7 @@ def orchestral_sources() -> list[str]:
 
     """
     root = os.environ.get("MUSE_SOURCES")
-    if root is None or root == "":
+    if not root:
         return ["MUSE_SOURCES is not set"]
     return sorted(
         str(pdf)
@@ -411,7 +415,7 @@ def orchestral_pin(path: str) -> dict[str, Any]:
 
     """
     pins_path = os.environ.get("MUSE_PINS")
-    if pins_path is None or pins_path == "":
+    if not pins_path:
         pytest.fail("MUSE_PINS is not set")
     found = pins().get("orchestral", {}).get(pathlib.Path(path).stem)
     if found is None:
@@ -441,7 +445,7 @@ def spike_reader(pin: dict[str, Any]) -> dict[str, Any]:
     """
     text = (pathlib.Path(os.environ["MUSE_PINS"]).parent / pin["reader"]).read_text(encoding="utf-8")
     space: dict[str, Any] = {}
-    exec(compile(text.rsplit("\nmain()", 1)[0], pin["reader"], "exec"), space)
+    builtins.exec(compile(text.rsplit("\nmain()", 1)[0], pin["reader"], "exec"), space)
     return space
 
 

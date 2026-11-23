@@ -421,7 +421,7 @@ def chord_name_problems(work: pathlib.Path) -> list[str]:
         Every playback and transposition problem.
 
     """
-    style = port.styled(work, "chord-check.mss", "x", 1.5, 11.0)
+    style = port.styled(work, "chord-check.mss", "x", port.Sizing(1.5, 11.0))
     program = shutil.which("mscore") or "mscore"
     return [
         *chordnames.playback_problems(program, style, work, run=chordnames.checked_run),

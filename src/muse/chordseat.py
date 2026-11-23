@@ -106,19 +106,21 @@ def segments(page: pymupdf.Page | pdftext.Page) -> list[pymupdf.Rect]:
         for item in drawing["items"]:
             if item[0] == "l":
                 first, second = item[1], item[2]
-                vertical = abs(first.x - second.x) < abs(first.y - second.y)
-                found.append(
-                    pymupdf.Rect(
-                        min(first.x, second.x) - (half if vertical else 0),
-                        min(first.y, second.y),
-                        max(first.x, second.x) + (half if vertical else 0),
-                        max(first.y, second.y),
-                    ),
-                )
+                if hasattr(first, "x") and hasattr(first, "y") and hasattr(second, "x") and hasattr(second, "y"):
+                    vertical = abs(first.x - second.x) < abs(first.y - second.y)
+                    found.append(
+                        pymupdf.Rect(
+                            min(first.x, second.x) - (half if vertical else 0),
+                            min(first.y, second.y),
+                            max(first.x, second.x) + (half if vertical else 0),
+                            max(first.y, second.y),
+                        ),
+                    )
             elif item[0] == "re":
                 found.append(pymupdf.Rect(item[1]))
             elif item[0] == "qu":
-                found.append(item[1].rect)
+                if hasattr(item[1], "rect"):
+                    found.append(item[1].rect)
     return found
 
 
@@ -272,7 +274,7 @@ def chord_size(path: pathlib.Path) -> float:
     """
     words = [
         (span["size"], span["text"])
-        for page in pdftext.open(path)
+        for page in pdftext.read(path)
         for block in page.get_text("dict")["blocks"]
         for line in block.get("lines", [])
         for span in line["spans"]
@@ -364,7 +366,11 @@ def _page_marks(
     frames = [
         d["rect"]
         for d in page.get_drawings()
-        if d.get("color") and tuple(d["color"]) != (0.0, 0.0, 0.0) and SIGN_FRAME[0] < d["rect"].width < SIGN_FRAME[1]
+        if (color := d.get("color")) is not None
+        and isinstance(color, tuple)
+        and color
+        and color != (0.0, 0.0, 0.0)
+        and SIGN_FRAME[0] < d["rect"].width < SIGN_FRAME[1]
     ]
     for block in page.get_text("rawdict")["blocks"]:
         for line in block.get("lines", []):
@@ -377,7 +383,7 @@ def _page_marks(
                     signs_here += [
                         (sign_end(c, span["size"], frames), c["origin"][1], sign_middle(c))
                         for c in span["chars"]
-                        if c["c"] in SIGN_CHARS
+                        if isinstance(c, dict) and c["c"] in SIGN_CHARS
                     ]
                 else:
                     words.append((span["size"], span["bbox"][0], span["bbox"][2], span["origin"][1], text))
@@ -567,7 +573,7 @@ def page_lines(pdf: pathlib.Path) -> list[dict[str, Any]]:
     lines: list[dict[str, Any]] = []
     readings: list[tuple[int, int, str, float, float, bool]] = []
     measures = measure_boxes(pdf.with_suffix(".mpos"))
-    for page in pdftext.open(pdf):
+    for page in pdftext.read(pdf):
         marks = _page_setup(page, measures)
         if marks is None:
             continue
@@ -1046,7 +1052,7 @@ def crowded_line_texts(score_path: pathlib.Path, pdf: pathlib.Path) -> list[str]
     boxes = measure_boxes(pdf.with_suffix(".mpos"))
     space = space_points(score_path)
     tops = [(int(boxes[row[0] - 1]["page"]), boxes[row[0] - 1]["y"]) for row in rows]
-    pages = list(pdftext.open(pdf))
+    pages = list(pdftext.read(pdf))
     found = []
     for at in range(len(rows) - 1):
         (page_no, upper), (next_page, lower) = tops[at], tops[at + 1]

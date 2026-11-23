@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from typing import NamedTuple
 import time
 from collections.abc import Callable
 
@@ -124,10 +125,16 @@ def commit_message(songs: list[str]) -> str:
     return f"feat: publish {', '.join(songs)}" if songs else "chore: refresh sheets"
 
 
+class Places(NamedTuple):
+    """Where a publish reads its sources, keeps its sheets repo and does its work."""
+
+    src: pathlib.Path
+    out: pathlib.Path
+    work: pathlib.Path
+
+
 def publish(
-    src: pathlib.Path,
-    out: pathlib.Path,
-    work: pathlib.Path,
+    places: Places,
     run: Runner = sh,
     judge: Judge = gate.verdicts,
     names: tuple[str, ...] = (),
@@ -142,6 +149,7 @@ def publish(
         RefusedError: The purge changed the current files, or the local tree differs after it.
 
     """
+    src, out, work = places
     verdicts = judge(src, out, work, names)
     blocked = {song: failures for song, failures in verdicts.items() if failures}
     for song in blocked:
@@ -193,7 +201,7 @@ def main() -> None:
         raise SystemExit(msg)
     src, out, work = map(pathlib.Path, sys.argv[1:4])
     try:
-        blocked = publish(src, out, work, names=tuple(sys.argv[4:]))
+        blocked = publish(Places(src, out, work), names=tuple(sys.argv[4:]))
     except RefusedError as error:
         raise SystemExit(str(error)) from error
     for song, failures in blocked.items():

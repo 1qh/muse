@@ -374,7 +374,7 @@ def _chord_text(t: _Span, row_ch: list[_Glyph], items: list[_Span], taken: set[i
 
 def _stop_voltas(bars: list[Bar]) -> None:
     for i, bar in enumerate(bars):
-        if bar.volta:
+        if bar.volta is not None and bar.volta != "":
             j = i
             if bar.volta == "1":
                 while j + 1 < len(bars) and not bars[j].repeat_end:
@@ -469,7 +469,7 @@ def _stemmed_value(
             level = max(level, FLAG_UP[f[0]])
         if f[0] in FLAG_DOWN and abs(f[1] - st[0]) < FLAG_DOWN_REACH:
             level = max(level, FLAG_DOWN[f[0]])
-    nominal = nominal / 2**level if code == BLACK else nominal
+    nominal = nominal / Fraction(2**level) if code == BLACK else nominal
     return stem, beam, nominal
 
 

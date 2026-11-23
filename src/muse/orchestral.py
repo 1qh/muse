@@ -920,7 +920,10 @@ def _voice_split(sounds_here: list[Sound]) -> bool:
 
 
 def _filled(members: list[Sound | Rest], length: Fraction) -> Fraction:
-    return sum((rest_length(m, length) if isinstance(m, Rest) else m.nominal * (m.ratio or 1) for m in members), Fraction(0))
+    return sum(
+        (rest_length(m, length) if isinstance(m, Rest) else m.nominal * (m.ratio or 1) for m in members),
+        Fraction(0),
+    )
 
 
 def _fill_voices(

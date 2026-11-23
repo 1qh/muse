@@ -320,8 +320,10 @@ MUTATIONS = [
     ("scorefile.py", "scale = F(int(node.findtext", "_ = F(int(node.findtext", "saved triplet"),
     (
         "gate.py",
-        'return [f"missing {name}" for name in sorted(wanted - held)] + '
-        '[f"stray {name}" for name in sorted(held - wanted)]',
+        (
+            'return [f"missing {name}" for name in sorted(wanted - held)] + '
+            '[f"stray {name}" for name in sorted(held - wanted)]'
+        ),
         "return []",
         "folder files",
     ),
@@ -473,8 +475,10 @@ MUTATIONS = [
     ),
     (
         "orchestral.py",
-        "        names.append(options[sum(1 for earlier in printed[: len(names)] "
-        "if earlier == label)] if len(options) > 1 else options[0])",
+        (
+            "        names.append(options[sum(1 for earlier in printed[: len(names)] "
+            "if earlier == label)] if len(options) > 1 else options[0])"
+        ),
         "        names.append(options[0])",
         "full score shared label by order",
     ),

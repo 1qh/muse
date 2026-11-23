@@ -11,7 +11,7 @@ import re
 import shutil
 import threading
 import zipfile
-from typing import TYPE_CHECKING, Any
+from typing import Any, NamedTuple, TYPE_CHECKING
 
 from muse import buildcache, chordnames, chordseat, jumps, launch, mode, musicxml, pdfcheck, pdftext, piano
 
@@ -115,7 +115,7 @@ def system_starts(pdf: pathlib.Path) -> list[int]:
 
     """
     found = []
-    for page in pdftext.open(pdf):
+    for page in pdftext.read(pdf):
         for block in page.get_text("dict")["blocks"]:
             for line in block.get("lines", []):
                 found.extend(
@@ -185,7 +185,7 @@ def crowded_rows(pdf: pathlib.Path, firsts: list[int]) -> set[int]:
 
     """
     where = []
-    for page_no, page in enumerate(pdftext.open(pdf)):
+    for page_no, page in enumerate(pdftext.read(pdf)):
         for block in page.get_text("dict")["blocks"]:
             for line in block.get("lines", []):
                 where.extend(
@@ -300,7 +300,7 @@ def line_heights(pdf: pathlib.Path, firsts: list[int]) -> tuple[list[float], int
 
     """
     where: dict[int, tuple[int, float]] = {}
-    doc = pdftext.open(pdf)
+    doc = pdftext.read(pdf)
     bottoms = []
     tops = []
     for page_no, page in enumerate(doc):
@@ -381,7 +381,7 @@ def lines_per_page(pdf: pathlib.Path, firsts: list[int]) -> list[int]:
 
     """
     pages = [page_of(pdf, first) for first in firsts]
-    return [pages.count(page) for page in range(len(pdftext.open(pdf)))]
+    return [pages.count(page) for page in range(len(pdftext.read(pdf)))]
 
 
 def page_of(pdf: pathlib.Path, bar: int) -> int:
@@ -396,7 +396,7 @@ def page_of(pdf: pathlib.Path, bar: int) -> int:
     """
     if bar == 1:
         return 0
-    for page_no, page in enumerate(pdftext.open(pdf)):
+    for page_no, page in enumerate(pdftext.read(pdf)):
         for block in page.get_text("dict")["blocks"]:
             for line in block.get("lines", []):
                 for span in line["spans"]:
@@ -410,13 +410,18 @@ class DoesNotFitError(Exception):
     """The size does not fit the song's page count."""
 
 
+class Sizing(NamedTuple):
+    """A notation size and the line gap that goes with it."""
+
+    spatium: float
+    distance: float
+
+
 def styled(
     work: pathlib.Path,
     name: str,
     title: str,
-    spatium: float,
-    distance: float,
-    *override_args: dict[str, object] | None,
+    sizing: Sizing,
     overrides: dict[str, object] | None = None,
 ) -> pathlib.Path:
     """Copy the style at 1 notation size and line gap, with the song title at the top right of every page.
@@ -430,8 +435,7 @@ def styled(
         RuntimeError: The style has no single tag to set, or holds an override more than once.
 
     """
-    if override_args:
-        overrides = override_args[0]
+    spatium, distance = sizing
     text = STYLE.read_text(encoding="utf-8")
     for tag, value in (
         ("Spatium", spatium),
@@ -742,7 +746,7 @@ def page_fill(pdf: pathlib.Path) -> float:
 
     """
     shares = []
-    for page in pdftext.open(pdf):
+    for page in pdftext.read(pdf):
         inked, height = pdfcheck.inked_rows(page.page, 36)
         shares.append((max(inked) + 1) / height if inked else 0.0)
     return min(shares, default=0.0)

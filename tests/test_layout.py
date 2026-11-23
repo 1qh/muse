@@ -61,22 +61,26 @@ def noted(number: int, **fields: object) -> Bar:
     allowed = {"tie", "chords", "rehearsal", "texts", "new_system"}
     unknown = next((name for name in fields if name not in allowed), None)
     if unknown is not None:
-        raise TypeError(f"noted() got an unexpected keyword argument '{unknown}'")
+        msg = f"noted() got an unexpected keyword argument '{unknown}'"
+        raise TypeError(msg)
     tie = fields.get("tie", False)
     chords = fields.get("chords", True)
     rehearsal_value = fields.get("rehearsal")
     texts_value = fields.get("texts")
     new_system = fields.get("new_system", False)
     if not isinstance(tie, bool) or not isinstance(chords, bool) or not isinstance(new_system, bool):
-        raise TypeError("noted boolean fields must be bool")
+        msg = "noted boolean fields must be bool"
+        raise TypeError(msg)
     if rehearsal_value is None:
         rehearsal_value = []
     if texts_value is None:
         texts_value = []
     if not _is_string_list(rehearsal_value):
-        raise TypeError("noted rehearsal must be a list of strings")
+        msg = "noted rehearsal must be a list of strings"
+        raise TypeError(msg)
     if not _is_text_list(texts_value):
-        raise TypeError("noted texts must be a list of Text")
+        msg = "noted texts must be a list of Text"
+        raise TypeError(msg)
     head = Head(1.0, 0.0, "C", 5, tie_start=tie)
     return Bar(
         number,
@@ -249,8 +253,8 @@ def test_every_size_of_a_sheet_shares_1_import(tmp_path: pathlib.Path, monkeypat
 def test_finish_widens_the_line_gap_while_text_meets_text(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
     tried = []
 
-    def finish_at(*args: *tuple[object, object, object, float, float, object]) -> tuple[object, ...]:
-        _src, _work, _variant, size, distance, _learned = args
+    def finish_at(*args: *tuple[object, object, object, port.Sizing, object]) -> tuple[object, ...]:
+        _src, _work, _variant, (size, distance), _learned = args
         tried.append(distance)
         if len(tried) < 3:
             msg = "s at 2.0: ['text on text: B']"
@@ -291,8 +295,8 @@ def test_every_line_gap_retry_starts_from_the_widths_the_last_one_learned(
 ) -> None:
     seen: list[object] = []
 
-    def finish_at(*args: *tuple[object, object, object, float, float, list[list[float]] | None]) -> tuple[object, ...]:
-        _src, _work, _variant, size, distance, learned = args
+    def finish_at(*args: *tuple[object, object, object, port.Sizing, list[list[float]] | None]) -> tuple[object, ...]:
+        _src, _work, _variant, (size, distance), learned = args
         seen.append(learned)
         assert learned is not None
         learned.append([float(len(seen))])
@@ -390,8 +394,8 @@ def test_a_line_of_1_bar_breaks_the_line_rules_on_any_sheet() -> None:
 def test_the_line_gap_widens_past_any_fixed_count_until_the_checks_pass(monkeypatch: pytest.MonkeyPatch) -> None:
     tried: list[float] = []
 
-    def finish_at(*args: *tuple[object, object, object, float, float, object]) -> tuple[object, ...]:
-        _src, _work, _variant, size, distance, _learned = args
+    def finish_at(*args: *tuple[object, object, object, port.Sizing, object]) -> tuple[object, ...]:
+        _src, _work, _variant, (size, distance), _learned = args
         tried.append(distance)
         if distance < port.BASE_DISTANCE + 12:
             msg = "text on text: a cue below sits too close"

@@ -277,11 +277,20 @@ def test_stem_split_drops_a_rest_stamped_under_a_note() -> None:
 
 def test_a_tempo_decimal_printed_in_2_spans_is_read_whole() -> None:
     assert Decoder.tempo_value(
-        [Span("Slow = 52", 0, 0, 0, "", 0, False, False), Span(".5", 0, 0, 0, "", 0, False, False)],
+        [
+            Span("Slow = 52", 0, 0, 0, "", 0, bold=False, italic=False),
+            Span(".5", 0, 0, 0, "", 0, bold=False, italic=False),
+        ],
     ) == pytest.approx(52.5)
-    assert Decoder.tempo_value(
-        [Span("Slow = 43", 0, 0, 0, "", 0, False, False), Span("86", 0, 0, 0, "", 0, False, False)],
-    ) == 43
+    assert (
+        Decoder.tempo_value(
+            [
+                Span("Slow = 43", 0, 0, 0, "", 0, bold=False, italic=False),
+                Span("86", 0, 0, 0, "", 0, bold=False, italic=False),
+            ],
+        )
+        == 43
+    )
 
 
 def _bar(number: int, *, notes: bool, coda: bool = False, label: str = "") -> Bar:
@@ -636,7 +645,12 @@ def _chord(x: float, kind: str = "") -> Chord:
 
 
 def test_a_long_chord_past_its_last_note_moves_over_the_barline() -> None:
-    held = _plain_bar(1, 0.0, 33.0, parts=_BarParts(chords=[_chord(18.0, "m7(b5)")], voices=[[Event(6.0, [], Fraction(4))]]))
+    held = _plain_bar(
+        1,
+        0.0,
+        33.0,
+        parts=_BarParts(chords=[_chord(18.0, "m7(b5)")], voices=[[Event(6.0, [], Fraction(4))]]),
+    )
     after = _plain_bar(2, 33.0, 70.0, parts=_BarParts(chords=[_chord(60.0, "7")], voices=[[Event(40.0, [], Fraction(4))]]))
     song.settle_chord_bars(Score([held, after], [], []))
     assert not held.chords
@@ -644,7 +658,12 @@ def test_a_long_chord_past_its_last_note_moves_over_the_barline() -> None:
 
 
 def test_a_short_chord_inside_its_bar_stays_past_its_last_note() -> None:
-    held = _plain_bar(1, 436.0, 494.0, parts=_BarParts(chords=[_chord(481.0, "7")], voices=[[Event(472.0, [], Fraction(4))]]))
+    held = _plain_bar(
+        1,
+        436.0,
+        494.0,
+        parts=_BarParts(chords=[_chord(481.0, "7")], voices=[[Event(472.0, [], Fraction(4))]]),
+    )
     after = _plain_bar(2, 494.0, 550.0, parts=_BarParts(voices=[[Event(500.0, [], Fraction(4))]]))
     song.settle_chord_bars(Score([held, after], [], []))
     assert len(held.chords) == 1
@@ -872,11 +891,11 @@ def test_a_cue_above_1_line_too_close_to_a_cue_below_the_line_above_is_text_on_t
     monkeypatch.setattr(chordseat, "line_texts", lambda _text: [([], ["Sáo"]), (["Sáo"], [])])
     monkeypatch.setattr(chordseat, "measure_boxes", lambda _mpos: [{"page": 0.0, "y": 150.0}, {"page": 0.0, "y": 260.0}])
     monkeypatch.setattr(chordseat, "space_points", lambda _path: 4.5)
-    monkeypatch.setattr(chordseat.pdftext, "open", lambda _pdf: page_with(3.0))
+    monkeypatch.setattr(chordseat.pdftext, "read", lambda _pdf: page_with(3.0))
     assert chordseat.crowded_line_texts(tmp_path / "s.mscz", tmp_path / "s.pdf") == [
         "text on text: 'Sáo' above line 2 sits too close to a cue below line 1",
     ]
-    monkeypatch.setattr(chordseat.pdftext, "open", lambda _pdf: page_with(20.0))
+    monkeypatch.setattr(chordseat.pdftext, "read", lambda _pdf: page_with(20.0))
     assert chordseat.crowded_line_texts(tmp_path / "s.mscz", tmp_path / "s.pdf") == []
 
 
@@ -1333,7 +1352,7 @@ def test_ink_is_read_off_a_page_in_1_place() -> None:
         found = len(re.findall(r"\.get_pixmap\(", path.read_text(encoding="utf-8")))
         if found:
             readers[path.name] = found
-    assert readers == {"pdfcheck.py": 2, "chordseat.py": 1, "gate.py": 1}
+    assert readers == {"pdfcheck.py": 2, "chordseat.py": 1, "gate.py": 1, "pdftext.py": 1}
 
 
 def test_the_ink_reader_finds_a_mark_where_it_is_drawn() -> None:

@@ -234,7 +234,7 @@ def publish_song(src_dir: pathlib.Path, out_dir: pathlib.Path, work: pathlib.Pat
     publish.resync(out_dir)
     shutil.rmtree(out_dir / name, ignore_errors=True)
     shutil.copytree(stage / name, out_dir / name)
-    blocked = publish.publish(src_dir, out_dir, work, names=(name,))
+    blocked = publish.publish(publish.Places(src_dir, out_dir, work), names=(name,))
     return "; ".join(blocked.get(name, [])[:3])
 
 
@@ -257,7 +257,7 @@ def child(src: pathlib.Path, stage: pathlib.Path, work: pathlib.Path) -> tuple[d
         check=False,
     )
     if done.returncode == 0:
-        loaded = json.loads((work / f"{name}-report.json").read_text(encoding="utf-8"))
+        loaded: dict[str, object] = json.loads((work / f"{name}-report.json").read_text(encoding="utf-8"))
         return loaded, ""
     return None, refusal.read_text(
         encoding="utf-8",

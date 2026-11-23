@@ -199,7 +199,7 @@ def problems(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path, info: Son
         return fullscore.system_problems(orchestra, probe)
 
     def page() -> list[str]:
-        notes.append(f"{pdf.name}: {len(pdftext.open(pdf))} pages")
+        notes.append(f"{pdf.name}: {len(pdftext.read(pdf))} pages")
         return (
             pdfcheck.paper_problems(pdf)
             + pdfcheck.ink_problems(pdf)

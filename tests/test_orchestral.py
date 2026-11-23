@@ -8,7 +8,7 @@ import re
 import xml.etree.ElementTree as ET
 import zipfile
 from fractions import Fraction
-from typing import Never, TypedDict, Unpack
+from typing import Never, TypedDict, Unpack, override
 
 import pymupdf
 import pytest
@@ -32,6 +32,7 @@ class FakePage(pymupdf.Page):
     def __init__(self, code: int) -> None:
         self.code = code
 
+    @override
     def get_text(self, _kind: str) -> dict[str, object]:
         char = {"c": chr(self.code), "origin": (1.0, 1.0), "bbox": (1.0, 0.0, 3.0, 2.0)}
         return {
@@ -55,11 +56,12 @@ class FakePage(pymupdf.Page):
             ],
         }
 
-    @staticmethod
-    def get_drawings() -> list[object]:
+    @override
+    def get_drawings(self, extended: bool = False) -> list[object]:
         return []
 
     @property
+    @override
     def rect(self) -> Never:
         msg = "no drawing asks for the page box"
         raise AssertionError(msg)

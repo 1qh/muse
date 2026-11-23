@@ -171,8 +171,8 @@ class Sheet:
         self.title = info.title
         self.options = None if self.variant == port.ORIGINAL else port.transpose_options(info)
         self.name = f"{info.name}-{self.variant}"
-        self.style = port.styled(self.work, f"{self.name}-{self.size:g}.mss", info.title, self.size, self.distance)
-        self.import_style = port.styled(self.work, f"{self.name}-import.mss", info.title, IMPORT_SIZE, self.distance)
+        self.style = port.styled(self.work, f"{self.name}-{self.size:g}.mss", info.title, port.Sizing(self.size, self.distance))
+        self.import_style = port.styled(self.work, f"{self.name}-import.mss", info.title, port.Sizing(IMPORT_SIZE, self.distance))
 
     def path(self, label: str) -> pathlib.Path:
         return self.work / f"{self.name}-{self.size:g}-{label}.mscz"
@@ -761,7 +761,7 @@ def finish(
     learned: list[list[float]] = []
     for step in range(int(GAP_REACH / GAP_STEP) + 1):
         try:
-            return finish_at(src, work, variant, size, port.BASE_DISTANCE + step * GAP_STEP, learned)
+            return finish_at(src, work, variant, port.Sizing(size, port.BASE_DISTANCE + step * GAP_STEP), learned)
         except port.DoesNotFitError as error:
             if "text on text" not in str(error):
                 raise
@@ -838,8 +838,7 @@ def finish_at(
     src: pathlib.Path,
     work: pathlib.Path,
     variant: str,
-    size: float,
-    distance: float,
+    sizing: port.Sizing,
     learned: list[list[float]] | None = None,
 ) -> tuple[Score, pathlib.Path, float, float, int]:
     """1 size and line gap from plan to a seated sheet that passes every final check.
@@ -853,6 +852,7 @@ def finish_at(
         DoesNotFitError: when lines still overflow or a final check fails.
 
     """
+    size, distance = sizing
     sheet = Sheet(src, work, variant, size, distance)
     widths, room = measure(sheet)
     if learned is not None and len(learned) > 0:
@@ -890,7 +890,7 @@ def finish_at(
     if problems:
         msg = f"{sheet.name} at {size}: {problems[:3]}"
         raise port.DoesNotFitError(msg)
-    return sheet.score, score_path, size, sheet.distance, len(pdftext.open(probe))
+    return sheet.score, score_path, size, sheet.distance, len(pdftext.read(probe))
 
 
 def lay(src: pathlib.Path, work: pathlib.Path, variant: str) -> tuple[Score, pathlib.Path, float, float, int]:

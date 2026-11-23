@@ -232,7 +232,7 @@ def _stemmed(
     hits = [
         b for b in reading.beams if b[0] - 0.8 <= st[0] <= b[1] + 0.8 and st[1] - 1.5 <= beam_y(b, st[0]) <= st[2] + 1.5
     ]
-    level = len(hits)
+    level: int = len(hits)
     for f in reading.content:
         if f[0] in FLAGS and abs(f[1] - st[0]) < FLAG_REACH and st[1] - 8 <= f[2] <= st[2] + 8:
             level = max(level, FLAGS[f[0]])

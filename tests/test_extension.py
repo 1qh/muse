@@ -51,7 +51,7 @@ def imported(tmp_path: pathlib.Path, bars: list[Bar], lines: set[int]) -> pathli
     score = Score(bars, [], [], minor=True)
     for bar in score.bars:
         bar.new_system = bar.number in lines and bar.number != 1
-    style = port.styled(tmp_path, "s.mss", "Fixture", 1.6, port.BASE_DISTANCE)
+    style = port.styled(tmp_path, "s.mss", "Fixture", port.Sizing(1.6, port.BASE_DISTANCE))
     source = port.imported(score, tmp_path, "fixture", style, clear=False)
     target = tmp_path / "fixture.mscz"
     port.edited(source, target, 1.6, port.BASE_DISTANCE, score)
@@ -103,7 +103,7 @@ def chord_heights(pdf: pathlib.Path) -> list[list[float]]:
 
     """
     found: list[list[float]] = []
-    for page in pdftext.open(pdf):
+    for page in pdftext.read(pdf):
         staves = chordseat.staves_of(chordseat.segments(page.page))
         size = chordseat.chord_size(pdf)
         bases = [
