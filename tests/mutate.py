@@ -282,7 +282,7 @@ MUTATIONS = [
     (
         "leland.py",
         "        return abs(stem_at[id(one)] - stem_at[id(other)]) < STEM_MATCH",
-        "return abs(one.x - other.x) < DISPLACED",
+        "        return abs(one.x - other.x) < DISPLACED",
         "chord by distance",
     ),
     ("leland.py", "e.tuplet = True", "e.tuplet = False", "tuplet ignored"),
@@ -423,7 +423,7 @@ MUTATIONS = [
     ),
     ("buildcache.py", "        file_digest(source),\n        song,", "        song,", "source in key"),
     ("buildcache.py", "        file_digest(style),\n        tool_identity()", "        tool_identity()", "style in key"),
-    ("buildcache.py", '*(f"{path.name}={file_digest(path)}" for path in files)', "", "code in key"),
+    ("buildcache.py", '        *(f"{path.name}={file_digest(path)}" for path in files),\n', "", "code in key"),
     (
         "build.py",
         "return max(1, min(count, port.MAX_WORKERS, cores))",
@@ -517,7 +517,7 @@ MUTATIONS = [
     (
         "orchestral.py",
         "            raise UnknownGlyphError(msg)",
-        "continue",
+        "            continue",
         "full score unknown glyph skipped",
     ),
     (
@@ -573,14 +573,8 @@ MUTATIONS = [
     ("musicxml.py", "        if orphaned:\n", "        if False:\n", "full score voiceless staff loses its marks"),
     (
         "musicxml.py",
-        (
-            '        f"<time-modification><actual-notes>{ev.ratio.denominator}</actual-notes>"\n'
-            '        f"<normal-notes>{ev.ratio.numerator}</normal-notes></time-modification>"\n'
-            "        if ev.tuplet\n"
-            '        else ""\n'
-            "    )"
-        ),
-        "<actual-notes>3</actual-notes><normal-notes>2</normal-notes>",
+        "<actual-notes>{ev.ratio.denominator}</actual-notes>",
+        "<actual-notes>3</actual-notes>",
         "full score quintuplet written as triplet",
     ),
     ("musicxml.py", "    if exact.denominator != 1:\n", "    if False:\n", "full score duration cut to divisions"),
