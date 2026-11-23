@@ -1082,3 +1082,22 @@ def test_a_page_with_a_tall_blank_band_is_refused(tmp_path):
 
     assert pdfcheck.blank_bands(page_with(60)) == []
     assert pdfcheck.blank_bands(page_with(300)) != []
+
+
+def test_a_mark_lost_between_2_score_files_is_reported(tmp_path):
+    import zipfile
+
+    from muse import scorefile
+
+    def score_with(articulation: str) -> pathlib.Path:
+        body = f"<museScore><Score><Staff id=\"1\"><Measure><voice><Chord><durationType>whole</durationType>{articulation}<Note><pitch>69</pitch></Note></Chord></voice></Measure></Staff></Score></museScore>"
+        path = tmp_path / f"s{len(articulation)}.mscz"
+        with zipfile.ZipFile(path, "w") as archive:
+            archive.writestr("s.mscx", body)
+        return path
+
+    plain = score_with("")
+    marked = score_with("<Articulation><subtype>stringsHarmonic</subtype></Articulation>")
+    above = score_with("<Articulation><subtype>stringsHarmonicAbove</subtype></Articulation>")
+    assert scorefile.difference(marked, plain) == ["bar 1 staff 1: marks differ ['stringsHarmonic'] []"]
+    assert scorefile.difference(marked, above) == []  # where it prints is layout
