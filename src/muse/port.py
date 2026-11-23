@@ -416,6 +416,7 @@ def styled(
     title: str,
     spatium: float,
     distance: float,
+    *override_args: dict[str, object] | None,
     overrides: dict[str, object] | None = None,
 ) -> pathlib.Path:
     """Copy the style at 1 notation size and line gap, with the song title at the top right of every page.
@@ -429,6 +430,8 @@ def styled(
         RuntimeError: The style has no single tag to set, or holds an override more than once.
 
     """
+    if override_args:
+        overrides = override_args[0]
     text = STYLE.read_text(encoding="utf-8")
     for tag, value in (
         ("Spatium", spatium),
@@ -692,7 +695,7 @@ def chord_starts(score_path: pathlib.Path, score: Score) -> list[str]:
     return line_findings(score, opening, bare)
 
 
-def line_rule_reasons(score: Score, variant: str = TONE) -> list[str]:
+def line_rule_reasons(score: Score, _variant: str = TONE) -> list[str]:
     """Judge the line rules on a plan, with the tie rule; the same findings the gate reads off the file.
 
     Returns:

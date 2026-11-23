@@ -76,15 +76,15 @@ def test_unknown_encoding_is_refused_by_font_name(tmp_path: pathlib.Path) -> Non
         song.encoding(blank(tmp_path / "Song-Am.pdf"))
 
 
-def test_unknown_music_glyph_is_refused() -> None:
-    class Page:
-        @staticmethod
-        def get_text(_kind: str) -> dict[str, object]:
-            char = {"c": "", "origin": (1.0, 1.0)}
-            return {"blocks": [{"lines": [{"spans": [{"font": "M", "size": 17.9, "chars": [char]}]}]}]}
+def test_unknown_music_glyph_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    char = {"c": "", "origin": (1.0, 1.0)}
+    text = {"blocks": [{"lines": [{"spans": [{"font": "M", "size": 17.9, "chars": [char]}]}]}]}
+    monkeypatch.setattr(pymupdf.Page, "get_text", lambda _page, _kind: text)
+    doc = pymupdf.open()
+    page = doc.new_page()
 
     with pytest.raises(UnknownGlyphError, match="0xf0aa"):
-        symbolfont.load(Page(), {"M": "music"})
+        symbolfont.load(page, {"M": "music"})
 
 
 def test_any_page_count_passes_and_every_page_is_a4(tmp_path: pathlib.Path) -> None:
@@ -234,7 +234,11 @@ def test_a_server_error_retries_and_a_real_refusal_does_not(tmp_path: pathlib.Pa
             msg = "remote rejected (Internal Server Error)"
             raise publish.RefusedError(msg)
 
-    publish.pushed(run, ("git", "push"), tmp_path, wait=0)
+    def invoke(*args: str, cwd: pathlib.Path | None = None) -> str:
+        run(*args, cwd=cwd)
+        return ""
+
+    publish.pushed(invoke, ("git", "push"), tmp_path, wait=0)
     assert len(seen) == 2
 
     def refuse(*args: str, cwd: pathlib.Path | None = None) -> Never:

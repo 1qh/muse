@@ -33,7 +33,7 @@ from muse import (
 )
 from muse.chordseat import INK_REACH, TOLERANCE, clean_bearings, crowded, ink_left, sign_end
 from muse.layout import next_bias
-from muse.leland import text_owners
+from muse.leland import Staff, text_owners
 from muse.model import Bar, Chord, Event, Head, Score, Text, bar_at, mark_bar
 from muse.navigate import expected_order
 from muse.pdfcheck import (
@@ -48,6 +48,7 @@ from muse.pdfcheck import (
 )
 from muse.symbolfont import (
     Decoder,
+    Span,
     assemble_chords,
     beam_levels,
     is_dust,
@@ -61,12 +62,14 @@ from muse.verify import midi
 
 def test_parse_chord_root_kind_bass() -> None:
     c = parse_chord("Bbmaj7/D", None, 0)
+    assert c is not None
     assert (c.root, c.root_alter, c.kind, c.bass, c.bass_alter) == ("B", -1, "maj7", "D", 0)
 
 
 def test_slash_alone_keeps_previous_chord() -> None:
     prev = parse_chord("Am7", None, 0)
     c = parse_chord("/G", prev, 9)
+    assert c is not None
     assert (c.root, c.kind, c.bass) == ("A", "m7", "G")
 
 
@@ -273,12 +276,12 @@ def test_stem_split_drops_a_rest_stamped_under_a_note() -> None:
 
 
 def test_a_tempo_decimal_printed_in_2_spans_is_read_whole() -> None:
-    @dataclasses.dataclass
-    class S:
-        text: str
-
-    assert Decoder.tempo_value([S("Slow = 52"), S(".5")]) == pytest.approx(52.5)
-    assert Decoder.tempo_value([S("Slow = 43"), S("86")]) == 43
+    assert Decoder.tempo_value(
+        [Span("Slow = 52", 0, 0, 0, "", 0, False, False), Span(".5", 0, 0, 0, "", 0, False, False)],
+    ) == pytest.approx(52.5)
+    assert Decoder.tempo_value(
+        [Span("Slow = 43", 0, 0, 0, "", 0, False, False), Span("86", 0, 0, 0, "", 0, False, False)],
+    ) == 43
 
 
 def _bar(number: int, *, notes: bool, coda: bool = False, label: str = "") -> Bar:
@@ -435,7 +438,9 @@ def test_measure_boxes_are_read_in_points(tmp_path: pathlib.Path) -> None:
 
 
 def test_a_staff_is_5_equal_lines_and_a_stray_line_is_not() -> None:
-    rule = lambda y: pymupdf.Rect(20, y, 300, y)  # ruff: ignore[lambda-assignment]
+    def rule(y: float) -> pymupdf.Rect:
+        return pymupdf.Rect(20, y, 300, y)
+
     shapes = [rule(y) for y in (0.0, 60.0, 64.0, 68.0, 72.0, 76.0, 90.0, 100.0, 104.0, 108.0, 112.0, 116.0)]
     assert [staff[0] for staff in chordseat.staves_of(shapes)] == [60.0, 100.0]
 
@@ -481,7 +486,9 @@ def test_a_full_height_stem_is_no_barline() -> None:
 
 
 def test_a_stray_long_line_inside_a_staff_does_not_hide_it() -> None:
-    rule = lambda y: pymupdf.Rect(20, y, 300, y)  # ruff: ignore[lambda-assignment]
+    def rule(y: float) -> pymupdf.Rect:
+        return pymupdf.Rect(20, y, 300, y)
+
     shapes = [rule(y) for y in (60.0, 64.0, 66.0, 68.0, 72.0, 76.0)]
     assert chordseat.staves_of(shapes) == [[60.0, 64.0, 68.0, 72.0, 76.0]]
 
@@ -557,6 +564,7 @@ def test_a_wrong_playback_is_found() -> None:
 
 def test_a_wrong_mapping_breaks_its_chord() -> None:
     chord = parse_chord("Amaj7", None, 0)
+    assert chord is not None
     assert 'text="^7"' in musicxml.harmony(chord, Fraction(0))
 
 
@@ -595,24 +603,31 @@ def test_a_saved_layout_with_a_label_inside_a_line_fails_its_proof() -> None:
     assert port.line_rule_breaks(Score([plain, second, labelled, after], [], [])) == []
 
 
+@dataclasses.dataclass
+class _BarParts:
+    voices: list[list[Event]] | None = None
+    chords: list[Chord] | None = None
+    texts: list[Text] | None = None
+
+
 def _plain_bar(
     number: int,
     left: float = 0.0,
     right: float = 100.0,
     *,
-    voices: list[list[Event]] | None = None,
-    chords: list[Chord] | None = None,
-    texts: list[Text] | None = None,
+    parts: _BarParts | None = None,
 ) -> Bar:
+    if parts is None:
+        parts = _BarParts()
     return Bar(
         number,
         0,
         left,
         right,
         Fraction(4),
-        voices=[] if voices is None else voices,
-        chords=[] if chords is None else chords,
-        texts=[] if texts is None else texts,
+        voices=[] if parts.voices is None else parts.voices,
+        chords=[] if parts.chords is None else parts.chords,
+        texts=[] if parts.texts is None else parts.texts,
     )
 
 
@@ -621,16 +636,16 @@ def _chord(x: float, kind: str = "") -> Chord:
 
 
 def test_a_long_chord_past_its_last_note_moves_over_the_barline() -> None:
-    held = _plain_bar(1, 0.0, 33.0, chords=[_chord(18.0, "m7(b5)")], voices=[[Event(6.0, [], Fraction(4))]])
-    after = _plain_bar(2, 33.0, 70.0, chords=[_chord(60.0, "7")], voices=[[Event(40.0, [], Fraction(4))]])
+    held = _plain_bar(1, 0.0, 33.0, parts=_BarParts(chords=[_chord(18.0, "m7(b5)")], voices=[[Event(6.0, [], Fraction(4))]]))
+    after = _plain_bar(2, 33.0, 70.0, parts=_BarParts(chords=[_chord(60.0, "7")], voices=[[Event(40.0, [], Fraction(4))]]))
     song.settle_chord_bars(Score([held, after], [], []))
     assert not held.chords
     assert [c.kind for c in after.chords] == ["m7(b5)", "7"]
 
 
 def test_a_short_chord_inside_its_bar_stays_past_its_last_note() -> None:
-    held = _plain_bar(1, 436.0, 494.0, chords=[_chord(481.0, "7")], voices=[[Event(472.0, [], Fraction(4))]])
-    after = _plain_bar(2, 494.0, 550.0, voices=[[Event(500.0, [], Fraction(4))]])
+    held = _plain_bar(1, 436.0, 494.0, parts=_BarParts(chords=[_chord(481.0, "7")], voices=[[Event(472.0, [], Fraction(4))]]))
+    after = _plain_bar(2, 494.0, 550.0, parts=_BarParts(voices=[[Event(500.0, [], Fraction(4))]]))
     song.settle_chord_bars(Score([held, after], [], []))
     assert len(held.chords) == 1
 
@@ -639,11 +654,11 @@ def test_piano_keeps_accents_and_a_fill_until_the_next_chord() -> None:
     hit = Event(0.0, [], Fraction(4))
     hit.accent = True
     bars = [
-        _plain_bar(1, voices=[[hit]]),
-        _plain_bar(2, chords=[_chord(0.0)]),
-        _plain_bar(3, texts=[Text(0.0, 0.0, [("(Fill)", False, False)], above=False)]),
+        _plain_bar(1, parts=_BarParts(voices=[[hit]])),
+        _plain_bar(2, parts=_BarParts(chords=[_chord(0.0)])),
+        _plain_bar(3, parts=_BarParts(texts=[Text(0.0, 0.0, [("(Fill)", False, False)], above=False)])),
         _plain_bar(4),
-        _plain_bar(5, chords=[_chord(0.0)]),
+        _plain_bar(5, parts=_BarParts(chords=[_chord(0.0)])),
         _plain_bar(6),
     ]
     assert piano.hit_bars(Score(bars, [], [])) == {1, 3, 4}
@@ -924,7 +939,10 @@ def test_ink_widths_run_from_each_chords_box_left_never_its_ink_left() -> None:
     assert chordseat.ink_widths(rows, lines) == [20.0, 15.0]
 
 
-def test_a_job_that_raises_fails_its_renders_and_the_batcher_keeps_serving(tmp_path: pathlib.Path) -> None:
+def test_a_job_that_raises_fails_its_renders_and_the_batcher_keeps_serving(
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     batcher = render.Batcher()
     calls = []
 
@@ -935,7 +953,7 @@ def test_a_job_that_raises_fails_its_renders_and_the_batcher_keeps_serving(tmp_p
             raise OSError(msg)
         return {item["ticket"]: None for item in batch}
 
-    batcher.run = run  # type: ignore[method-assign]
+    monkeypatch.setattr(batcher, "run", run)
     with pytest.raises(render.RenderFailedError, match="job failed: mscore vanished"):
         batcher.render(tmp_path / "a.mscz", [tmp_path / "a.pdf"])
     finished = threading.Event()
@@ -1038,10 +1056,15 @@ def test_a_log_another_launch_removes_mid_sweep_is_skipped(
     gone.write_text(f"x | ConverterController::convertFile | in: {work / 'a.mscz'}, out: x\n", encoding="utf-8")
     real = pathlib.Path.read_text
 
-    def vanishing(path: pathlib.Path, *args: object, **kwargs: object) -> str:
+    def vanishing(
+        path: pathlib.Path,
+        encoding: str | None = None,
+        errors: str | None = None,
+        newline: str | None = None,
+    ) -> str:
         if path == gone:
             path.unlink()
-        return real(path, *args, **kwargs)  # type: ignore[arg-type]
+        return real(path, encoding=encoding, errors=errors, newline=newline)
 
     monkeypatch.setattr(pathlib.Path, "read_text", vanishing)
     assert launch.drop_own_logs([work], at - 1, at + 1, logs) == 0
@@ -1111,11 +1134,11 @@ def test_a_mark_starting_just_left_of_a_barline_belongs_to_the_bar_it_runs_into(
 
 
 def test_a_lyric_between_2_lines_belongs_to_the_line_it_sits_under_and_a_cue_to_the_line_it_sits_above() -> None:
-    class Staff:
-        def __init__(self, top: float, base: float) -> None:
-            self.top, self.base = top, base
-
-    groups = [[Staff(100.0, 120.0)], [Staff(170.0, 190.0)]]
+    first = Staff.__new__(Staff)
+    first.top, first.base = 100.0, 120.0
+    second = Staff.__new__(Staff)
+    second.top, second.base = 170.0, 190.0
+    groups = [[first], [second]]
     lyric = ("lời", 50.0, 145.0, 90.0, "FreeSerif", 8.2, [])
     cue = ("Piano", 50.0, 145.0, 90.0, "TimesNewRomanPS-BoldItalicMT", 10.3, [])
     chord = ("Am7", 50.0, 160.0, 70.0, "Edwin-Roman", 10.9, [])
@@ -1165,7 +1188,7 @@ def test_a_chords_ink_is_never_a_coloured_sign_box_beside_it() -> None:
 def test_a_line_rule_refusal_names_its_bar_and_its_rule() -> None:
     bars = [Bar(n, 0, 0, 100, Fraction(4)) for n in (1, 2, 3)]
     for bar in bars:
-        bar.chords.append(Chord("C", 0, "", None, 0, 0.0))
+        bar.chords.append(Chord(0.0, "C", 0, "", None, 0))
     bars[2].new_system = True
     assert port.line_rule_reasons(Score(bars, [], [])) == ["bar 3: lone bar on a line"]
 

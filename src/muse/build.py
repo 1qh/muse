@@ -29,6 +29,7 @@ def variant_key(src: pathlib.Path, variant: str) -> str:
         The build key.
 
     """
+    del variant
     return buildcache.key_of(src, repr(song_of(src)), buildcache.sheet_code(), mode.label())
 
 
@@ -53,10 +54,9 @@ def _orchestral(
     src: pathlib.Path,
     out_dir: pathlib.Path,
     work: pathlib.Path,
-    state: dict[str, Any],
-    report: dict[str, object],
-    built: list[str],
+    sheet: tuple[str, dict[str, Any], dict[str, object], list[str]],
 ) -> None:
+    _, state, report, built = sheet
     info = song_of(src)
     outputs = [out_dir / info.score_file, out_dir / info.original_pdf]
     key = variant_key(src, port.ORIGINAL)
@@ -177,7 +177,7 @@ def song(src: pathlib.Path, out_dir: pathlib.Path, work: pathlib.Path) -> dict[s
     state = buildcache.load(info.name)
     built: list[str] = []
     if info.orchestral:
-        _orchestral(src, out_dir, work, state, report, built)
+        _orchestral(src, out_dir, work, (info.name, state, report, built))
         _finish(report, built, began, work, info.name)
         return report
     sheet = (info.name, state, report, built)
@@ -257,7 +257,7 @@ def child(src: pathlib.Path, stage: pathlib.Path, work: pathlib.Path) -> tuple[d
         check=False,
     )
     if done.returncode == 0:
-        loaded: dict[str, object] = json.loads((work / f"{name}-report.json").read_text(encoding="utf-8"))
+        loaded = json.loads((work / f"{name}-report.json").read_text(encoding="utf-8"))
         return loaded, ""
     return None, refusal.read_text(
         encoding="utf-8",

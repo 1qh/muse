@@ -23,7 +23,7 @@ def _check_chords(bar: Bar, m: ET.Element, semis: int, problems: list[str]) -> N
     want_c = sorted(
         (
             (PC[c.root] + c.root_alter + semis) % 12,
-            -1 if c.bass is None or c.bass == "" else (PC[c.bass] + c.bass_alter + semis) % 12,
+            -1 if not c.bass else (PC[c.bass] + c.bass_alter + semis) % 12,
         )
         for c in bar.chords
     )
@@ -54,7 +54,7 @@ def check(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> list[str]
     root = ET.parse(xml).getroot()
     score = decode(src)
     problems = []
-    keys = {k.text for k in root.iter("fifths") if k.text is not None and k.text != ""}
+    keys = {k.text for k in root.iter("fifths") if k.text}
     if not same_keys(keys, expected_keys(score, fifths)):
         problems.append(f"key {keys}")
     for p_i, part in enumerate(root.findall("part")):

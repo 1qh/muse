@@ -5,6 +5,7 @@ import pathlib
 import types
 import zipfile
 from fractions import Fraction
+from typing import TypeGuard, override
 
 import pytest
 
@@ -12,6 +13,14 @@ from muse import chordseat, layout, port
 from muse.model import Bar, Chord, Event, Head, Score, Text
 
 ROOM = 100.0
+
+
+def _is_string_list(value: object) -> TypeGuard[list[str]]:
+    return isinstance(value, list) and all(isinstance(item, str) for item in value)
+
+
+def _is_text_list(value: object) -> TypeGuard[list[Text]]:
+    return isinstance(value, list) and all(isinstance(item, Text) for item in value)
 
 
 class _StandInSheet(layout.Sheet):
@@ -23,9 +32,11 @@ class _StandInSheet(layout.Sheet):
         self.opening = opening
         self.shares = []
 
+    @override
     def path(self, label: str) -> pathlib.Path:
         return self.folder / f"s-{label}.mscz"
 
+    @override
     def starts(self) -> list[int]:
         return list(self.opening)
 
@@ -46,15 +57,26 @@ def chord() -> Chord:
     return Chord(0.0, "C", 0, "")
 
 
-def noted(
-    number: int,
-    *,
-    tie: bool = False,
-    chords: bool = True,
-    rehearsal: list[str] | None = None,
-    texts: list[Text] | None = None,
-    new_system: bool = False,
-) -> Bar:
+def noted(number: int, **fields: object) -> Bar:
+    allowed = {"tie", "chords", "rehearsal", "texts", "new_system"}
+    unknown = next((name for name in fields if name not in allowed), None)
+    if unknown is not None:
+        raise TypeError(f"noted() got an unexpected keyword argument '{unknown}'")
+    tie = fields.get("tie", False)
+    chords = fields.get("chords", True)
+    rehearsal_value = fields.get("rehearsal")
+    texts_value = fields.get("texts")
+    new_system = fields.get("new_system", False)
+    if not isinstance(tie, bool) or not isinstance(chords, bool) or not isinstance(new_system, bool):
+        raise TypeError("noted boolean fields must be bool")
+    if rehearsal_value is None:
+        rehearsal_value = []
+    if texts_value is None:
+        texts_value = []
+    if not _is_string_list(rehearsal_value):
+        raise TypeError("noted rehearsal must be a list of strings")
+    if not _is_text_list(texts_value):
+        raise TypeError("noted texts must be a list of Text")
     head = Head(1.0, 0.0, "C", 5, tie_start=tie)
     return Bar(
         number,
@@ -64,8 +86,8 @@ def noted(
         Fraction(4),
         voices=[[Event(1.0, [head], Fraction(4))]],
         chords=[chord()] if chords else [],
-        rehearsal=rehearsal or [],
-        texts=texts or [],
+        rehearsal=rehearsal_value or [],
+        texts=texts_value or [],
         new_system=new_system,
     )
 
@@ -236,7 +258,7 @@ def test_finish_widens_the_line_gap_while_text_meets_text(monkeypatch: pytest.Mo
         return ("score", "path", size, distance, 1)
 
     monkeypatch.setattr(layout, "finish_at", finish_at)
-    assert layout.finish(tmp_path, tmp_path, port.ORIGINAL, 2.0)[3] == port.BASE_DISTANCE + 2 * layout.GAP_STEP  # type: ignore[arg-type]
+    assert layout.finish(tmp_path, tmp_path, port.ORIGINAL, 2.0)[3] == port.BASE_DISTANCE + 2 * layout.GAP_STEP
     monkeypatch.setattr(layout, "finish_at", lambda *_: (_ for _ in ()).throw(port.DoesNotFitError("lines still wrap")))
     with pytest.raises(port.DoesNotFitError, match="wrap"):
         layout.finish(tmp_path, tmp_path, port.ORIGINAL, 2.0)
@@ -280,7 +302,7 @@ def test_every_line_gap_retry_starts_from_the_widths_the_last_one_learned(
         return ("score", "path", size, distance, 1)
 
     monkeypatch.setattr(layout, "finish_at", finish_at)
-    layout.finish(tmp_path, tmp_path, port.ORIGINAL, 2.0)  # type: ignore[arg-type]
+    layout.finish(tmp_path, tmp_path, port.ORIGINAL, 2.0)
     assert len(seen) == 3
     assert all(record is seen[0] for record in seen)
 

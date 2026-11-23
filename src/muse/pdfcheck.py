@@ -341,7 +341,11 @@ def sign_chord_hits(path: pathlib.Path) -> list[tuple[int, float, str]]:
 
 
 def overlap(a: tuple[float, float, float, float], b: tuple[float, float, float, float]) -> float:
-    """Points 2 boxes share in their narrower direction; 0 when apart."""
+    """Points 2 boxes share in their narrower direction; 0 when apart.
+
+    Returns:
+        The shared distance in the narrower direction.
+    """
     return max(0.0, min(min(a[2], b[2]) - max(a[0], b[0]), min(a[3], b[3]) - max(a[1], b[1])))
 
 
@@ -352,7 +356,11 @@ def sign_touches(
     chord_size: float,
     chord_letters: list[tuple[float, float, float]],
 ) -> bool:
-    """Whether a sign's ink runs into a chord letter, given each letter's left, right and baseline."""
+    """Whether a sign's ink runs into a chord letter, given each letter's left, right and baseline.
+
+    Returns:
+        Whether the sign's ink runs into any chord letter.
+    """
     ink_end = chordseat.sign_ink_end(x, size)
     return any(
         abs(base - y) < chord_size * SIGN_BASELINE_SHARE and x < right and left < ink_end

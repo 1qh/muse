@@ -689,9 +689,6 @@ def orchestral_measure(bar: Bar, part: Part, *, minor: bool | None) -> str:
     Returns:
         The measure element.
 
-    Raises:
-        ValueError: when the bar carries a key signature and the mode is unknown.
-
     """
     out = [f'<measure number="{bar.number}">']
     if bar.new_page or bar.new_system:

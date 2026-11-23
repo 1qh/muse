@@ -35,6 +35,7 @@ BALANCE_ROUNDS = 3
 IMPORT_SIZE = 1.5
 OVERFLOW_BREAKS = 1000
 SHORT_COST = 0.15
+SHORT_LINE_BAR_COUNT = 2
 GROW = 1.06
 GAP_REACH = 20.0
 GAP_STEP = 2.0
@@ -215,6 +216,7 @@ def unjustified(name: str, text: str) -> str:
         The changed text.
 
     """
+    del name
     text = re.sub(r"<pageWidth>[^<]*</pageWidth>", f"<pageWidth>{WIDE_PAGE}</pageWidth>", text)
     text = re.sub(
         r"<pagePrintableWidth>[^<]*</pagePrintableWidth>",
@@ -321,6 +323,7 @@ def blocks_of(score: Score, variant: str | None) -> list[list[int]]:
         The bars of each block.
 
     """
+    del variant
     blocks = [list(block) for block in port.sections(score)]
     joined: list[list[int]] = []
     for block in blocks:
@@ -368,7 +371,7 @@ def plan(score: Score, widths: list[float], room: float, variant: str | None = N
             + (not ends_block and tied[line[-1]])
         )
         cost = ((cap - used) / cap) ** 2 if used <= cap else 0.0
-        if len(line) == 2:
+        if len(line) == SHORT_LINE_BAR_COUNT:
             cost += SHORT_COST
         return breaks, cost
 
@@ -475,6 +478,7 @@ def choose(found: list[dict[str, Any]], variant: str) -> list[float]:
         The sizes to finish, best first.
 
     """
+    del variant
     order: list[float] = []
     for share in (port.MAX_SHORT_SHARE, port.RELAXED_SHORT_SHARE):
         fit = [c for c in found if c["good"] and not c["lone"] and c["share"] <= share]
@@ -572,7 +576,7 @@ class _InkState:
 
 
 def _tracing() -> bool:
-    return os.environ.get(TRACE_VARIABLE, "") != ""
+    return bool(os.environ.get(TRACE_VARIABLE, ""))
 
 
 def _round_tags(state: _InkState, noted: list[int] | None) -> dict[str, str]:

@@ -66,6 +66,7 @@ TIE_START_REACH = 9
 TIE_HEAD_REACH = 12
 TIE_END_REACH = 8
 SIGN_PAIR = 2
+STEM_MATCH = 0.3
 
 GlyphSpan = tuple[str, float, float, float, str, float, list[Any]]
 
@@ -179,7 +180,7 @@ def same_chord(one: Event, other: Event, stem_at: dict[int, float]) -> bool:
     if not (one.heads and other.heads) or one.nominal != other.nominal or one.heads[0].shape != other.heads[0].shape:
         return False
     if id(one) in stem_at and id(other) in stem_at:
-        return abs(stem_at[id(one)] - stem_at[id(other)]) < 0.3
+        return abs(stem_at[id(one)] - stem_at[id(other)]) < STEM_MATCH
     return id(one) not in stem_at and id(other) not in stem_at and abs(one.x - other.x) < DISPLACED
 
 
@@ -213,7 +214,7 @@ class _Reading:
     base: float
     step: float
     stems: list[Any]
-    beams: list[Any]
+    beams: list[tuple[float, float, float, float]]
     key: int
     state: dict[tuple[str, int], int] = dataclasses.field(default_factory=dict)
     stem_at: dict[int, float] = dataclasses.field(default_factory=dict)

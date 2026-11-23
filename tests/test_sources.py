@@ -20,7 +20,7 @@ from muse.song import decode, encoding, song_of
 
 def pins() -> dict[str, Any]:
     path = os.environ.get("MUSE_PINS")
-    if not path:
+    if path is None or path == "":
         pytest.fail("MUSE_PINS is not set")
     return json.loads(pathlib.Path(path).read_text(encoding="utf-8"))
 
@@ -28,13 +28,15 @@ def pins() -> dict[str, Any]:
 def names() -> list[str]:
     path = os.environ.get("MUSE_PINS")
     return (
-        sorted(json.loads(pathlib.Path(path).read_text(encoding="utf-8"))["songs"]) if path else ["MUSE_PINS is not set"]
+        sorted(json.loads(pathlib.Path(path).read_text(encoding="utf-8"))["songs"])
+        if path is not None and path != ""
+        else ["MUSE_PINS is not set"]
     )
 
 
 def source(name: str) -> pathlib.Path:
     root = os.environ.get("MUSE_SOURCES")
-    if not root:
+    if root is None or root == "":
         pytest.fail("MUSE_SOURCES is not set")
     for folder in root.split(os.pathsep):
         path = pathlib.Path(folder) / f"{name}.pdf"
@@ -178,7 +180,9 @@ def printed_line_starts(path: pathlib.Path) -> list[int]:
 
     """
     found = []
-    for at, page in enumerate(pymupdf.open(path)):
+    document = pymupdf.open(path)
+    for at in range(len(document)):
+        page = document[at]
         for block in page.get_text("dict")["blocks"]:
             for line in block.get("lines", []):
                 found += [
@@ -224,7 +228,7 @@ def test_every_leland_source_decodes_each_printed_ending_once() -> None:
             for span in line["spans"]
             if span["text"].strip() in {"1.", "2."} and "Bold" in span["font"]
         )
-        decoded = sum(1 for bar in decode(path).bars if bar.volta)
+        decoded = sum(1 for bar in decode(path).bars if bar.volta is not None and bar.volta != "")
         if printed != decoded:
             wrong[path.stem] = (printed, decoded)
     assert not wrong
@@ -297,12 +301,12 @@ def lyric_spans(path: pathlib.Path) -> list[str]:
 
     """
 
-    def lyric(span: dict) -> bool:
-        return is_lyric(span["font"]) or (
+    def lyric(span: dict[str, Any]) -> bool:
+        return bool(is_lyric(span["font"]) or (
             span["font"] in SYMBOL_LYRIC_FONTS
             and abs(span["size"] - SYMBOL_LYRIC_SIZE) < 0.3
             and " " in span["text"].strip()
-        )
+        ))
 
     return [
         span["text"].strip()
@@ -387,7 +391,7 @@ def orchestral_sources() -> list[str]:
 
     """
     root = os.environ.get("MUSE_SOURCES")
-    if not root:
+    if root is None or root == "":
         return ["MUSE_SOURCES is not set"]
     return sorted(
         str(pdf)
@@ -406,7 +410,8 @@ def orchestral_pin(path: str) -> dict[str, Any]:
         The score's orchestral pin entry.
 
     """
-    if not os.environ.get("MUSE_PINS"):
+    pins_path = os.environ.get("MUSE_PINS")
+    if pins_path is None or pins_path == "":
         pytest.fail("MUSE_PINS is not set")
     found = pins().get("orchestral", {}).get(pathlib.Path(path).stem)
     if found is None:
@@ -436,7 +441,7 @@ def spike_reader(pin: dict[str, Any]) -> dict[str, Any]:
     """
     text = (pathlib.Path(os.environ["MUSE_PINS"]).parent / pin["reader"]).read_text(encoding="utf-8")
     space: dict[str, Any] = {}
-    exec(compile(text.rsplit("\nmain()", 1)[0], pin["reader"], "exec"), space)  # ruff: ignore[exec-builtin] - the private spike reader is the reference this decode is held to
+    exec(compile(text.rsplit("\nmain()", 1)[0], pin["reader"], "exec"), space)
     return space
 
 
@@ -459,7 +464,7 @@ def _spike_edges(pair: tuple[float, float], sheet: tuple[Any, ...], reader: dict
         if sum(1 for o, a0, a1, _ in rules if abs(o - x) < 1.5 and a1 - a0 > base - top - 1) >= 3
         or any(abs(o - x) < 1.5 and a1 - a0 > 3 * (base - top) for o, a0, a1, _ in rules)
     })
-    merged = []
+    merged: list[float] = []
     for x in bars:
         if not merged or x - merged[-1] > 5:
             merged.append(x)
@@ -469,7 +474,7 @@ def _spike_edges(pair: tuple[float, float], sheet: tuple[Any, ...], reader: dict
     return merged
 
 
-def _spike_adds_up(here: list[Any], rest: Fraction) -> bool:
+def _spike_adds_up(here: list[Any], rest: Fraction | int) -> bool:
     ups, downs, stemless = ([(e[1], e[4]) for e in here if e[3] == k] for k in "udn")
     split = any(_spike_close(u, d) for u in ups for d in downs) or any(
         _spike_close(n, m) for n in stemless for m in ups + downs
@@ -529,14 +534,16 @@ def spike_staff_bars(path: str, reader: dict[str, Any]) -> dict[tuple[int, float
 
     """
     found: dict[tuple[int, float, int], Fraction] = {}
-    for page in pymupdf.open(path):
+    document = pymupdf.open(path)
+    for page_number in range(len(document)):
+        page = document[page_number]
         sheet = reader["read"](page)
         staves = reader["staves"](sheet[4])
         if not staves:
             continue
         events = reader["events"](sheet[0], sheet[2], sheet[3], sheet[5], sheet[6], sheet[7], staves)
         for staff in staves:
-            _spike_staff(found, page.number, staff, (sheet, staves, events), reader)
+            _spike_staff(found, page_number, staff, (sheet, staves, events), reader)
     return found
 
 
@@ -548,7 +555,8 @@ def test_full_score_adds_up_on_every_staff_bar_the_spike_reader_adds_up_on(path:
     doc = pymupdf.open(path)
     role = orchestral.roles(doc)
     ours = {}
-    for page in doc:
+    for page_number in range(len(doc)):
+        page = doc[page_number]
         sheet = orchestral.read(page, role)
         staves = orchestral.staves(sheet.lines)
         if not staves:
@@ -556,7 +564,7 @@ def test_full_score_adds_up_on_every_staff_bar_the_spike_reader_adds_up_on(path:
         braces = orchestral.brace_spans(page, role)
         sounds, spans = orchestral.sounds(sheet, staves, braces)
         rests = orchestral.rests_of(sheet, staves, spans)
-        for system in orchestral.systems_of(page.number, sheet, staves, braces):
+        for system in orchestral.systems_of(page_number, sheet, staves, braces):
             edges = orchestral.system_bars(system, sheet.verticals)
             for staff in system.staves:
                 for at, (a, b) in enumerate(itertools.pairwise(edges)):
@@ -566,7 +574,7 @@ def test_full_score_adds_up_on_every_staff_bar_the_spike_reader_adds_up_on(path:
                         orchestral.voices_of(here, quiet, Fraction(4), "parity")
                     except orchestral.UnreadableError:
                         continue
-                    ours[page.number, round(staff.top, 1), at] = sum(
+                    ours[page_number, round(staff.top, 1), at] = sum(
                         (s.nominal * (s.ratio or 1) for s in here),
                         Fraction(0),
                     )
@@ -640,9 +648,11 @@ def test_every_printed_mark_reaches_its_note(path: str) -> None:
     }
     printed: collections.Counter[str] = collections.Counter()
     waves = set()
+    document = pymupdf.open(path)
     chars = (
         (number, char)
-        for number, page in enumerate(pymupdf.open(path))
+        for number in range(len(document))
+        for page in [document[number]]
         for block in page.get_text("rawdict")["blocks"]
         for line in block.get("lines", [])
         for span in line["spans"]

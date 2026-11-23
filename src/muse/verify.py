@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import errno
 import os
 import pathlib
 import re
+import shutil
 import subprocess
 import sys
 import xml.etree.ElementTree as ET
@@ -70,7 +72,10 @@ def pdf_words_problems(pdf: pathlib.Path, title: str) -> list[str]:
         Every problem found; empty when the PDF is clean.
 
     """
-    text = subprocess.run(["pdftotext", str(pdf), "-"], capture_output=True, text=True, check=True).stdout
+    executable = shutil.which("pdftotext")
+    if executable is None:
+        raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), "pdftotext")
+    text = subprocess.run([executable, str(pdf), "-"], capture_output=True, text=True, check=True).stdout
     problems = [f"banned text in {pdf.name}: {word}" for word in BANNED if word.lower() in text.lower()]
     names = (pathlib.Path(os.environ["MUSE_PRIVATE"]) / PRIVATE_BANNED).read_text(encoding="utf-8").split("\n")
     problems.extend(f"banned text in {pdf.name}: {word}" for word in names if word.strip() and word in text)

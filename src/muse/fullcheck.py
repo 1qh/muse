@@ -12,7 +12,7 @@ import xml.etree.ElementTree as ET
 from fractions import Fraction
 from typing import TYPE_CHECKING
 
-from muse import chordnames, fullscore, gate, launch, pdfcheck, pdftext, scorefile, verify
+from muse import chordnames, fullscore, gate, launch, pdfcheck, pdftext, port, scorefile, verify
 from muse.song import Song, orchestra_of
 
 if TYPE_CHECKING:
@@ -161,7 +161,27 @@ def problems(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path, info: Son
             failures.extend(f"{label}: {problem}" for problem in step())
         except launch.MachineUnavailableError:
             raise
-        except Exception as error:
+        except (
+            ArithmeticError,
+            AssertionError,
+            AttributeError,
+            BufferError,
+            EOFError,
+            ImportError,
+            LookupError,
+            MemoryError,
+            NameError,
+            OSError,
+            ReferenceError,
+            RuntimeError,
+            StopAsyncIteration,
+            StopIteration,
+            SyntaxError,
+            TypeError,
+            ValueError,
+            Warning,
+            port.DoesNotFitError,
+        ) as error:
             failures.append(f"{label}: could not run: {str(error)[:160]}")
 
     orchestra = orchestra_of(src)

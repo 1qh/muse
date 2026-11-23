@@ -12,7 +12,7 @@ import collections
 import dataclasses
 import itertools
 import operator
-from fractions import Fraction as F
+from fractions import Fraction
 from typing import TYPE_CHECKING, Any
 
 import pymupdf
@@ -46,16 +46,16 @@ class UnreadableError(ValueError):
 
 
 BLACK, HALF, WHOLE = 0xF0CF, 0xF0FA, 0xF077
-HEADS = {BLACK: F(1), HALF: F(2), WHOLE: F(4), DIAMOND_WHOLE: F(4)}
+HEADS = {BLACK: Fraction(1), HALF: Fraction(2), WHOLE: Fraction(4), DIAMOND_WHOLE: Fraction(4)}
 BAR_REST = symbolfont.BAR_REST
-RESTS = {BAR_REST: None, 0xF0EE: F(2), 0xF0CE: F(1), 0xF0E4: F(1, 2)}
+RESTS = {BAR_REST: None, 0xF0EE: Fraction(2), 0xF0CE: Fraction(1), 0xF0E4: Fraction(1, 2)}
 UP_FLAG, DOWN_FLAG = 0xF06A, 0xF04A
 TREBLE_CLEF = symbolfont.CLEF
 SHARP, FLAT, NATURAL = 0xF023, 0xF062, 0xF06E
 FERMATA, TRILL = 0xF055, 0xF0D9
 BRACE, TREMOLO = 0xF07B, 0xF03D
 TEXT_SHARP, TEXT_FLAT, TEXT_QUARTER = 0x23, 0x62, 0x71
-TUPLET = {0x33: F(2, 3), 0x35: F(4, 5)}
+TUPLET = {0x33: Fraction(2, 3), 0x35: Fraction(4, 5)}
 SYMBOL_FONT_START = 0xF000
 MUSIC_MEANINGS = {
     *HEADS,
@@ -272,9 +272,9 @@ class Sound:
     staff: Staff
     x: float
     stem_x: float
-    nominal: F
+    nominal: Fraction
     dots: int
-    ratio: F | None
+    ratio: Fraction | None
     direction: str
     heads: list[Glyph]
     beam: int | None
@@ -285,8 +285,8 @@ class Rest:
     staff: Staff
     x: float
     y: float
-    nominal: F | None
-    ratio: F | None
+    nominal: Fraction | None
+    ratio: Fraction | None
     hidden: bool = False
 
 
@@ -491,7 +491,7 @@ class _Stems:
     heads: dict[_Stem, list[Glyph]]
     touching: dict[_Stem, list[_Beam]]
     group: dict[_Stem, _Stem]
-    scale: dict[Any, F] = dataclasses.field(default_factory=dict)
+    scale: dict[Any, Fraction] = dataclasses.field(default_factory=dict)
     home: dict[_Stem, Staff] = dataclasses.field(default_factory=dict)
 
     def root(self, st: _Stem) -> _Stem:
@@ -550,7 +550,7 @@ def _bracket_ticks(
     return left, right
 
 
-def _stems_under(stems: _Stems, span: tuple[Staff, float, float, F], level: float, layout: _Layout) -> list[_Stem]:
+def _stems_under(stems: _Stems, span: tuple[Staff, float, float, Fraction], level: float, layout: _Layout) -> list[_Stem]:
     nearest = layout.nearest
     return [
         st
@@ -576,8 +576,8 @@ def _nearest_beam(stems: _Stems, x: float, y: float, step: float) -> tuple[float
     return best
 
 
-def _tuplet_scales(sheet: Sheet, stems: _Stems, layout: _Layout) -> list[tuple[Staff, float, float, F]]:
-    spans: list[tuple[Staff, float, float, F]] = []
+def _tuplet_scales(sheet: Sheet, stems: _Stems, layout: _Layout) -> list[tuple[Staff, float, float, Fraction]]:
+    spans: list[tuple[Staff, float, float, Fraction]] = []
     for digit in sheet.symbols:
         if digit.code not in TUPLET:
             continue
@@ -656,7 +656,7 @@ def _stem_sound(st: _Stem, hs: list[Glyph], stems: _Stems, layout: _Layout) -> S
         staff,
         hs[0].x,
         st[0],
-        value * (2 - F(1, 2**count)),
+        value * (2 - Fraction(1, 2**count)),
         count,
         scaled,
         "u" if up else "d",
@@ -673,7 +673,7 @@ def _loose_chords(loose: list[Glyph], layout: _Layout) -> list[Sound]:
             chords[key].heads.append(g)
             continue
         count = dot_count([g], layout.dots, layout.step)
-        chords[key] = Sound(key[0], g.x, g.x, HEADS[g.code] * (2 - F(1, 2**count)), count, None, "n", [g], None)
+        chords[key] = Sound(key[0], g.x, g.x, HEADS[g.code] * (2 - Fraction(1, 2**count)), count, None, "n", [g], None)
     return list(chords.values())
 
 
@@ -681,7 +681,7 @@ def sounds(
     sheet: Sheet,
     found: list[Staff],
     braces: list[tuple[float, float]],
-) -> tuple[list[Sound], list[tuple[Staff, float, float, F]]]:
+) -> tuple[list[Sound], list[tuple[Staff, float, float, Fraction]]]:
     """Find every sounding event of the page, and the bracketed tuplets' spans: staff, left, right, ratio.
 
     Returns:
@@ -919,15 +919,15 @@ def _voice_split(sounds_here: list[Sound]) -> bool:
     return any(close(u, d) for u in ups for d in downs) or any(close(n, m) for n in stemless for m in ups + downs)
 
 
-def _filled(members: list[Sound | Rest], length: F) -> F:
-    return sum((rest_length(m, length) if isinstance(m, Rest) else m.nominal * (m.ratio or 1) for m in members), F(0))
+def _filled(members: list[Sound | Rest], length: Fraction) -> Fraction:
+    return sum((rest_length(m, length) if isinstance(m, Rest) else m.nominal * (m.ratio or 1) for m in members), Fraction(0))
 
 
 def _fill_voices(
     voice: dict[str, list[Sound | Rest]],
     keys: list[str],
     rests: list[Rest],
-    length: F,
+    length: Fraction,
 ) -> list[list[Sound | Rest]] | None:
     for choice in sorted(_assignments(len(rests), len(keys)), key=lambda c: sum(v == len(keys) for v in c)):
         trial = {k: list(voice[k]) for k in keys}
@@ -942,7 +942,7 @@ def _fill_voices(
     return None
 
 
-def voices_of(sounds_here: list[Sound], rests: list[Rest], length: F, where: str) -> list[list[Sound | Rest]]:
+def voices_of(sounds_here: list[Sound], rests: list[Rest], length: Fraction, where: str) -> list[list[Sound | Rest]]:
     """Part a staff-bar's voices; each voice and its rests fill the bar.
 
     Voices part only where an up and a down stem, or a stemless chord and a stem, stand at 1 x.
@@ -975,7 +975,7 @@ def voices_of(sounds_here: list[Sound], rests: list[Rest], length: F, where: str
     return best
 
 
-def rest_length(rest: Rest, length: F) -> F:
+def rest_length(rest: Rest, length: Fraction) -> Fraction:
     return length if rest.nominal is None else rest.nominal * (rest.ratio or 1)
 
 
@@ -1008,7 +1008,7 @@ class _SystemFrame:
     nearest: Callable[[float], Staff]
     edges: list[tuple[float, float]]
     first: int
-    length: F
+    length: Fraction
 
 
 def decode(path: str | pathlib.Path) -> Orchestra:
@@ -1048,7 +1048,7 @@ def brace_spans(page: pymupdf.Page, role: dict[str, str]) -> list[tuple[float, f
     return out
 
 
-def rests_of(sheet: Sheet, found: list[Staff], spans: list[tuple[Staff, float, float, F]]) -> list[Rest]:
+def rests_of(sheet: Sheet, found: list[Staff], spans: list[tuple[Staff, float, float, Fraction]]) -> list[Rest]:
     nearest = nearest_of(found)
     out = []
     for g in sheet.music:
@@ -1106,7 +1106,7 @@ def read_system(reading: Reading, system: System, page: _PageItems, *, opens_pag
     if reading.time is None:
         msg = f"{where}: no time signature before the first bar"
         raise UnreadableError(msg)
-    length = F(reading.time[0] * 4, reading.time[1])
+    length = Fraction(reading.time[0] * 4, reading.time[1])
     nearest = nearest_of(system.staves)
     reading.frames += [
         (system.page, at == 0 and first > 1, at == 0 and first > 1 and opens_page) for at in range(len(edges))
@@ -1317,7 +1317,7 @@ class _Part:
 class _Window:
     lo: float
     hi: float
-    length: F
+    length: Fraction
     where: str
 
 
@@ -1331,7 +1331,7 @@ class _Pitching:
     key: int
     state: dict[tuple[int, str, int], int]
     number: int | None
-    length: F
+    length: Fraction
 
 
 def _opening_clefs(
@@ -1375,10 +1375,10 @@ def _bar_clefs(reading: Reading, part: _Part, bar: Bar, at: int, edge: tuple[flo
     for number, staff in enumerate(part.own, 1):
         clef = clef_of(part.clef_at(staff, lo + 0.5) if at else part.opening[staff], staff, extra)[0]
         if reading.clefs.get((part.name, number)) != clef or part.frame.first + at == 1:
-            bar.clefs.append((number, F(0), clef))
+            bar.clefs.append((number, Fraction(0), clef))
         for change in part.changes[staff]:
             if lo <= change.x < hi - 0.3:
-                bar.clefs.append((number, F(-1), clef_of(change, staff, extra)[0]))
+                bar.clefs.append((number, Fraction(-1), clef_of(change, staff, extra)[0]))
         reading.clefs[part.name, number] = clef_of(part.clef_at(staff, hi), staff, extra)[0]
 
 
@@ -1431,7 +1431,7 @@ def _read_bar(reading: Reading, part: _Part, at: int, edge: tuple[float, float])
         for number, found in enumerate(staff_voices(own, part.sounds, part.rests, window), 1)
     ]
     for voice in [v for staff_voices in voices for v in staff_voices]:
-        onset = F(0)
+        onset = Fraction(0)
         for event in voice:
             event.onset = onset
             onset += event.length
@@ -1587,7 +1587,7 @@ def key_of(music: list[Glyph], staff: Staff, clef: Glyph) -> list[Glyph]:
     return run
 
 
-def empty_bar(number: int, length: F) -> Bar:
+def empty_bar(number: int, length: Fraction) -> Bar:
     bar = Bar(number, 0, 0.0, 0.0, length)
     bar.voices = [[Event(0.0, [], length, bar_rest=True)]]
     return bar

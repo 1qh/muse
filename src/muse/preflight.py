@@ -19,6 +19,7 @@ CODE_CHECKS = (
     ("types", (sys.executable, "-m", "mypy", "src")),
     ("control anchors", (sys.executable, "tests/mutate.py", "--anchors")),
 )
+_PREFLIGHT_ERRORS = (Exception,)
 
 
 def _checked_problem(src: pathlib.Path) -> str:
@@ -46,7 +47,7 @@ def song_problem(src: pathlib.Path) -> str:
     """
     try:
         return _checked_problem(src)
-    except Exception as error:
+    except _PREFLIGHT_ERRORS as error:
         return f"{type(error).__name__}: {str(error)[:200]}"
 
 

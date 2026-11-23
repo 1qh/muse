@@ -5,22 +5,22 @@ from __future__ import annotations
 import dataclasses
 import xml.etree.ElementTree as ET
 import zipfile
-from fractions import Fraction as F
+from fractions import Fraction
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     import pathlib
 
 DURATIONS = {
-    "long": F(4),
-    "breve": F(2),
-    "whole": F(1),
-    "half": F(1, 2),
-    "quarter": F(1, 4),
-    "eighth": F(1, 8),
-    "16th": F(1, 16),
-    "32nd": F(1, 32),
-    "64th": F(1, 64),
+    "long": Fraction(4),
+    "breve": Fraction(2),
+    "whole": Fraction(1),
+    "half": Fraction(1, 2),
+    "quarter": Fraction(1, 4),
+    "eighth": Fraction(1, 8),
+    "16th": Fraction(1, 16),
+    "32nd": Fraction(1, 32),
+    "64th": Fraction(1, 64),
 }
 GRACE = ("acciaccatura", "appoggiatura", "grace4", "grace16", "grace32", "grace8after", "grace16after", "grace32after")
 
@@ -28,10 +28,10 @@ GRACE = ("acciaccatura", "appoggiatura", "grace4", "grace16", "grace32", "grace8
 @dataclasses.dataclass
 class FileBar:
     pitches: list[int] = dataclasses.field(default_factory=list)
-    chords: list[tuple[F, int, int, str]] = dataclasses.field(default_factory=list)
+    chords: list[tuple[Fraction, int, int, str]] = dataclasses.field(default_factory=list)
     signs: list[str] = dataclasses.field(default_factory=list)
     jumps: list[tuple[str, str, str]] = dataclasses.field(default_factory=list)
-    length: F = F(0)
+    length: Fraction = Fraction(0)
 
 
 def root_of(path: pathlib.Path) -> ET.Element:
@@ -47,15 +47,15 @@ def staves(root: ET.Element) -> list[ET.Element]:
     return [s for s in score.findall("Staff") if s.find("Measure") is not None]
 
 
-def length_of(event: ET.Element, scale: F) -> F:
+def length_of(event: ET.Element, scale: Fraction) -> Fraction:
     if any(event.find(tag) is not None for tag in GRACE):
-        return F(0)
+        return Fraction(0)
     text = event.findtext("duration")
-    if text is not None and text != "" and event.findtext("durationType") == "measure":
-        return F(text)
-    base = DURATIONS.get(event.findtext("durationType") or "", F(0))
+    if text and event.findtext("durationType") == "measure":
+        return Fraction(text)
+    base = DURATIONS.get(event.findtext("durationType") or "", Fraction(0))
     dots = int(event.findtext("dots") or 0)
-    return base * (2 - F(1, 2**dots)) * scale
+    return base * (2 - Fraction(1, 2**dots)) * scale
 
 
 def read_bar(measure: ET.Element) -> FileBar:
@@ -74,16 +74,16 @@ def read_bar(measure: ET.Element) -> FileBar:
     return bar
 
 
-def _read_voice(voice: ET.Element, bar: FileBar) -> F:
-    at = F(0)
-    scale = F(1)
+def _read_voice(voice: ET.Element, bar: FileBar) -> Fraction:
+    at = Fraction(0)
+    scale = Fraction(1)
     for node in voice:
         if node.tag == "location":
-            at += F(node.findtext("fractions") or "0")
+            at += Fraction(node.findtext("fractions") or "0")
         elif node.tag == "Tuplet":
-            scale = F(int(node.findtext("normalNotes") or 1), int(node.findtext("actualNotes") or 1))
+            scale = Fraction(int(node.findtext("normalNotes") or 1), int(node.findtext("actualNotes") or 1))
         elif node.tag == "endTuplet":
-            scale = F(1)
+            scale = Fraction(1)
         elif node.tag == "Harmony":
             info = node.find("harmonyInfo")
             holder = info if info is not None else node

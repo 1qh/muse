@@ -172,7 +172,16 @@ def _guarded(failures: list[str], label: str, step: Callable[[], list[str]]) -> 
         failures.extend(f"{label}: {problem}" for problem in step())
     except launch.MachineUnavailableError:
         raise
-    except Exception as error:
+    except (
+        port.DoesNotFitError,
+        RuntimeError,
+        OSError,
+        TypeError,
+        ValueError,
+        AssertionError,
+        LookupError,
+        AttributeError,
+    ) as error:
         failures.append(f"{label}: could not run: {str(error)[:160]}")
 
 
@@ -452,7 +461,16 @@ def verdicts(
         if not found[info.name]:
             try:
                 found[info.name] = chord_trouble + cached_check(src, out, work)[0]
-            except Exception as error:
+            except (
+                port.DoesNotFitError,
+                RuntimeError,
+                OSError,
+                TypeError,
+                ValueError,
+                AssertionError,
+                LookupError,
+                AttributeError,
+            ) as error:
                 found[info.name] = [f"refused: {error}"]
         sys.stdout.write(f"{info.name}: {len(found[info.name])} failures\n")
         sys.stdout.flush()
@@ -473,7 +491,16 @@ def main() -> None:
         began = time.monotonic()
         try:
             failures, notes, cached = cached_check(src, out, work)
-        except Exception as error:
+        except (
+            port.DoesNotFitError,
+            RuntimeError,
+            OSError,
+            TypeError,
+            ValueError,
+            AssertionError,
+            LookupError,
+            AttributeError,
+        ) as error:
             failures, notes, cached = [f"refused: {error}"], [], False
         elapsed = time.monotonic() - began
         sys.stdout.write(f"{src.stem}: {len(failures)} failures {elapsed:.1f}s{' cached' if cached else ''}\n")

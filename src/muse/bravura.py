@@ -107,7 +107,7 @@ class _Sheet:
     credit_spans: set[_Span]
     v_bar: list[tuple[float, float, float]]
     v_thin: list[tuple[float, float, float]]
-    fills: list[Any]
+    fills: list[pymupdf.Rect]
     step: float
     size: float
     bars: list[Bar] = dataclasses.field(default_factory=list)
@@ -119,12 +119,22 @@ class _Sheet:
 class _Staff:
     base: float
     step: float
-    stems: list[Any]
-    fills: list[Any]
+    stems: list[tuple[float, float, float]]
+    fills: list[pymupdf.Rect]
     flags: list[Issue]
 
 
 def decode(path: str) -> Score:
+    sheet, bases, ties = _load_sheet(path)
+    _read_systems(sheet, bases)
+    bars = sheet.bars
+    wire_ties(bars, ties)
+    bars[-1].final = True
+    _stop_voltas(bars)
+    return Score(bars, [], sheet.flags, has_second_staff=False, clef_octave=-1)
+
+
+def _load_sheet(path: str) -> tuple[_Sheet, list[float], list[pymupdf.Rect]]:
     page = pymupdf.open(path)[0]
     chars, spans = _read_text(page)
     title = max(spans, key=operator.itemgetter(4))
@@ -134,18 +144,16 @@ def decode(path: str) -> Score:
     bases = [ys[ys.index(top) + 4] for top in leland.staff_tops(ys)]
     step = (ys[4] - ys[0]) / 8
     size = next(c[3] for c in chars if c[0] == BLACK)
-    sheet = _Sheet(chars, spans, credit_spans, v_bar, v_thin, fills, step, size)
+    return _Sheet(chars, spans, credit_spans, v_bar, v_thin, fills, step, size), bases, ties
+
+
+def _read_systems(sheet: _Sheet, bases: list[float]) -> None:
     for s_i, base in enumerate(bases):
         above = bases[s_i - 1] if s_i else None
         _read_system(sheet, base, above)
-    bars = sheet.bars
-    wire_ties(bars, ties)
-    bars[-1].final = True
-    _stop_voltas(bars)
-    return Score(bars, [], sheet.flags, has_second_staff=False, clef_octave=-1)
 
 
-def _read_text(page: Any) -> tuple[list[_Glyph], list[_Span]]:
+def _read_text(page: pymupdf.Page) -> tuple[list[_Glyph], list[_Span]]:
     chars: list[_Glyph] = []
     spans: list[_Span] = []
     for block in page.get_text("rawdict")["blocks"]:
@@ -158,7 +166,7 @@ def _read_text(page: Any) -> tuple[list[_Glyph], list[_Span]]:
     return chars, spans
 
 
-def _read_glyphs(s: Any, chars: list[_Glyph]) -> None:
+def _read_glyphs(s: dict[str, Any], chars: list[_Glyph]) -> None:
     for ch in s["chars"]:
         if ord(ch["c"]) not in KNOWN_GLYPHS and not ch["c"].isspace():
             msg = f"music glyph {ord(ch['c']):#x} is not decoded"
@@ -166,7 +174,7 @@ def _read_glyphs(s: Any, chars: list[_Glyph]) -> None:
         chars.append((ord(ch["c"]), ch["origin"][0], ch["origin"][1], s["size"]))
 
 
-def _read_span(s: Any, spans: list[_Span]) -> None:
+def _read_span(s: dict[str, Any], spans: list[_Span]) -> None:
     text = "".join(c["c"] for c in s["chars"])
     if text.strip():
         spans.append((
@@ -180,19 +188,19 @@ def _read_span(s: Any, spans: list[_Span]) -> None:
 
 
 def _read_drawings(
-    page: Any,
+    page: pymupdf.Page,
 ) -> tuple[
     list[tuple[float, float, float]],
     list[tuple[float, float, float]],
     list[tuple[float, float, float]],
-    list[Any],
-    list[Any],
+    list[pymupdf.Rect],
+    list[pymupdf.Rect],
 ]:
     h_lines: list[tuple[float, float, float]] = []
     v_thin: list[tuple[float, float, float]] = []
     v_bar: list[tuple[float, float, float]] = []
-    fills: list[Any] = []
-    ties: list[Any] = []
+    fills: list[pymupdf.Rect] = []
+    ties: list[pymupdf.Rect] = []
     for d in page.get_drawings():
         kinds = "".join(i[0] for i in d["items"])
         r = d["rect"]
@@ -206,8 +214,8 @@ def _read_drawings(
 
 
 def _read_line(
-    d: Any,
-    r: Any,
+    d: dict[str, Any],
+    r: pymupdf.Rect,
     h_lines: list[tuple[float, float, float]],
     v_thin: list[tuple[float, float, float]],
     v_bar: list[tuple[float, float, float]],
@@ -366,7 +374,7 @@ def _chord_text(t: _Span, row_ch: list[_Glyph], items: list[_Span], taken: set[i
 
 def _stop_voltas(bars: list[Bar]) -> None:
     for i, bar in enumerate(bars):
-        if bar.volta is not None and bar.volta != "":
+        if bar.volta:
             j = i
             if bar.volta == "1":
                 while j + 1 < len(bars) and not bars[j].repeat_end:
@@ -438,9 +446,9 @@ def _read_note(
 def _stemmed_value(
     code: int,
     x: float,
-    st: Any,
+    st: tuple[float, float, float],
     content: list[_Glyph],
-    fills: list[Any],
+    fills: list[pymupdf.Rect],
 ) -> tuple[str, int | None, Fraction]:
     nominal = Fraction(1) if code == BLACK else Fraction(2)
     beam = None
@@ -521,7 +529,7 @@ def _check_length(bar: Bar, real: list[Event], flags: list[Issue]) -> None:
         )
 
 
-def wire_ties(bars: list[Bar], ties: list[Any]) -> None:
+def wire_ties(bars: list[Bar], ties: list[pymupdf.Rect]) -> None:
     all_ev = [e for b in bars for v in b.voices for e in v if e.heads]
     for r in ties:
         starts = [

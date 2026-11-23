@@ -451,7 +451,7 @@ def _line_start(
     start = max([
         start,
         *(
-            r.x1
+            float(r.x1)
             for r in marks.shapes
             if r.width < BARLINE_MAX_WIDTH
             and abs(r.y0 - staff_top) < 1

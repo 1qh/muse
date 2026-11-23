@@ -10,6 +10,7 @@ import zipfile
 from fractions import Fraction
 from typing import Never, TypedDict, Unpack
 
+import pymupdf
 import pytest
 
 from muse import build, fullcheck, fullscore, gate, musicxml, orchestral, port, preflight, song, symbolfont
@@ -25,7 +26,7 @@ def test_every_full_score_glyph_is_known_with_its_meaning_and_none_reaches_a_lea
     assert all(symbolfont.ORCHESTRAL_GLYPHS[code] for code in codes)
 
 
-class FakePage:
+class FakePage(pymupdf.Page):
     """1 page holding 1 music glyph, nothing drawn."""
 
     def __init__(self, code: int) -> None:

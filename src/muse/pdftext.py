@@ -24,7 +24,7 @@ class Page:
         self.drawings: list[Any] | None = None
         self.lock = threading.Lock()
 
-    def get_text(self, kind: str = "text", flags: int | None = None) -> Any:
+    def get_text(self, kind: str = "text", flags: int | None = None) -> object:
         """Parse once per kind and flags: flags change the boxes, so each set is its own parse.
 
         Returns:
@@ -43,7 +43,7 @@ class Page:
                 self.drawings = self.page.get_drawings()
             return self.drawings
 
-    def __getattr__(self, name: str) -> Any:
+    def __getattr__(self, name: str) -> object:
         return getattr(self.page, name)
 
 
@@ -68,7 +68,7 @@ CACHE: collections.OrderedDict[tuple[str, int, int], Document] = collections.Ord
 LOCK = threading.Lock()
 
 
-def open(path: pathlib.Path | str) -> Document:  # ruff: ignore[builtin-variable-shadowing] - the name the checks already call
+def open(path: pathlib.Path | str) -> Document:
     """Return the shared parse of a PDF, keyed by its path, size and change time so a rewrite is read fresh.
 
     Returns:

@@ -617,7 +617,7 @@ def _staff(base: float, near: list[G], whole_staff: list[G], beams: list[pymupdf
 
 
 def _rect_width(r: pymupdf.Rect) -> float:
-    return r.width
+    return float(r.width)
 
 
 def _stem_x(g: G, stem: str | None, size: float) -> float:
@@ -690,7 +690,7 @@ def _head_event(g: G, bar_length: Fraction, staff: _Staff) -> Event:
         stem = "down" if own[0].code == STEM_DOWN else "up"
         stem_x = _stem_x(g, stem, staff.size)
     beam_id = None
-    if stem is not None and stem != "":
+    if stem:
         level, beam_id = _beam_level(g, stem, own, stem_x, staff)
         if level and kind in {"black", "x", "circlex", "diamond", "filleddiamond"}:
             nominal /= 2**level
@@ -859,6 +859,7 @@ def _attach(target: list[Text], t: Text, first: Span, runs: list[tuple[str, bool
 
 class Decoder:
     def __init__(self, path: str, key_hint: int | None = None) -> None:
+        del key_hint
         self.doc = pymupdf.open(path)
         self.music = font_map(self.doc)
         self.bars: list[Bar] = []
@@ -884,7 +885,7 @@ class Decoder:
 
     def _finish_voltas(self) -> None:
         for i, bar in enumerate(self.bars):
-            if bar.volta is not None and bar.volta != "":
+            if bar.volta:
                 j = i
                 if bar.volta == "1":
                     while j + 1 < len(self.bars) and not self.bars[j].repeat_end:
@@ -1285,7 +1286,7 @@ class Decoder:
             for ev in voice:
                 for h in ev.heads:
                     key = (h.step, h.octave)
-                    if h.accidental is not None and h.accidental != "":
+                    if h.accidental:
                         state[key] = {"b": -1, "#": 1, "n": 0}[h.accidental]
                     h.alter = state.get(key, self._key_default(h.step))
 
