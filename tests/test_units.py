@@ -410,7 +410,7 @@ def test_no_chord_stretches_a_bar():
 
 
 def test_every_short_spelling_has_proved_playback():
-    assert set(chordnames.SHORT.values()) | set(chordnames.MS3_SPELLING.values()) == set(chordnames.PLAYS)
+    assert set(chordnames.SHORT.values()) == set(chordnames.PLAYS)
     assert chordnames.stored("maj7") == "^7" and chordnames.stored("m7") == "m7"
 
 
@@ -1105,11 +1105,12 @@ def test_the_ink_reader_finds_a_mark_where_it_is_drawn(tmp_path):
     assert pdfcheck.inked_rows(blank, 72)[0] == []
 
 
-def test_no_code_names_a_musescore_version_by_age():
-    """MuseScore 3 and 4 are both current targets: code names each by its version, `ms3` or `ms4`."""
+def test_no_code_names_anything_by_age():
+    """The pipeline builds for the newest release of everything, so nothing in it is named by age."""
     import re
 
     root = pathlib.Path(port.__file__).parents[2]
     words = re.compile(r"\b(legacy|outdated|deprecated)\b", re.IGNORECASE)
-    found = [f"{path.relative_to(root)}:{at}" for path in sorted([*root.glob("src/muse/**/*"), *root.glob("tests/*"), root / "README.md"]) if path.is_file() and path.suffix in {".py", ".js", ".md", ".json"} for at, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1) if words.search(line) and "words = re.compile" not in line]
+    files = [path for path in sorted([*root.glob("src/muse/**/*"), *root.glob("tests/*"), root / "README.md"]) if path.is_file() and path.suffix in {".py", ".js", ".md", ".json"}]
+    found = [f"{path.relative_to(root)}:{at}" for path in files for at, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1) if words.search(line) and "words = re.compile" not in line]
     assert found == []

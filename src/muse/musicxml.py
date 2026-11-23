@@ -231,7 +231,7 @@ def measure(bar: Bar, part: int, score: Score, time: tuple[int, int] | None = No
         out.append(f'<print {"new-page" if bar.new_page else "new-system"}="yes"/>')
     if bar.repeat_start or bar.volta:
         out.append('<barline location="left">')
-        if bar.volta and part == 1:  # MuseScore 3 prints a second staff's copy even when that staff hides
+        if bar.volta and part == 1:  # 1 volta per system, on the top staff
             out.append(f'<ending number="{bar.volta}" type="start">{bar.volta}.</ending>')
         if bar.repeat_start:
             out.append('<bar-style>heavy-light</bar-style><repeat direction="forward"/>')

@@ -10,7 +10,7 @@ PYTHONPATH=src MUSE_HOMR=<homr-binary> .venv/bin/python -m muse.gate <source-dir
 PYTHONPATH=src MUSE_HOMR=<homr-binary> .venv/bin/python -m muse.publish <source-dir> <out-dir> <work-dir>
 ```
 
-Join several source folders with `:`. Each song gets a folder of `<name>-<original>.mscz`, `<name>-<original>-ms3.mscz`, `<name>-<original>.pdf`, `<name>-<tone>.pdf` and `<name>-<tone>-piano.pdf`, without the 4th when the original is already the tone. The `-ms3` file needs MuseScore 3.6.2, found at `~/Applications/MuseScore 3.app` or through `MUSE_MS3`, and Rosetta on Apple silicon; a file that differs from the latest score is withheld and named in `withheld.json` beside the banned names.
+Join several source folders with `:`. Each song gets a folder of `<name>-<original>.mscz`, `<name>-<original>.pdf`, `<name>-<tone>.pdf` and `<name>-<tone>-piano.pdf`, without the 4th when the original is already the tone.
 
 ## Adding a sheet
 

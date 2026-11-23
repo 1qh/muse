@@ -28,7 +28,6 @@ SHORT = {
     "7(b9)": "7b9",
     "m7(add4)": "m7add4",
 }
-MS3_SPELLING = {"0": "07"}  # a bare half-diminished does not parse in MuseScore 3
 CHECK_SECONDS = 240  # 1 playback check run
 # pitch classes on a root of A, each proved against the long form in both programs
 PLAYS = {
@@ -38,19 +37,12 @@ PLAYS = {
     "m2": [0, 4, 9, 11],
     "sus": [2, 4, 9],
     "0": [0, 3, 7, 9],
-    "07": [0, 3, 7, 9],
     "o": [0, 3, 9],
     "o7": [0, 3, 6, 9],
     "7b9": [1, 4, 7, 9, 10],
     "m7add4": [0, 2, 4, 7, 9],
 }
-CHORD_FILE_RENDERS = (
-    ("<render>circle</render>", "<render>\u00b0</render>"),
-    ("<render>triangle</render>", "<render>\u0394</render>"),
-    ("<renderBase>m:-0.2:1 / m:0.2:1 :n :a m:0:-2</renderBase>", "<renderBase>/ :n :a</renderBase>"),  # the shipped form drops the bass below the root
-)
-MS3_APP = pathlib.Path.home() / "Applications" / "MuseScore 3.7.app"  # MuseScore 3.7, native on Apple silicon, named in the pipeline ADR
-SHIPPED_CHORD_FILE = MS3_APP / "Contents" / "Resources" / "styles" / "chords_std.xml"
+CHORD_FILE = pathlib.Path(__file__).with_name("chords.xml")  # the pipeline's own chord description: the circle and triangle as SF Pro letters, a slash chord's bass level with its root
 Runner = Callable[..., None]
 
 
@@ -82,14 +74,10 @@ def chord_path_problems(mscz: pathlib.Path) -> list[str]:
 
 
 def chord_file(work: pathlib.Path) -> pathlib.Path:
-    """The program's own chord description, printing the circle and triangle as SF Pro letters."""
-    text = SHIPPED_CHORD_FILE.read_text(encoding="utf-8")
-    for old, new in CHORD_FILE_RENDERS:
-        if old not in text:
-            raise RuntimeError(f"{SHIPPED_CHORD_FILE} has no {old}")
-        text = text.replace(old, new)
+    """The pipeline's own chord description, copied where a style names it."""
     path = work / "chords_short.xml"
     work.mkdir(parents=True, exist_ok=True)
+    text = CHORD_FILE.read_text(encoding="utf-8")
     if not path.exists() or path.read_text(encoding="utf-8") != text:
         path.write_text(text, encoding="utf-8")
     return path
@@ -155,10 +143,10 @@ def wrong_playback(kinds: list[str], heard: dict[int, list[int]]) -> list[str]:
     return [f"{kind}: plays {heard.get(bar)}, wanted {PLAYS[kind]}" for bar, kind in enumerate(kinds) if heard.get(bar) != PLAYS[kind]]
 
 
-def playback_problems(command: str, style: pathlib.Path, work: pathlib.Path, ms3: bool, run: Runner) -> list[str]:
+def playback_problems(command: str, style: pathlib.Path, work: pathlib.Path, run: Runner) -> list[str]:
     """Build 1 bar per stored spelling in the given program with the sheets' own style, and compare its MIDI with the proved pitch classes."""
-    kinds = sorted({MS3_SPELLING.get(value, value) if ms3 else value for value in SHORT.values()})
-    folder = work / ("playback3" if ms3 else "playback4")
+    kinds = sorted(set(SHORT.values()))
+    folder = work / "playback"
     folder.mkdir(parents=True, exist_ok=True)
     source = folder / "kinds.musicxml"
     source.write_text(bars_xml(kinds), encoding="utf-8")

@@ -1,10 +1,10 @@
-"""An orchestral full score's files: its MuseScore 4 file, its MuseScore 3 file and its PDF, in the original key, broken where the source breaks."""
+"""An orchestral full score's files: its MuseScore file and its PDF, in the original key, broken where the source breaks."""
 from __future__ import annotations
 
 import pathlib
 import xml.etree.ElementTree as ET
 
-from muse import chordnames, ms3, musicxml, pdftext, port
+from muse import chordnames, musicxml, pdftext, port
 from muse.model import Orchestra, Score
 from muse.song import Song, orchestra_of
 
@@ -29,7 +29,7 @@ def breaks_of(orchestra: Orchestra) -> Score:
 
 
 def build(src: pathlib.Path, out_dir: pathlib.Path, work: pathlib.Path, info: Song) -> dict[str, object]:
-    """The 3 files of 1 full score; the MuseScore 3 file is withheld, with its reason, where it cannot match the latest."""
+    """The 2 files of 1 full score."""
     orchestra = orchestra_of(src)
     xml = xml_path(work, info)
     xml.write_text(musicxml.write_orchestra(orchestra), encoding="utf-8")
@@ -39,7 +39,6 @@ def build(src: pathlib.Path, out_dir: pathlib.Path, work: pathlib.Path, info: So
     pdf = out_dir / info.original_pdf
     port.run("-o", str(pdf), str(final))
     report: dict[str, object] = {"pdf pages": len(pdftext.open(pdf)), "spatium": spatium}
-    ms3.build(xml, out_dir / info.ms3_file)  # the same MusicXML, harmonics and every mark included
     return report
 
 

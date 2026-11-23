@@ -83,7 +83,7 @@ def homr_problems(src: pathlib.Path, orchestra: Orchestra, work: pathlib.Path) -
     return failures, f"homr agrees on {share:.0%}; differs near bars {bars[:20]}"
 
 
-CHECKS = ("verify", "systems", "navigate", "chord file", "ms3", "pdf", "homr")  # every check a full score takes; chord, sign-box, piano, line-layout and even-bar checks do not apply
+CHECKS = ("verify", "systems", "navigate", "chord file", "pdf", "homr")  # every check a full score takes; chord, sign-box, piano, line-layout and even-bar checks do not apply
 
 
 def problems(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path, info: Song) -> tuple[list[str], list[str]]:
@@ -113,11 +113,6 @@ def problems(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path, info: Son
         launch.mscore(["-o", str(probe), str(final)], launch.LAUNCH_SECONDS, check=True)
         return fullscore.system_problems(orchestra, probe)
 
-    def ms3_file() -> list[str]:
-        from muse import gate  # noqa: PLC0415  # the gate imports this module
-
-        return gate.ms3_problems(src, out)
-
     def page() -> list[str]:
         notes.append(f"{pdf.name}: {len(pdftext.open(pdf))} pages")
         return pdfcheck.paper_problems(pdf) + pdfcheck.ink_problems(pdf) + verify.pdf_words_problems(pdf, info.title) + pdfcheck.foreign_fonts(pdf) + [f"off the page: {what}" for _, _, what in pdfcheck.off_page(pdf)]
@@ -128,7 +123,7 @@ def problems(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path, info: Son
             notes.append(note)
         return wrong
 
-    steps = {"verify": content, "systems": systems, "navigate": lambda: navigation_problems(final), "chord file": lambda: chordnames.chord_path_problems(final), "ms3": ms3_file, "pdf": page, "homr": homr}
+    steps = {"verify": content, "systems": systems, "navigate": lambda: navigation_problems(final), "chord file": lambda: chordnames.chord_path_problems(final), "pdf": page, "homr": homr}
     for label in CHECKS:
         guarded(label, steps[label])
     return failures, notes

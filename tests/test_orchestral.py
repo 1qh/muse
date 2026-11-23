@@ -112,7 +112,7 @@ def test_a_full_score_song_names_3_files_and_its_key_from_its_strings(tmp_path, 
         song.song_of(folder / "Score-E.pdf")
     found = song.song_of(path)
     assert found.orchestral
-    assert found.files() == {found.score_file, found.ms3_file, found.original_pdf}
+    assert found.files() == {found.score_file, found.original_pdf}
     with pytest.raises(song.SongRefused, match="full score"):
         song.decode(path)
 

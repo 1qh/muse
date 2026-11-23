@@ -41,10 +41,10 @@ def imports_of(module: str, root: pathlib.Path = ROOT) -> set[str]:
     return {name for name in found if (root / f"{name}.py").exists()}
 
 
-def sheet_code(root: pathlib.Path = ROOT, writers: tuple[str, ...] = SHEET_WRITERS) -> list[pathlib.Path]:
+def sheet_code(root: pathlib.Path = ROOT) -> list[pathlib.Path]:
     """Every file that can shape a sheet: the import closure of the modules that write one, and the MuseScore extension they install."""
     seen: set[str] = set()
-    todo = list(writers)
+    todo = list(SHEET_WRITERS)
     while todo:
         module = todo.pop()
         if module not in seen:
@@ -56,7 +56,7 @@ def sheet_code(root: pathlib.Path = ROOT, writers: tuple[str, ...] = SHEET_WRITE
 def tool_identity() -> str:
     """Which MuseScore runs, by size and time, without paying to launch it."""
     parts = []
-    for name in ("mscore", os.environ.get("MUSE_MS3") or ""):
+    for name in ("mscore",):
         found = shutil.which(name) if name else None
         if found:
             stat = pathlib.Path(found).resolve().stat()

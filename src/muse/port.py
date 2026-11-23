@@ -10,7 +10,7 @@ import threading
 import zipfile
 from typing import Any
 
-from muse import buildcache, chordnames, chordseat, launch, mode, musicxml, pdfcheck, pdftext, piano
+from muse import buildcache, chordnames, chordseat, jumps, launch, mode, musicxml, pdfcheck, pdftext, piano
 from muse.model import Bar, Score
 from muse.song import Song
 
@@ -27,8 +27,6 @@ TARGET_HOLD = '<autoplace>0</autoplace><offset x="1" y="-3"/>'
 SIGN_STEP = -6  # spaces a jump sign steps left of the sign beside it
 SIGN_RISE = -2.5  # spaces above the staff, in its own chord row
 SIGN_BAR_STRETCH = 2.5  # a bar holding 2 signs widens to hold both
-SIGN_SIZE = 25  # a sign may exceed the chords: about 2.5 times the default sign
-MARKER_TYPES = {"segno": "segno", "coda": "codab"}
 MAX_SHORT_SHARE = mode.pick(0.15, 0.40)  # readers find many 2-bar lines sparse; smaller notation is preferred
 RELAXED_SHORT_SHARE = mode.pick(0.30, 0.40)  # when no size holds a song to the base share
 BASE_DISTANCE = 11.0
@@ -58,10 +56,6 @@ def run(*args: str) -> None:
         raise RuntimeError(f"mscore {args}: {done.stderr[-400:]}")
 
 
-JUMPS = {
-    "To Coda": "<Marker><style>repeat_right</style><text><sym>coda</sym></text><label>coda</label><markerType>coda</markerType><markerCenterOnSymbol>0</markerCenterOnSymbol><musicSymbolSize>25</musicSymbolSize></Marker>",
-    "D.S. al Coda": "<Jump><musicSymbolSize>25</musicSymbolSize><text><sym>segno</sym></text><jumpTo>segno</jumpTo><playUntil>coda</playUntil><continueAt>codab</continueAt></Jump>",
-}
 BOX = '<frameType>1</frameType><frameWidth>0.45</frameWidth><framePadding>0.4</framePadding><frameFgColor r="{}" g="{}" b="{}" a="255"/>'
 SIGN_BOX = {"segno": BOX.format(220, 0, 0), "coda": BOX.format(0, 0, 220)}
 
@@ -75,27 +69,7 @@ def real_jumps(mscz: pathlib.Path, clear_chord: bool = False) -> None:
     for name, data in items.items():
         if not name.endswith(".mscx"):
             continue
-        text = data.decode("utf-8")
-        for words, element in JUMPS.items():
-            pattern = re.compile(r"\s*<StaffText>(?:(?!</StaffText>).)*?<text>" + re.escape(words) + r"</text>\s*</StaffText>", re.S)
-            while True:
-                m = pattern.search(text)
-                if not m:
-                    break
-                start = text.rfind("<voice>", 0, m.start())
-                text = text[:start] + element + text[start:m.start()] + text[m.end():]
-        for sym, label in (("segno", "segno"), ("coda", "codab")):
-            # a visible marker is both the printed sign and the jump target; the style sizes it
-            pattern = re.compile(r"\s*<StaffText>(?:(?!</StaffText>).)*?<text><sym>" + sym + r"</sym></text>\s*</StaffText>", re.S)
-            for m in reversed(list(pattern.finditer(text))):
-                start = text.rfind("<voice>", 0, m.start())
-                element = f"<Marker><style>repeat_left</style><text><sym>{sym}</sym></text><label>{label}</label><markerType>{MARKER_TYPES[sym]}</markerType><markerCenterOnSymbol>0</markerCenterOnSymbol><musicSymbolSize>{SIGN_SIZE}</musicSymbolSize></Marker>"
-                text = text[:start] + element + text[start:m.start()] + text[m.end():]
-                chord = text.find("<Harmony>", start)
-                if clear_chord and chord != -1 and chord < text.find("</Measure>", start):
-                    # a marker ignores its own offset in layout, so the chord beside it makes the room
-                    at = chord + len("<Harmony>")
-                    text = text[:at] + f'<offset x="{SIGN_CLEARANCE}" y="0"/>' + text[at:]
+        text = jumps.rewrite(data.decode("utf-8"), jumps.WORDS, jumps.sign_marker, SIGN_CLEARANCE if clear_chord else None)
         items[name] = text.encode("utf-8")
     with zipfile.ZipFile(mscz, "w", zipfile.ZIP_DEFLATED) as z:
         for name, data in items.items():

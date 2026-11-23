@@ -42,10 +42,6 @@ class Song:
         return f"{self.name}/{self.name}-{self.source_key}.mscz"
 
     @property
-    def ms3_file(self) -> str:
-        return f"{self.name}/{self.name}-{self.source_key}-ms3.mscz"
-
-    @property
     def original_pdf(self) -> str:
         return f"{self.name}/{self.name}-{self.source_key}.pdf"
 
@@ -61,8 +57,8 @@ class Song:
     def files(self) -> set[str]:
         """Exactly what the song's folder holds."""
         if self.orchestral:
-            return {self.score_file, self.ms3_file, self.original_pdf}
-        return {self.score_file, self.ms3_file, self.original_pdf, self.tone_pdf, self.piano_pdf}
+            return {self.score_file, self.original_pdf}
+        return {self.score_file, self.original_pdf, self.tone_pdf, self.piano_pdf}
 
 
 PAST_EVENT = 8.0  # points past a bar's last note or rest
