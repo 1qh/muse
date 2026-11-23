@@ -374,7 +374,7 @@ def _chord_text(t: _Span, row_ch: list[_Glyph], items: list[_Span], taken: set[i
 
 def _stop_voltas(bars: list[Bar]) -> None:
     for i, bar in enumerate(bars):
-        if bar.volta is not None and bar.volta != "":
+        if bar.volta is not None and bar.volta:
             j = i
             if bar.volta == "1":
                 while j + 1 < len(bars) and not bars[j].repeat_end:

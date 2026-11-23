@@ -1,12 +1,14 @@
 """Decoders against the real sheets, kept outside the repo; MUSE_SOURCES must name them."""
 
-import builtins
 import collections
 import hashlib
 import itertools
 import json
 import os
 import pathlib
+import runpy
+import shutil
+import subprocess
 from fractions import Fraction
 from typing import Any
 
@@ -21,7 +23,7 @@ from muse.song import decode, encoding, song_of
 
 def pins() -> dict[str, Any]:
     path = os.environ.get("MUSE_PINS")
-    if not path:
+    if path is None or not path:
         pytest.fail("MUSE_PINS is not set")
     return json.loads(pathlib.Path(path).read_text(encoding="utf-8"))
 
@@ -30,14 +32,14 @@ def names() -> list[str]:
     path = os.environ.get("MUSE_PINS")
     return (
         sorted(json.loads(pathlib.Path(path).read_text(encoding="utf-8"))["songs"])
-        if path
+        if path is not None and path
         else ["MUSE_PINS is not set"]
     )
 
 
 def source(name: str) -> pathlib.Path:
     root = os.environ.get("MUSE_SOURCES")
-    if not root:
+    if root is None or not root:
         pytest.fail("MUSE_SOURCES is not set")
     for folder in root.split(os.pathsep):
         path = pathlib.Path(folder) / f"{name}.pdf"
@@ -229,7 +231,7 @@ def test_every_leland_source_decodes_each_printed_ending_once() -> None:
             for span in line["spans"]
             if span["text"].strip() in {"1.", "2."} and "Bold" in span["font"]
         )
-        decoded = sum(1 for bar in decode(path).bars if bar.volta)
+        decoded = sum(1 for bar in decode(path).bars if bar.volta is not None and bar.volta)
         if printed != decoded:
             wrong[path.stem] = (printed, decoded)
     assert not wrong
@@ -395,7 +397,7 @@ def orchestral_sources() -> list[str]:
 
     """
     root = os.environ.get("MUSE_SOURCES")
-    if not root:
+    if root is None or not root:
         return ["MUSE_SOURCES is not set"]
     return sorted(
         str(pdf)
@@ -415,7 +417,7 @@ def orchestral_pin(path: str) -> dict[str, Any]:
 
     """
     pins_path = os.environ.get("MUSE_PINS")
-    if not pins_path:
+    if pins_path is None or not pins_path:
         pytest.fail("MUSE_PINS is not set")
     found = pins().get("orchestral", {}).get(pathlib.Path(path).stem)
     if found is None:
@@ -443,10 +445,7 @@ def spike_reader(pin: dict[str, Any]) -> dict[str, Any]:
         The namespace the reader's code defines.
 
     """
-    text = (pathlib.Path(os.environ["MUSE_PINS"]).parent / pin["reader"]).read_text(encoding="utf-8")
-    space: dict[str, Any] = {}
-    builtins.exec(compile(text.rsplit("\nmain()", 1)[0], pin["reader"], "exec"), space)
-    return space
+    return runpy.run_path(str(pathlib.Path(os.environ["MUSE_PINS"]).parent / pin["reader"]), run_name="spike_reader")
 
 
 def nearest_pair(staves: list[tuple[float, float]], y: float) -> tuple[float, float]:
@@ -705,3 +704,31 @@ def test_every_hairpin_reads_as_a_wedge_with_its_end(path: str) -> None:
     assert sum(pins.values()), "no hairpin printed: the guard would judge nothing"
     assert {kind: kinds.count(kind) for kind in pins} == pins
     assert kinds.count("wedge-stop") == sum(pins.values())
+
+
+def git_command() -> str:
+    found = shutil.which("git")
+    if found is None:
+        pytest.fail("git is not installed")
+    return found
+
+
+def test_no_song_title_reaches_the_public_code() -> None:
+    """The code repo is public and carries no sheet content, so no source's song title may appear in any file it tracks."""
+    root = pathlib.Path(__file__).parents[1]
+    tracked = subprocess.run(
+        [git_command(), "-C", str(root), "ls-files", "-co", "--exclude-standard"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.split()
+    titles = {name.rsplit("-", 1)[0] for name in names() if name != "MUSE_PINS is not set"}
+    assert titles, "no song names were read: the guard would judge nothing"
+    found = sorted({
+        f"{path}: {title}"
+        for path in tracked
+        if (root / path).is_file()
+        for title in titles
+        if title in (root / path).read_text(encoding="utf-8", errors="ignore")
+    })
+    assert found == []

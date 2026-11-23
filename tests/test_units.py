@@ -24,6 +24,7 @@ from muse import (
     musicxml,
     oracle,
     pdfcheck,
+    pdftext,
     piano,
     port,
     publish,
@@ -159,14 +160,6 @@ def test_writer_durations_and_chord_offset() -> None:
     assert "<duration>192</duration>" in xml
     assert 'kind text="m2">other' in xml
     assert "<offset>96</offset>" in xml
-
-
-def _row_score(count: int, tied_after: set[int]) -> Score:
-    bars = []
-    for number in range(1, count + 1):
-        head = Head(0.0, 0.0, "C", 5, tie_start=number in tied_after)
-        bars.append(Bar(number, 0, 0.0, 1.0, Fraction(4), voices=[[Event(0.0, [head], Fraction(4))]]))
-    return Score(bars, [], [])
 
 
 def test_tie_inside_a_bar_does_not_leave_it() -> None:
@@ -588,7 +581,7 @@ def test_a_flag_far_from_a_stem_does_not_shorten_its_note() -> None:
     head = (leland.BLACK, 50.0, 100.0)
     stem = (56.8, 80.0, 100.0)
     far_flag = (0xE240, 56.8, 140.0)
-    voices = leland.read_events(bar, [head, far_flag], 108.0, 2.7, [stem], [], 0, [])
+    voices = leland.read_events(bar, leland.Reading([head, far_flag], 108.0, 2.7, [stem], [], 0), [])
     assert voices[0][0].nominal == 1
 
 
@@ -1259,7 +1252,7 @@ def test_a_section_box_marks_the_barline_under_or_beside_it() -> None:
 
 
 def test_a_chord_seated_where_the_seating_aims_after_a_sign_never_touches_it() -> None:
-    sign = {"origin": (37.4, 245.7), "bbox": (37.4, 229.7, 46.1, 249.7)}
+    sign: pdftext.Char = {"origin": (37.4, 245.7), "bbox": (37.4, 229.7, 46.1, 249.7), "c": "\ue047", "synthetic": False}
     box = pymupdf.Rect(33.1, 231.1, 50.6, 248.6)
     target = sign_end(sign, 20.0, [box])
     for bearing in (0.4, 0.8, 1.2):

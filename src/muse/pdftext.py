@@ -5,7 +5,7 @@ from __future__ import annotations
 import collections
 import pathlib
 import threading
-from typing import TYPE_CHECKING, Literal, TypedDict, Unpack, cast, overload
+from typing import TYPE_CHECKING, Literal, Protocol, TypedDict, Unpack, cast, overload
 
 import pymupdf
 
@@ -16,6 +16,11 @@ KEEP = 64
 Box = tuple[float, float, float, float]
 Point = tuple[float, float]
 Word = tuple[float, float, float, float, str, int, int, int]
+LineItem = tuple[Literal["l"], pymupdf.Point, pymupdf.Point]
+RectItem = tuple[Literal["re"], pymupdf.Rect, int]
+CurveItem = tuple[Literal["c"], pymupdf.Point, pymupdf.Point, pymupdf.Point, pymupdf.Point]
+QuadItem = tuple[Literal["qu"], pymupdf.Quad]
+Item = LineItem | RectItem | CurveItem | QuadItem
 
 
 class Char(TypedDict):
@@ -81,7 +86,7 @@ class Drawing(TypedDict, total=False):
     even_odd: bool
     fill: tuple[float, ...] | None
     fill_opacity: float
-    items: list[tuple[object, ...]]
+    items: list[Item]
     layer: str
     lineCap: tuple[int, ...]
     lineJoin: float
@@ -101,6 +106,20 @@ class PixmapOptions(TypedDict, total=False):
     clip: pymupdf.Rect
     alpha: bool
     annots: bool
+
+
+class RawPage(Protocol):
+    """What a reader needs of a page: its raw text, its drawings and its box."""
+
+    def get_text(self, kind: Literal["rawdict"]) -> TextPage:
+        """Return the page's raw text dictionary."""
+
+    def get_drawings(self) -> list[Drawing]:
+        """Return every vector path the page draws."""
+
+    @property
+    def rect(self) -> pymupdf.Rect:
+        """The page's box."""
 
 
 class Page:

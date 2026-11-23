@@ -7,9 +7,9 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from typing import NamedTuple
 import time
 from collections.abc import Callable
+from typing import NamedTuple
 
 from muse import gate
 

@@ -171,8 +171,18 @@ class Sheet:
         self.title = info.title
         self.options = None if self.variant == port.ORIGINAL else port.transpose_options(info)
         self.name = f"{info.name}-{self.variant}"
-        self.style = port.styled(self.work, f"{self.name}-{self.size:g}.mss", info.title, port.Sizing(self.size, self.distance))
-        self.import_style = port.styled(self.work, f"{self.name}-import.mss", info.title, port.Sizing(IMPORT_SIZE, self.distance))
+        self.style = port.styled(
+            self.work,
+            f"{self.name}-{self.size:g}.mss",
+            info.title,
+            port.Sizing(self.size, self.distance),
+        )
+        self.import_style = port.styled(
+            self.work,
+            f"{self.name}-import.mss",
+            info.title,
+            port.Sizing(IMPORT_SIZE, self.distance),
+        )
 
     def path(self, label: str) -> pathlib.Path:
         return self.work / f"{self.name}-{self.size:g}-{label}.mscz"

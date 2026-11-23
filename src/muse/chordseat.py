@@ -106,21 +106,19 @@ def segments(page: pymupdf.Page | pdftext.Page) -> list[pymupdf.Rect]:
         for item in drawing["items"]:
             if item[0] == "l":
                 first, second = item[1], item[2]
-                if hasattr(first, "x") and hasattr(first, "y") and hasattr(second, "x") and hasattr(second, "y"):
-                    vertical = abs(first.x - second.x) < abs(first.y - second.y)
-                    found.append(
-                        pymupdf.Rect(
-                            min(first.x, second.x) - (half if vertical else 0),
-                            min(first.y, second.y),
-                            max(first.x, second.x) + (half if vertical else 0),
-                            max(first.y, second.y),
-                        ),
-                    )
+                vertical = abs(first.x - second.x) < abs(first.y - second.y)
+                found.append(
+                    pymupdf.Rect(
+                        min(first.x, second.x) - (half if vertical else 0),
+                        min(first.y, second.y),
+                        max(first.x, second.x) + (half if vertical else 0),
+                        max(first.y, second.y),
+                    ),
+                )
             elif item[0] == "re":
                 found.append(pymupdf.Rect(item[1]))
             elif item[0] == "qu":
-                if hasattr(item[1], "rect"):
-                    found.append(item[1].rect)
+                found.append(item[1].rect)
     return found
 
 
@@ -303,7 +301,7 @@ def measure_boxes(mpos: pathlib.Path) -> list[dict[str, float]]:
     ]
 
 
-def sign_end(char: dict[str, Any], size: float, frames: list[pymupdf.Rect]) -> float:
+def sign_end(char: pdftext.Char, size: float, frames: list[pymupdf.Rect]) -> float:
     """Where a segno or coda stops taking room.
 
     The further of the coloured box drawn around it and its printed glyph, 1 definition with the touch check.
@@ -328,7 +326,7 @@ def sign_ink_end(x: float, size: float) -> float:
     return x + size * SIGN_INK_WIDTH - SIGN_TOUCH_SLACK
 
 
-def sign_middle(char: dict[str, Any]) -> float:
+def sign_middle(char: pdftext.Char) -> float:
     """Find the middle of a segno or coda glyph.
 
     A sign belongs to the bar its middle falls in, as its box is drawn around it.
@@ -383,7 +381,7 @@ def _page_marks(
                     signs_here += [
                         (sign_end(c, span["size"], frames), c["origin"][1], sign_middle(c))
                         for c in span["chars"]
-                        if isinstance(c, dict) and c["c"] in SIGN_CHARS
+                        if c["c"] in SIGN_CHARS
                     ]
                 else:
                     words.append((span["size"], span["bbox"][0], span["bbox"][2], span["origin"][1], text))

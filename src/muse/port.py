@@ -11,7 +11,7 @@ import re
 import shutil
 import threading
 import zipfile
-from typing import Any, NamedTuple, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 from muse import buildcache, chordnames, chordseat, jumps, launch, mode, musicxml, pdfcheck, pdftext, piano
 

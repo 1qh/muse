@@ -247,6 +247,9 @@ def child(src: pathlib.Path, stage: pathlib.Path, work: pathlib.Path) -> tuple[d
     Returns:
         Its report, or none and the reason the child wrote.
 
+    Raises:
+        TypeError: The child's report is not a JSON object.
+
     """
     name = song_of(src).name
     refusal = work / f"{name}-refusal.txt"
@@ -257,8 +260,11 @@ def child(src: pathlib.Path, stage: pathlib.Path, work: pathlib.Path) -> tuple[d
         check=False,
     )
     if done.returncode == 0:
-        loaded: dict[str, object] = json.loads((work / f"{name}-report.json").read_text(encoding="utf-8"))
-        return loaded, ""
+        loaded = json.loads((work / f"{name}-report.json").read_text(encoding="utf-8"))
+        if not isinstance(loaded, dict):
+            msg = f"{name}: the build report is not a JSON object"
+            raise TypeError(msg)
+        return {str(field): value for field, value in loaded.items()}, ""
     return None, refusal.read_text(
         encoding="utf-8",
     ) if refusal.exists() else f"child exited {done.returncode} with no reason"

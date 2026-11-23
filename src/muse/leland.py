@@ -154,7 +154,7 @@ def alter_in_key(letter: str, key: int) -> int:
     return 0
 
 
-def stems_of(code: int, x: float, y: float, stems: list[Any]) -> list[Any]:
+def stems_of(code: int, x: float, y: float, stems: list[tuple[float, float, float]]) -> list[tuple[float, float, float]]:
     """Stems of a head: up on its right edge, down on its left; never a neighbour's.
 
     Returns:
@@ -209,11 +209,13 @@ def set_tuplets(bar: Bar, events: list[Event], marks: list[tuple[float, int]], f
 
 
 @dataclasses.dataclass
-class _Reading:
+class Reading:
+    """What 1 staff's events are read from: its glyphs, its geometry, its stems and beams, and the key."""
+
     content: list[tuple[int, float, float]]
     base: float
     step: float
-    stems: list[Any]
+    stems: list[tuple[float, float, float]]
     beams: list[tuple[float, float, float, float]]
     key: int
     state: dict[tuple[str, int], int] = dataclasses.field(default_factory=dict)
@@ -221,7 +223,7 @@ class _Reading:
 
 
 def _stemmed(
-    reading: _Reading,
+    reading: Reading,
     code: int,
     x: float,
     st: tuple[float, float, float],
@@ -237,12 +239,12 @@ def _stemmed(
         if f[0] in FLAGS and abs(f[1] - st[0]) < FLAG_REACH and st[1] - 8 <= f[2] <= st[2] + 8:
             level = max(level, FLAGS[f[0]])
     if code in {BLACK, CROSS}:
-        nominal /= 2**level
+        nominal /= 1 << level
     beam = id(hits[0]) if hits else None
     return nominal, stem, beam, stem_x
 
 
-def _dot_count(reading: _Reading, x: float, y: float) -> int:
+def _dot_count(reading: Reading, x: float, y: float) -> int:
     content = reading.content
     return sum(
         1
@@ -254,7 +256,7 @@ def _dot_count(reading: _Reading, x: float, y: float) -> int:
     )
 
 
-def _head_event(reading: _Reading, code: int, x: float, y: float) -> Event:
+def _head_event(reading: Reading, code: int, x: float, y: float) -> Event:
     content = reading.content
     near = stems_of(code, x, y, reading.stems)
     nominal, stem, beam = HEADS[code], None, None
@@ -285,7 +287,7 @@ def _head_event(reading: _Reading, code: int, x: float, y: float) -> Event:
     return event
 
 
-def _rest_event(reading: _Reading, code: int, x: float, y: float) -> Event:
+def _rest_event(reading: Reading, code: int, x: float, y: float) -> Event:
     dotted = any(
         d[0] == DOT and 0 < d[1] - x < REST_DOT_REACH and abs(d[2] - y) < reading.step * 3 for d in reading.content
     )
@@ -307,16 +309,11 @@ def _merge_chords(events: list[Event], stem_at: dict[int, float]) -> list[Event]
 
 def read_events(
     bar: Bar,
-    content: list[tuple[int, float, float]],
-    base: float,
-    step: float,
-    stems: list[Any],
-    beams: list[Any],
-    key: int,
+    reading: Reading,
     flags: list[Issue],
     marks: list[tuple[float, int]] | None = None,
 ) -> list[list[Event]]:
-    reading = _Reading(content, base, step, stems, beams, key)
+    content = reading.content
     events: list[Event] = []
     for code, x, y in sorted(content, key=operator.itemgetter(1)):
         if code in HEADS:
@@ -604,12 +601,7 @@ def _lower_voices(bar: Bar, group: list[Staff], drawn: _Drawn, sheet: _Sheet) ->
     ]
     bar.voices2 = read_events(
         bar,
-        lower_content,
-        group[1].base,
-        group[1].step,
-        drawn.stems,
-        drawn.beams,
-        sheet.key,
+        Reading(lower_content, group[1].base, group[1].step, drawn.stems, drawn.beams, sheet.key),
         sheet.flags,
     )
     sheet.second = True
@@ -641,7 +633,12 @@ def _decode_bar(page: _Page, group: list[Staff], cols: tuple[float, float], row_
         bar.key, sheet.pending = sheet.key, False
     marks = _tuplet_marks(page.spans, a, b, staff)
     drawn = page.drawn
-    bar.voices = read_events(bar, content, staff.base, staff.step, drawn.stems, drawn.beams, sheet.key, sheet.flags, marks)
+    bar.voices = read_events(
+        bar,
+        Reading(content, staff.base, staff.step, drawn.stems, drawn.beams, sheet.key),
+        sheet.flags,
+        marks,
+    )
     if len(group) > 1:
         _lower_voices(bar, group, drawn, sheet)
     sheet.bars.append(bar)

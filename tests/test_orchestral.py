@@ -8,12 +8,11 @@ import re
 import xml.etree.ElementTree as ET
 import zipfile
 from fractions import Fraction
-from typing import Never, TypedDict, Unpack, override
+from typing import Literal, Never, TypedDict, Unpack
 
-import pymupdf
 import pytest
 
-from muse import build, fullcheck, fullscore, gate, musicxml, orchestral, port, preflight, song, symbolfont
+from muse import build, fullcheck, fullscore, gate, musicxml, orchestral, pdftext, port, preflight, song, symbolfont
 from muse.model import Bar, Event, Head, Orchestra, Part, Text, UnknownGlyphError
 
 
@@ -26,20 +25,26 @@ def test_every_full_score_glyph_is_known_with_its_meaning_and_none_reaches_a_lea
     assert all(symbolfont.ORCHESTRAL_GLYPHS[code] for code in codes)
 
 
-class FakePage(pymupdf.Page):
+class FakePage:
     """1 page holding 1 music glyph, nothing drawn."""
 
     def __init__(self, code: int) -> None:
         self.code = code
+        self.drawings: list[pdftext.Drawing] = []
 
-    @override
-    def get_text(self, _kind: str) -> dict[str, object]:
-        char = {"c": chr(self.code), "origin": (1.0, 1.0), "bbox": (1.0, 0.0, 3.0, 2.0)}
+    def get_text(self, kind: Literal["rawdict"]) -> pdftext.TextPage:
+        assert kind == "rawdict"
+        char: pdftext.Char = {"c": chr(self.code), "origin": (1.0, 1.0), "bbox": (1.0, 0.0, 3.0, 2.0), "synthetic": False}
         return {
+            "height": 842.0,
+            "width": 595.0,
             "blocks": [
                 {
                     "lines": [
                         {
+                            "bbox": (1.0, 0.0, 3.0, 2.0),
+                            "dir": (1.0, 0.0),
+                            "wmode": 0,
                             "spans": [
                                 {
                                     "font": "M",
@@ -56,12 +61,10 @@ class FakePage(pymupdf.Page):
             ],
         }
 
-    @override
-    def get_drawings(self, extended: bool = False) -> list[object]:
-        return []
+    def get_drawings(self) -> list[pdftext.Drawing]:
+        return self.drawings
 
     @property
-    @override
     def rect(self) -> Never:
         msg = "no drawing asks for the page box"
         raise AssertionError(msg)

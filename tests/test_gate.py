@@ -1,7 +1,6 @@
 """Song derivation, refusals, the gate's own checks and the publishing guard."""
 
 import pathlib
-from collections.abc import Callable
 from fractions import Fraction
 from typing import Never
 
@@ -149,26 +148,6 @@ def test_missing_font_names_the_font_and_where_to_install(tmp_path: pathlib.Path
     port.require_font((tmp_path,))
 
 
-def recorder(
-    *,
-    gate_fails: bool = False,
-    state: str = "PRIVATE",
-) -> tuple[Callable[..., str], list[tuple[str, ...]]]:
-    calls: list[tuple[str, ...]] = []
-
-    def run(*args: str, cwd: pathlib.Path | None = None) -> str:
-        _ = cwd
-        calls.append(args)
-        if args[0] == "gh":
-            return state
-        if "muse.gate" in args and gate_fails:
-            msg = "failures 1"
-            raise publish.RefusedError(msg)
-        return "tree"
-
-    return run, calls
-
-
 def test_a_failing_song_keeps_its_folder_and_a_passing_song_publishes(tmp_path: pathlib.Path) -> None:
     calls: list[tuple[str, ...]] = []
 
@@ -180,7 +159,11 @@ def test_a_failing_song_keeps_its_folder_and_a_passing_song_publishes(tmp_path: 
             "PRIVATE" if "visibility" in args else "",
         )
 
-    blocked = publish.publish(publish.Places(tmp_path, tmp_path, tmp_path), run, lambda *_: {"good": [], "bad": ["bar 1 wrong"]})
+    blocked = publish.publish(
+        publish.Places(tmp_path, tmp_path, tmp_path),
+        run,
+        lambda *_: {"good": [], "bad": ["bar 1 wrong"]},
+    )
     assert blocked == {"bad": ["bar 1 wrong"]}
     assert ("git", "add", "-A", "--", "good") in calls
     assert ("git", "add", "-A", "--", "bad") not in calls
@@ -303,7 +286,7 @@ def test_a_label_may_follow_a_mark_that_opens_its_line_on_any_sheet(
 
 
 def test_a_publish_commit_names_its_songs() -> None:
-    assert publish.commit_message(["***REMOVED***", "***REMOVED***"]) == "feat: publish ***REMOVED***, ***REMOVED***"
+    assert publish.commit_message(["SongA", "SongB"]) == "feat: publish SongA, SongB"
     assert publish.commit_message([]) == "chore: refresh sheets"
 
 

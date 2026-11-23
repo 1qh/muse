@@ -86,10 +86,7 @@ def foreign_fonts(path: pathlib.Path) -> list[str]:
 
     """
     names = {
-        font[3].split("+")[-1]
-        for page in pdftext.read(path)
-        for font in page.get_fonts()
-        if isinstance(font[3], str)
+        font[3].split("+")[-1] for page in pdftext.read(path) for font in page.get_fonts() if isinstance(font[3], str)
     }
     return sorted(name for name in names if not name.startswith((*MUSIC_FONTS, "SFPro", "SF-Pro", "SF Pro")))
 
@@ -590,11 +587,12 @@ def words_over(number: int, words: list[tuple[str, pymupdf.Rect]], boxes: list[p
 
 def _is_colored_sign_frame(drawing: pdftext.Drawing) -> bool:
     color = drawing.get("color")
+    width = float(drawing["rect"].width)
     return (
         color is not None
         and len(color) > 0
         and tuple(color) != (0.0, 0.0, 0.0)
-        and chordseat.SIGN_FRAME[0] < drawing["rect"].width < chordseat.SIGN_FRAME[1]
+        and chordseat.SIGN_FRAME[0] < width < chordseat.SIGN_FRAME[1]
     )
 
 
@@ -607,11 +605,7 @@ def sign_word_overlaps(path: pathlib.Path) -> list[float]:
     """
     found: list[float] = []
     for page in pdftext.read(path):
-        frames = [
-            d["rect"]
-            for d in page.get_drawings()
-            if _is_colored_sign_frame(d)
-        ]
+        frames = [d["rect"] for d in page.get_drawings() if _is_colored_sign_frame(d)]
         for _, box in ink_words(page) if frames else []:
             for frame in frames:
                 common = frame & box
@@ -631,11 +625,7 @@ def sign_text_overlaps(path: pathlib.Path) -> list[str]:
     """
     found: list[str] = []
     for number, page in enumerate(pdftext.read(path), 1):
-        frames = [
-            d["rect"]
-            for d in page.get_drawings()
-            if _is_colored_sign_frame(d)
-        ]
+        frames = [d["rect"] for d in page.get_drawings() if _is_colored_sign_frame(d)]
         if frames:
             found += words_over(number, ink_words(page), frames, "sign box")
     return found

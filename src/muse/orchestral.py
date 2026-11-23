@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any
 
 import pymupdf
 
-from muse import symbolfont
+from muse import pdftext, symbolfont
 from muse.model import LETTERS, Bar, Clef, Event, Head, Orchestra, Part, Text, Transposition, UnknownGlyphError
 from muse.smufl import beam_y
 from muse.symbolfont import (
@@ -290,7 +290,7 @@ class Rest:
     hidden: bool = False
 
 
-def _spans(page: pymupdf.Page) -> Iterator[dict[str, Any]]:
+def _spans(page: pdftext.RawPage) -> Iterator[pdftext.Span]:
     for block in page.get_text("rawdict")["blocks"]:
         for line in block.get("lines", []):
             yield from line["spans"]
@@ -310,7 +310,7 @@ def roles(doc: pymupdf.Document) -> dict[str, str]:
     """
     music = symbolfont.font_map(doc)
     found: dict[str, str] = {}
-    for page in doc:
+    for page in (pdftext.Page(doc.load_page(number)) for number in range(doc.page_count)):
         for span in _spans(page):
             codes = {ord(c["c"]) for c in span["chars"]}
             if span["font"] in music:
@@ -327,7 +327,7 @@ def roles(doc: pymupdf.Document) -> dict[str, str]:
     return found
 
 
-def _read_word(span: dict[str, Any], sheet: Sheet) -> None:
+def _read_word(span: pdftext.Span, sheet: Sheet) -> None:
     text = "".join(c["c"] for c in span["chars"])
     if text.strip():
         flags = span["flags"]
@@ -342,7 +342,7 @@ def _read_word(span: dict[str, Any], sheet: Sheet) -> None:
         ))
 
 
-def _read_glyphs(span: dict[str, Any], kind: str, sheet: Sheet) -> None:
+def _read_glyphs(span: pdftext.Span, kind: str, sheet: Sheet) -> None:
     for c in span["chars"]:
         code = ord(c["c"])
         if c["c"].isspace():
@@ -353,41 +353,43 @@ def _read_glyphs(span: dict[str, Any], kind: str, sheet: Sheet) -> None:
         getattr(sheet, kind).append(Glyph(code, c["origin"][0], c["origin"][1], c["bbox"][2]))
 
 
-def _read_stroke(d: dict[str, Any], r: pymupdf.Rect, sheet: Sheet) -> None:
-    a, b = d["items"][0][1], d["items"][0][2]
+def _read_stroke(line: pdftext.LineItem, width: float, r: pymupdf.Rect, sheet: Sheet) -> None:
+    _, a, b = line
     if abs(a.y - b.y) < STRAIGHT_TOLERANCE and r.width > STAFF_LINE_MIN:
         sheet.lines.append((a.y, r.x0, r.x1))
     elif abs(a.y - b.y) < 1 and TICK_MIN_WIDTH < r.width <= STAFF_LINE_MIN:
         sheet.ticks.append(((a.y + b.y) / 2, r.x0, r.x1))
     elif abs(a.x - b.x) < STRAIGHT_TOLERANCE:
-        sheet.verticals.append((a.x, r.y0, r.y1, d["width"] or 0))
+        sheet.verticals.append((a.x, r.y0, r.y1, width))
     elif HAIRPIN_RISE[0] < abs(a.y - b.y) < HAIRPIN_RISE[1] and abs(a.x - b.x) > HAIRPIN_MIN:
         left, right = (a, b) if a.x < b.x else (b, a)
         sheet.slants.append((left.x, left.y, right.x, right.y))
 
 
-def _corner_mean(corners: list[Any], at: float) -> float:
+def _corner_mean(corners: list[pymupdf.Point], at: float) -> float:
     near = [p.y for p in corners if abs(p.x - at) < CORNER_TOLERANCE]
     return float(sum(near)) / max(1, len(near))
 
 
-def _read_drawing(d: dict[str, Any], page_width: float, sheet: Sheet) -> None:
+def _read_drawing(d: pdftext.Drawing, page_width: float, sheet: Sheet) -> None:
     kinds = "".join(i[0] for i in d["items"])
+    lines = [item for item in d["items"] if item[0] == "l"]
+    curves = [item for item in d["items"] if item[0] == "c"]
     r = d["rect"]
     if kinds == "l":
-        _read_stroke(d, r, sheet)
+        _read_stroke(lines[0], d.get("width") or 0, r, sheet)
     elif kinds == "re" and d["type"] == "f" and r.height < BEAM_MAX_HEIGHT and BEAM_MIN_WIDTH < r.width < BEAM_MAX_WIDTH:
         sheet.beams.append((r.x0, r.x1, (r.y0 + r.y1) / 2, (r.y0 + r.y1) / 2))
     elif kinds == "llll" and SLANTED_BEAM_MIN_WIDTH < r.width < page_width - 1:
-        corners = [p for item in d["items"] for p in (item[1], item[2])]
+        corners = [p for _, *ends in lines for p in ends]
         lo, hi = min(p.x for p in corners), max(p.x for p in corners)
         sheet.beams.append((lo, hi, _corner_mean(corners, lo), _corner_mean(corners, hi)))
     elif kinds == "cc" and d["type"] == "f":
-        start, end = d["items"][0][1], d["items"][0][4]
+        start, end = curves[0][1], curves[0][4]
         sheet.curves.append((start.x, start.y, end.x, end.y))
 
 
-def read(page: pymupdf.Page, role: dict[str, str]) -> Sheet:
+def read(page: pdftext.RawPage, role: dict[str, str]) -> Sheet:
     sheet = Sheet([], [], [], [], [], [], [], [], [])
     for span in _spans(page):
         kind = role.get(span["font"])
@@ -1019,7 +1021,7 @@ def decode(path: str | pathlib.Path) -> Orchestra:
     role = roles(doc)
     reading = Reading()
     for page_no in range(doc.page_count):
-        page = doc.load_page(page_no)
+        page = pdftext.Page(doc.load_page(page_no))
         sheet = read(page, role)
         found = staves(sheet.lines)
         if not found:
@@ -1037,7 +1039,7 @@ def decode(path: str | pathlib.Path) -> Orchestra:
     return finish(reading)
 
 
-def brace_spans(page: pymupdf.Page, role: dict[str, str]) -> list[tuple[float, float]]:
+def brace_spans(page: pdftext.RawPage, role: dict[str, str]) -> list[tuple[float, float]]:
     """Measure the height each brace covers, from its glyph's own box.
 
     Returns:
