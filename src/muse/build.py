@@ -324,6 +324,8 @@ def _collect(
             except launch.MachineUnavailableError as error:
                 pool.shutdown(wait=False, cancel_futures=True)
                 raise SystemExit(str(error)) from error
+            except publish.RefusedError as error:
+                reason = f"publishing failed: {error}"
             _say(f"{'blocked' if reason else 'published'} {song_of(src).name} {reason}".rstrip())
             if reason:
                 blocked.append(song_of(src).name)

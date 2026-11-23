@@ -1,13 +1,16 @@
 """Song derivation, refusals, the gate's own checks and the publishing guard."""
 
+import concurrent.futures
 import pathlib
+import shutil
+import subprocess
 from fractions import Fraction
 from typing import Never
 
 import pymupdf
 import pytest
 
-from muse import chordseat, gate, pdfcheck, pdftext, port, publish, song, symbolfont
+from muse import build, chordseat, gate, pdfcheck, pdftext, port, publish, song, symbolfont
 from muse.model import Bar, Chord, Event, Head, Score, Text, UnknownEncodingError, UnknownGlyphError
 
 
@@ -391,3 +394,54 @@ def test_the_gate_judges_a_pdf_against_the_positions_of_its_own_render(tmp_path:
     pdf.write_bytes(b"%PDF drawn by another render")
     with pytest.raises(port.DoesNotFitError):
         gate.measured(pdf, work)
+
+
+def test_every_revision_publishing_asks_git_for_is_one_git_reads(tmp_path: pathlib.Path) -> None:
+    """A fake runner answers any revision, so each one publishing passes is checked against a real repository."""
+    calls: list[tuple[str, ...]] = []
+
+    def run(*args: str, **_where: pathlib.Path) -> str:
+        calls.append(args)
+        return {"--cached": "staged", "rev-parse": "t", "get-url": "u"}.get(
+            next((x for x in reversed(args) if x in {"--cached", "rev-parse", "get-url"}), ""),
+            "",
+        )
+
+    publish.publish(publish.Places(tmp_path, tmp_path, tmp_path), run, lambda *_: {})
+    revisions = [args[-1] for args in calls if args[:2] == ("git", "rev-parse")]
+    assert revisions
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    git = shutil.which("git")
+    assert git is not None
+    for step in (["init", "-q"], ["commit", "-q", "--allow-empty", "-m", "x"]):
+        subprocess.run([git, "-C", str(repo), *step], check=True, capture_output=True)
+    for revision in revisions:
+        assert (
+            subprocess.run([git, "-C", str(repo), "rev-parse", revision], capture_output=True, check=False).returncode == 0
+        ), revision
+
+
+def finished(name: str) -> tuple[dict[str, object] | None, str]:
+    return {"song": name}, ""
+
+
+def test_a_failed_publish_blocks_only_its_own_song(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
+    """A publish that raises reports its song blocked and the run goes on to publish the rest."""
+
+    def publish_song(*args: object) -> str:
+        if args[-1] == "First":
+            msg = "rev-parse: bad revision"
+            raise publish.RefusedError(msg)
+        return ""
+
+    monkeypatch.setattr(build, "publish_song", publish_song)
+    monkeypatch.setattr(build, "song_of", lambda src: type("Info", (), {"name": src.stem})())
+    reports: list[dict[str, object]] = []
+    refused: list[str] = []
+    blocked: list[str] = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+        jobs = {pool.submit(finished, name): tmp_path / f"{name}.pdf" for name in ("First", "Second")}
+        build._collect(pool, jobs, (tmp_path, tmp_path, tmp_path, tmp_path, True), (reports, refused, blocked))
+    assert blocked == ["First"]
+    assert len(reports) == 2

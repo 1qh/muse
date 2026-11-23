@@ -166,7 +166,7 @@ def publish(
     elif not run("git", "rev-list", "@{u}..HEAD", cwd=out):
         return blocked
     pushed(run, ("git", "push"), out)
-    tree = run("git", "rev-parse", "HEAD^{tree}", cwd=out)
+    tree = run("git", "rev-parse", "HEAD:", cwd=out)
     url = run("git", "remote", "get-url", "origin", cwd=out)
     with tempfile.TemporaryDirectory() as tmp:
         mirror = pathlib.Path(tmp) / "mirror.git"
@@ -181,7 +181,7 @@ def publish(
             run("git", "filter-repo", "--strip-blobs-with-ids", str(listed), "--force", cwd=mirror)
         run("git", "reflog", "expire", "--expire=now", "--all", cwd=mirror)
         run("git", "gc", "--prune=now", "--aggressive", cwd=mirror)
-        if run("git", "rev-parse", f"HEAD^{tree}", cwd=mirror) != tree:
+        if run("git", "rev-parse", "HEAD:", cwd=mirror) != tree:
             msg = "purge changed the current files; nothing force-pushed"
             raise RefusedError(msg)
         pushed(run, ("git", "push", "--force", url, "refs/heads/*:refs/heads/*"), mirror)
@@ -189,7 +189,7 @@ def publish(
     run("git", "reset", "--hard", "origin/HEAD", cwd=out)
     run("git", "reflog", "expire", "--expire=now", "--all", cwd=out)
     run("git", "gc", "--prune=now", cwd=out)
-    if run("git", "rev-parse", f"HEAD^{tree}", cwd=out) != tree:
+    if run("git", "rev-parse", "HEAD:", cwd=out) != tree:
         msg = "local tree differs after the purge"
         raise RefusedError(msg)
     return blocked
