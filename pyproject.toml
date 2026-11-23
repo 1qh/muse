@@ -1,29 +1,13 @@
 [project]
 name = "muse"
 version = "0"
-requires-python = ">=3.12"
-dependencies = ["pymupdf>=1.26", "psutil>=7.2"]
+requires-python = ">=3.14"
+dependencies = ["pymupdf>=2.1", "psutil>=7.2.2"]
 
 [project.optional-dependencies]
-dev = ["pytest", "ruff", "mypy"]
-
-[tool.ruff]
-line-length = 300
-src = ["src"]
-
-[tool.ruff.lint]
-select = ["E", "F", "I", "B", "UP", "SIM", "RET"]
-
-[tool.mypy]
-strict = true
-mypy_path = "src"
-ignore_missing_imports = true
+dev = ["pytest>=9.2.0"]
 
 [tool.pytest.ini_options]
 markers = ["musescore: drives MuseScore itself; planted-bug controls run these only when they plant in code MuseScore runs"]
 pythonpath = ["src"]
 testpaths = ["tests"]
-
-[[tool.mypy.overrides]]
-module = "pymupdf"
-follow_imports = "skip"
