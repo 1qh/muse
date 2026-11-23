@@ -98,14 +98,14 @@ def run_extension(source: pathlib.Path, target: pathlib.Path) -> None:
     """1 MuseScore launch: open the score, seat its chords by measuring its own layout, save it.
 
     Raises:
-        DoesNotFit: when the launch fails or writes no target.
+        DoesNotFitError: when the launch fails or writes no target.
 
     """
     uri = install_extension()
     done = launch.mscore(["--extension", uri, "-o", str(target), str(source)], EXTENSION_SECONDS)
     if done.returncode or not target.exists():
         msg = f"{source.name}: the seating extension failed: {done.stderr[-300:]}"
-        raise port.DoesNotFit(msg)
+        raise port.DoesNotFitError(msg)
 
 
 POINTS_PER_MM = 72 / 25.4
@@ -127,20 +127,20 @@ def set_tags(score_path: pathlib.Path, tags: dict[str, str]) -> None:
 
 
 def read_tag(score_path: pathlib.Path, key: str) -> str:
-    """Read a score tag's value; DoesNotFit when the extension never wrote it.
+    """Read a score tag's value; DoesNotFitError when the extension never wrote it.
 
     Returns:
         The tag's value.
 
     Raises:
-        DoesNotFit: when the extension never wrote the tag.
+        DoesNotFitError: when the extension never wrote the tag.
 
     """
     _, text = chordseat.score_text(score_path)
     found = re.search(rf'<metaTag name="{key}">([^<]*)</metaTag>', text)
     if found is None:
         msg = f"{score_path.name}: the extension wrote no {key}"
-        raise port.DoesNotFit(msg)
+        raise port.DoesNotFitError(msg)
     return str(found.group(1))
 
 
@@ -177,7 +177,7 @@ class Sheet:
         return self.work / f"{self.name}-{self.size:g}-{label}.mscz"
 
     def imported(self) -> pathlib.Path:
-        return port.imported(self.score, self.work, self.name, self.import_style, False)
+        return port.imported(self.score, self.work, self.name, self.import_style, clear=False)
 
     def starts(self) -> list[int]:
         """1-based bars that open a line.
@@ -287,7 +287,7 @@ def chord_shares(natural: pathlib.Path, bars: int, noted: list[int]) -> list[flo
         Each bar's share.
 
     Raises:
-        DoesNotFit: when the extension reports crowding or measures the wrong bar count.
+        DoesNotFitError: when the extension reports crowding or measures the wrong bar count.
 
     """
     probe = natural.with_name(natural.stem + "-chords.mscz")
@@ -304,11 +304,11 @@ def chord_shares(natural: pathlib.Path, bars: int, noted: list[int]) -> list[flo
     crowded = read_tag(probe, "museSeatError")
     if crowded:
         msg = f"{natural.name}: measuring chord room: {crowded}"
-        raise port.DoesNotFit(msg)
+        raise port.DoesNotFitError(msg)
     shares = [float(value) for value in read_tag(probe, "museChordShare").split(",")]
     if len(shares) != bars:
         msg = f"{natural.name}: the extension measured {len(shares)} bars of {bars}"
-        raise port.DoesNotFit(msg)
+        raise port.DoesNotFitError(msg)
     return shares
 
 
@@ -406,13 +406,13 @@ def render(sheet: Sheet, label: str, *, seated: bool = False) -> tuple[pathlib.P
         The score path and the rendered probe.
 
     Raises:
-        DoesNotFit: when a seated render finds no seated score.
+        DoesNotFitError: when a seated render finds no seated score.
 
     """
     score_path = sheet.path(label)
     if seated and not score_path.exists():
         msg = f"{score_path.name}: no seated score to render; its edits would be lost"
-        raise port.DoesNotFit(msg)
+        raise port.DoesNotFitError(msg)
     if not seated:
         port.edited(sheet.imported(), score_path, sheet.size, sheet.distance, sheet.score)
         rewrite(score_path, placed)
@@ -750,21 +750,21 @@ def finish(
         The finished score, its path, size, line gap and page count.
 
     Raises:
-        DoesNotFit: when no line gap passes.
+        DoesNotFitError: when no line gap passes.
 
     """
-    refusal: port.DoesNotFit | None = None
+    refusal: port.DoesNotFitError | None = None
     learned: list[list[float]] = []
     for step in range(int(GAP_REACH / GAP_STEP) + 1):
         try:
             return finish_at(src, work, variant, size, port.BASE_DISTANCE + step * GAP_STEP, learned)
-        except port.DoesNotFit as error:
+        except port.DoesNotFitError as error:
             if "text on text" not in str(error):
                 raise
             refusal = error
     if refusal is None:
         msg = f"{src.stem} at {size}: no line gap was tried"
-        raise port.DoesNotFit(msg)
+        raise port.DoesNotFitError(msg)
     raise refusal
 
 
@@ -846,7 +846,7 @@ def finish_at(
         The finished score, its path, size, line gap and page count.
 
     Raises:
-        DoesNotFit: when lines still overflow or a final check fails.
+        DoesNotFitError: when lines still overflow or a final check fails.
 
     """
     sheet = Sheet(src, work, variant, size, distance)
@@ -872,7 +872,7 @@ def finish_at(
                 f"{sheet.name} at {size}: bars {sorted(b + 1 for b in bad)} overflow and no plan can move them: "
                 f"{port.crowded_reasons(probe)[:3]}"
             )
-            raise port.DoesNotFit(
+            raise port.DoesNotFitError(
                 msg,
             )
         widths = grown
@@ -880,12 +880,12 @@ def finish_at(
             learned.append(widths)
     else:
         msg = f"{sheet.name} at {size}: lines still overflow after {REPLAN_ROUNDS} plans"
-        raise port.DoesNotFit(msg)
+        raise port.DoesNotFitError(msg)
     probe = current_render(score_path, probe, lambda: render(sheet, "final", seated=True)[1])
     problems = _final_problems(sheet, score_path, probe)
     if problems:
         msg = f"{sheet.name} at {size}: {problems[:3]}"
-        raise port.DoesNotFit(msg)
+        raise port.DoesNotFitError(msg)
     return sheet.score, score_path, size, sheet.distance, len(pdftext.open(probe))
 
 
@@ -896,7 +896,7 @@ def lay(src: pathlib.Path, work: pathlib.Path, variant: str) -> tuple[Score, pat
         The best finished score, its path, size, line gap and page count.
 
     Raises:
-        DoesNotFit: when no size passes.
+        DoesNotFitError: when no size passes.
 
     """
     sizes = port.sizes_between(port.SIZE_FLOORS[-1], port.SIZE_CAP)
@@ -910,7 +910,7 @@ def lay(src: pathlib.Path, work: pathlib.Path, variant: str) -> tuple[Score, pat
             continue
         try:
             done = finish(src, work, variant, size)
-        except port.DoesNotFit as error:
+        except port.DoesNotFitError as error:
             refusals.append(str(error))
             sys.stdout.write(f"refused {error}" + "\n")
             sys.stdout.flush()
@@ -924,4 +924,4 @@ def lay(src: pathlib.Path, work: pathlib.Path, variant: str) -> tuple[Score, pat
         for c in found
     ]
     msg = f"{src.stem} {variant}: no size passes: {refusals[:3] or summary}"
-    raise port.DoesNotFit(msg)
+    raise port.DoesNotFitError(msg)

@@ -12,7 +12,7 @@ import re
 import pymupdf
 
 from muse import bravura, leland, orchestral, symbolfont
-from muse.model import Orchestra, Score, UnknownEncoding
+from muse.model import Orchestra, Score, UnknownEncodingError
 from muse.smufl import PRIVATE_USE
 
 MAJOR = {
@@ -57,7 +57,7 @@ MUSIC_FONTS = ("Anastasia", "Bravura")
 NAME_AND_KEY = 2
 
 
-class SongRefused(ValueError):
+class SongRefusedError(ValueError):
     """A source whose name and contents disagree, or that names no usable key or title."""
 
 
@@ -114,7 +114,7 @@ def sources(folders: pathlib.Path) -> list[pathlib.Path]:
         The source PDFs, sorted by name.
 
     Raises:
-        SongRefused: a song name repeats across the folders.
+        SongRefusedError: a song name repeats across the folders.
 
     """
     found = sorted(
@@ -125,7 +125,7 @@ def sources(folders: pathlib.Path) -> list[pathlib.Path]:
     repeated = {name for name in names if names.count(name) > 1}
     if repeated:
         msg = f"song names repeat across folders: {sorted(repeated)}"
-        raise SongRefused(msg)
+        raise SongRefusedError(msg)
     return found
 
 
@@ -136,7 +136,7 @@ def encoding(path: pathlib.Path) -> str:
         The decoder's name.
 
     Raises:
-        UnknownEncoding: no decoder knows the PDF's fonts or glyphs.
+        UnknownEncodingError: no decoder knows the PDF's fonts or glyphs.
 
     """
     doc = pymupdf.open(path)
@@ -151,7 +151,7 @@ def encoding(path: pathlib.Path) -> str:
     if {symbolfont.STAFF, 0xF026} <= codes:
         return "symbolfont"
     msg = f"{path.name}: unknown music encoding, fonts {fonts}"
-    raise UnknownEncoding(msg)
+    raise UnknownEncodingError(msg)
 
 
 def settle_chord_bars(score: Score) -> Score:
@@ -201,12 +201,12 @@ def orchestra_of(path: pathlib.Path) -> Orchestra:
         The full score.
 
     Raises:
-        SongRefused: the source is not in the full-score folder.
+        SongRefusedError: the source is not in the full-score folder.
 
     """
     if not is_orchestral(path):
         msg = f"{path.name}: not in the {orchestral.FOLDER} folder, so not a full score"
-        raise SongRefused(msg)
+        raise SongRefusedError(msg)
     found = orchestral.decode(path)
     key = KEY.fullmatch(path.stem.rsplit("-", 1)[-1])
     found.minor = None if key is None else key[2] == "m"
@@ -216,7 +216,7 @@ def orchestra_of(path: pathlib.Path) -> Orchestra:
 def decode(path: pathlib.Path) -> Score:
     if is_orchestral(path):
         msg = f"{path.name}: a full score is read by orchestra_of, never as a lead sheet"
-        raise SongRefused(msg)
+        raise SongRefusedError(msg)
     decoders = {"bravura": bravura.decode, "leland": leland.decode, "symbolfont": symbolfont.decode}
     score = settle_chord_bars(decoders[encoding(path)](str(path)))
     found = KEY.fullmatch(path.stem.rsplit("-", 1)[-1])
@@ -226,7 +226,7 @@ def decode(path: pathlib.Path) -> Score:
     return score
 
 
-def target_of(root: str, minor: bool) -> tuple[str, int, str, int]:
+def target_of(root: str, *, minor: bool) -> tuple[str, int, str, int]:
     """Find the nearest target key by semitones.
 
     Returns:
@@ -249,7 +249,7 @@ def title_of(path: pathlib.Path) -> str:
         The title.
 
     Raises:
-        SongRefused: page 1 carries no title text.
+        SongRefusedError: page 1 carries no title text.
 
     """
     spans = []
@@ -262,7 +262,7 @@ def title_of(path: pathlib.Path) -> str:
                     spans.append((span["size"], span["text"].strip()))
     if not spans:
         msg = f"{path.name}: no title text; add it to {OVERRIDES}"
-        raise SongRefused(msg)
+        raise SongRefusedError(msg)
     text = max(spans, key=operator.itemgetter(0))[1]
     return str(text.title() if text.isupper() else text)
 
@@ -272,18 +272,18 @@ def song_of(path: pathlib.Path, score: Score | None = None) -> Song:
     found = KEY.fullmatch(parts[-1]) if len(parts) == NAME_AND_KEY else None
     if not found:
         msg = f"{path.name}: name must end in -<key>, such as Name-Cm"
-        raise SongRefused(msg)
+        raise SongRefusedError(msg)
     root, minor = found[1], found[2] == "m"
     table = MINOR if minor else MAJOR
     if root not in table:
         msg = f"{path.name}: {parts[-1]} is not a usable key"
-        raise SongRefused(msg)
+        raise SongRefusedError(msg)
     full = is_orchestral(path)
     if full:
         concert_key_problem(path, orchestra_of(path), table[root], parts[-1])
     else:
         _printed_key_problem(path, score, table[root], parts[-1])
-    tone, fifths, direction, semis = target_of(root, minor)
+    tone, fifths, direction, semis = target_of(root, minor=minor)
     overrides_path = path.parent / OVERRIDES
     overrides = json.loads(overrides_path.read_text(encoding="utf-8")) if overrides_path.exists() else {}
     title = str(overrides.get(parts[0]) or title_of(path))
@@ -295,7 +295,7 @@ def _printed_key_problem(path: pathlib.Path, score: Score | None, fifths: int, n
     printed = decoded.bars[0].key if decoded.bars else None
     if printed != fifths:
         msg = f"{path.name}: name says {named} ({fifths} fifths), the sheet prints {printed} fifths"
-        raise SongRefused(
+        raise SongRefusedError(
             msg,
         )
 
@@ -307,7 +307,7 @@ def concert_key_problem(path: pathlib.Path, score: Orchestra, fifths: int, named
     and each transposing part prints it moved by its transposition.
 
     Raises:
-        SongRefused: a part prints another key, or no part prints the named one.
+        SongRefusedError: a part prints another key, or no part prints the named one.
 
     """
     wrong = [
@@ -318,4 +318,4 @@ def concert_key_problem(path: pathlib.Path, score: Orchestra, fifths: int, named
     ]
     if wrong or not any(part.transposition is None and part.key == fifths for part in score.parts):
         msg = f"{path.name}: name says {named} ({fifths} fifths), parts print {wrong or 'no such key'}"
-        raise SongRefused(msg)
+        raise SongRefusedError(msg)

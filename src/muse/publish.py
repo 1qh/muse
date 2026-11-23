@@ -20,7 +20,7 @@ Runner = Callable[..., str]
 Judge = Callable[[pathlib.Path, pathlib.Path, pathlib.Path, tuple[str, ...]], dict[str, list[str]]]
 
 
-class Refused(RuntimeError):
+class RefusedError(RuntimeError):
     """Publishing stopped before anything left this machine."""
 
 
@@ -37,7 +37,7 @@ def sh(*args: str, cwd: pathlib.Path | None = None) -> str:
     if done.returncode:
         head = " ".join(args[:3])
         msg = f"{head}: {done.stdout[-ERROR_TAIL_CHARS:]}{done.stderr[-ERROR_TAIL_CHARS:]}"
-        raise Refused(msg)
+        raise RefusedError(msg)
     return done.stdout.strip()
 
 
@@ -61,13 +61,13 @@ def pushed(
     """Retry past a forge's server error; any other refusal, or the last try, stands.
 
     Raises:
-        Refused: A refusal that is not a server error, or the last try's refusal.
+        RefusedError: A refusal that is not a server error, or the last try's refusal.
 
     """
     for attempt in range(1, tries + 1):
         try:
             run(*command, cwd=where)
-        except Refused as error:
+        except RefusedError as error:
             if attempt == tries or "Internal Server Error" not in str(error):
                 raise
             time.sleep(wait)
@@ -139,7 +139,7 @@ def publish(
 
     Raises:
         SystemExit: The sheets repo holds a file that is neither a PDF nor a MuseScore file.
-        Refused: The purge changed the current files, or the local tree differs after it.
+        RefusedError: The purge changed the current files, or the local tree differs after it.
 
     """
     verdicts = judge(src, out, work, names)
@@ -175,7 +175,7 @@ def publish(
         run("git", "gc", "--prune=now", "--aggressive", cwd=mirror)
         if run("git", "rev-parse", f"HEAD^{tree}", cwd=mirror) != tree:
             msg = "purge changed the current files; nothing force-pushed"
-            raise Refused(msg)
+            raise RefusedError(msg)
         pushed(run, ("git", "push", "--force", url, "refs/heads/*:refs/heads/*"), mirror)
     run("git", "fetch", "origin", cwd=out)
     run("git", "reset", "--hard", "origin/HEAD", cwd=out)
@@ -183,7 +183,7 @@ def publish(
     run("git", "gc", "--prune=now", cwd=out)
     if run("git", "rev-parse", f"HEAD^{tree}", cwd=out) != tree:
         msg = "local tree differs after the purge"
-        raise Refused(msg)
+        raise RefusedError(msg)
     return blocked
 
 
@@ -194,7 +194,7 @@ def main() -> None:
     src, out, work = map(pathlib.Path, sys.argv[1:4])
     try:
         blocked = publish(src, out, work, names=tuple(sys.argv[4:]))
-    except Refused as error:
+    except RefusedError as error:
         raise SystemExit(str(error)) from error
     for song, failures in blocked.items():
         sys.stdout.write(f"blocked {song}: {failures[:SHOWN_FAILURES]}" + "\n")

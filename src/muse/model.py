@@ -8,11 +8,11 @@ from fractions import Fraction
 LETTERS = "CDEFGAB"
 
 
-class UnknownEncoding(ValueError):
+class UnknownEncodingError(ValueError):
     """A PDF no decoder can read."""
 
 
-class UnknownGlyph(ValueError):
+class UnknownGlyphError(ValueError):
     """A music symbol nobody has decoded; reading past it would silently lose music."""
 
 

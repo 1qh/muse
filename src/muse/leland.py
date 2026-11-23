@@ -10,7 +10,7 @@ from typing import Any
 
 import pymupdf
 
-from muse.model import LETTERS, Bar, Chord, Event, Head, Issue, Score, Text, UnknownGlyph, bar_at, mark_bar
+from muse.model import LETTERS, Bar, Chord, Event, Head, Issue, Score, Text, UnknownGlyphError, bar_at, mark_bar
 from muse.smufl import BAR_REST, RESTS, TIME_DIGITS, beam_y
 from muse.symbolfont import parse_chord
 
@@ -75,7 +75,7 @@ def _music_glyphs(span: dict[str, Any], glyphs: list[tuple[int, float, float]]) 
         if not ch["c"].isspace():
             if ord(ch["c"]) not in KNOWN:
                 msg = f"music glyph {ord(ch['c']):#x} is not decoded"
-                raise UnknownGlyph(msg)
+                raise UnknownGlyphError(msg)
             glyphs.append((ord(ch["c"]), ch["origin"][0], ch["origin"][1]))
 
 

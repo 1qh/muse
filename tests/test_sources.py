@@ -564,7 +564,7 @@ def test_full_score_adds_up_on_every_staff_bar_the_spike_reader_adds_up_on(path:
                     quiet = [r for r in rests if r.staff == staff and a <= r.x < b - 0.3]
                     try:
                         orchestral.voices_of(here, quiet, Fraction(4), "parity")
-                    except orchestral.Unreadable:
+                    except orchestral.UnreadableError:
                         continue
                     ours[page.number, round(staff.top, 1), at] = sum(
                         (s.nominal * (s.ratio or 1) for s in here),

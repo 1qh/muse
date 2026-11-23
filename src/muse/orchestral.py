@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Any
 import pymupdf
 
 from muse import symbolfont
-from muse.model import LETTERS, Bar, Clef, Event, Head, Orchestra, Part, Text, Transposition, UnknownGlyph
+from muse.model import LETTERS, Bar, Clef, Event, Head, Orchestra, Part, Text, Transposition, UnknownGlyphError
 from muse.smufl import beam_y
 from muse.symbolfont import (
     ACCENT_BELOW,
@@ -41,7 +41,7 @@ if TYPE_CHECKING:
 FOLDER = "Orchestral"
 
 
-class Unreadable(ValueError):
+class UnreadableError(ValueError):
     """A full score the reading rules cannot read whole; guessing would ship wrong music."""
 
 
@@ -305,7 +305,7 @@ def roles(doc: pymupdf.Document) -> dict[str, str]:
         Each font's role by font name.
 
     Raises:
-        UnknownGlyph: a music font plays no known role.
+        UnknownGlyphError: a music font plays no known role.
 
     """
     music = symbolfont.font_map(doc)
@@ -323,7 +323,7 @@ def roles(doc: pymupdf.Document) -> dict[str, str]:
     missing = {font for font in music if font not in found}
     if missing:
         msg = f"music fonts with no known role: {sorted(missing)}"
-        raise UnknownGlyph(msg)
+        raise UnknownGlyphError(msg)
     return found
 
 
@@ -349,7 +349,7 @@ def _read_glyphs(span: dict[str, Any], kind: str, sheet: Sheet) -> None:
             continue
         if code not in symbolfont.KNOWN_GLYPHS or code not in FONT_MEANINGS[kind]:
             msg = f"music glyph {code:#x} of the {kind} font is not decoded"
-            raise UnknownGlyph(msg)
+            raise UnknownGlyphError(msg)
         getattr(sheet, kind).append(Glyph(code, c["origin"][0], c["origin"][1], c["bbox"][2]))
 
 
@@ -737,7 +737,7 @@ def systems_of(page_no: int, sheet: Sheet, found: list[Staff], braces: list[tupl
         The page's systems, top down.
 
     Raises:
-        Unreadable: a staff belongs to no system.
+        UnreadableError: a staff belongs to no system.
 
     """
     left = min(s.left for s in found)
@@ -754,7 +754,7 @@ def systems_of(page_no: int, sheet: Sheet, found: list[Staff], braces: list[tupl
     alone = [s for s in found if not any(s in system.staves for system in out)]
     if alone:
         msg = f"page {page_no + 1}: staves at {[round(s.top) for s in alone]} belong to no system"
-        raise Unreadable(msg)
+        raise UnreadableError(msg)
     return out
 
 
@@ -765,7 +765,7 @@ def names_of(sheet: Sheet, members: list[Staff], braces: list[tuple[float, float
         Each staff's part name, top down.
 
     Raises:
-        Unreadable: a staff prints no label, an unknown label, or a shared label that names no part for certain.
+        UnreadableError: a staff prints no label, an unknown label, or a shared label that names no part for certain.
 
     """
     labels = [
@@ -786,10 +786,10 @@ def names_of(sheet: Sheet, members: list[Staff], braces: list[tuple[float, float
     for staff, label in zip(members, printed, strict=True):
         if label is None:
             msg = f"page {page_no + 1}: the staff at {staff.top:.0f} prints no label of its own"
-            raise Unreadable(msg)
+            raise UnreadableError(msg)
         if label not in NAMES:
             msg = f"page {page_no + 1}: unknown staff label {label!r}"
-            raise Unreadable(msg)
+            raise UnreadableError(msg)
         brace = next(((b0, b1) for b0, b1 in braces if b0 <= staff.middle <= b1), None)
         if brace and names and names[-1] in NAMES[label] and printed[len(names) - 1] == label:
             names.append(names[-1])
@@ -801,7 +801,7 @@ def names_of(sheet: Sheet, members: list[Staff], braces: list[tuple[float, float
                 f"page {page_no + 1}: label {label!r} names {len(options)} parts but prints on {sharing} staves,"
                 " so which one it names is unknown"
             )
-            raise Unreadable(
+            raise UnreadableError(
                 msg,
             )
         names.append(
@@ -843,7 +843,7 @@ def system_bars(system: System, verticals: list[tuple[float, float, float, float
         The shared bar lines' x, left to right.
 
     Raises:
-        Unreadable: a staff's bar lines disagree with its system's.
+        UnreadableError: a staff's bar lines disagree with its system's.
 
     """
     each = [bar_lines(staff, verticals) for staff in system.staves]
@@ -851,7 +851,7 @@ def system_bars(system: System, verticals: list[tuple[float, float, float, float
     for staff, found in zip(system.staves, each, strict=True):
         if len(found) != len(common) or any(abs(a - b) > BAR_LINE_DRIFT for a, b in zip(found, common, strict=True)):
             msg = f"page {system.page + 1}: the staff at {staff.top:.0f} has bar lines {found}, its system {common}"
-            raise Unreadable(
+            raise UnreadableError(
                 msg,
             )
     return common
@@ -951,7 +951,7 @@ def voices_of(sounds_here: list[Sound], rests: list[Rest], length: F, where: str
         The bar's voices, each in x order.
 
     Raises:
-        Unreadable: no way to give the rests to the voices fills every voice.
+        UnreadableError: no way to give the rests to the voices fills every voice.
 
     """
     split = _voice_split(sounds_here)
@@ -967,7 +967,7 @@ def voices_of(sounds_here: list[Sound], rests: list[Rest], length: F, where: str
         return [[]]
     best = _fill_voices(voice, keys, rests, length)
     if best is None:
-        raise Unreadable(
+        raise UnreadableError(
             f"{where}: no voice adds up to {length} quarters: "
             + "; ".join(f"{k} {_filled(voice[k], length)}" for k in keys)
             + f"; rests {[str(rest_length(r, length)) for r in rests]}",
@@ -1086,7 +1086,7 @@ def read_system(reading: Reading, system: System, page: _PageItems, *, opens_pag
     """Every staff of 1 system into its part's bars; a part the system hides rests through it.
 
     Raises:
-        Unreadable: the system's bar number disagrees with the reading, or no time signature precedes its first bar.
+        UnreadableError: the system's bar number disagrees with the reading, or no time signature precedes its first bar.
 
     """
     sheet = page.sheet
@@ -1100,12 +1100,12 @@ def read_system(reading: Reading, system: System, page: _PageItems, *, opens_pag
     ]
     if printed and printed[0] != first:
         msg = f"{where}: the system prints bar {printed[0]}, the reading reaches bar {first}"
-        raise Unreadable(msg)
+        raise UnreadableError(msg)
     if any(g.code == TIME_FOUR and system.staves[0].top - 1 <= g.y <= system.staves[-1].bottom + 1 for g in sheet.music):
         reading.time = (4, 4)
     if reading.time is None:
         msg = f"{where}: no time signature before the first bar"
-        raise Unreadable(msg)
+        raise UnreadableError(msg)
     length = F(reading.time[0] * 4, reading.time[1])
     nearest = nearest_of(system.staves)
     reading.frames += [
@@ -1250,7 +1250,7 @@ def _note_mark(system: System, g: Glyph, mark: str, bar_of: Callable[[str, float
             break
     if not near:
         msg = f"page {system.page + 1}: {mark} at {g.x:.0f} stands by no note"
-        raise Unreadable(msg)
+        raise UnreadableError(msg)
     chosen = min(near, key=lambda e: (round(abs(e.x - g.x)), min(abs(h.y - g.y) for h in e.heads)))
     if mark not in chosen.marks:
         chosen.marks.append(mark)
@@ -1272,7 +1272,7 @@ def _flags_into(system: System, sheet: Sheet, bar_of: Callable[[str, float], Bar
         ]
         if not events:
             msg = f"page {system.page + 1}: {flag} at {g.x:.0f} stands by no note of {name}"
-            raise Unreadable(msg)
+            raise UnreadableError(msg)
         setattr(min(events, key=lambda e: abs(e.x - g.x)), flag, True)
 
 
@@ -1346,7 +1346,7 @@ def _opening_clefs(
         found = clefs_on(frame.page.sheet, staff, frame.nearest)
         if not found or found[0].x > frame.system.bars[0] + 20:
             msg = f"{where}: {name} opens its system without a clef"
-            raise Unreadable(msg)
+            raise UnreadableError(msg)
         opening[staff], changes[staff] = found[0], found[1:]
     return opening, changes
 
@@ -1363,7 +1363,7 @@ def _part_key(
     keys = {sum(KEY_ACCIDENTALS[g.code] for g in signature) for signature in signatures}
     if len(keys) != 1 or (name in reading.keys and reading.keys[name] not in keys):
         msg = f"{where}: {name} prints keys {sorted(keys)} after {reading.keys.get(name)}, a key change no rule reads"
-        raise Unreadable(
+        raise UnreadableError(
             msg,
         )
     return keys.pop(), signatures
@@ -1480,7 +1480,7 @@ def staff_voices(
         Each staff's voices.
 
     Raises:
-        Unreadable: a staff's voices fill no bar, and the pair read together does not make 1 line.
+        UnreadableError: a staff's voices fill no bar, and the pair read together does not make 1 line.
 
     """
     lo, hi, length, where = window.lo, window.hi, window.length, window.where
@@ -1491,7 +1491,7 @@ def staff_voices(
             quiet = [r for r in staff_rests if r.staff == staff and lo <= r.x < hi - 0.3]
             voices = voices_of(here, quiet, length, f"{where}{' staff 2' if number == SECOND_STAFF else ''}")
             found.append(voices if voices != [[]] else [[Rest(staff, lo, staff.middle, None, None)]])
-    except Unreadable:
+    except UnreadableError:
         if len(own) < BRACED_PAIR:
             raise
         here = [s for s in staff_sounds if lo <= s.x < hi - 0.3]
@@ -1648,13 +1648,13 @@ def close_ties(bars: list[Bar]) -> None:
 def finish(reading: Reading) -> Orchestra:
     if reading.time is None:
         msg = "no system read"
-        raise Unreadable(msg)
+        raise UnreadableError(msg)
     parts = []
     for name in reading.order:
         bars = reading.parts[name]
         if len(bars) != len(reading.frames):
             msg = f"{name} holds {len(bars)} bars of {len(reading.frames)}"
-            raise Unreadable(msg)
+            raise UnreadableError(msg)
         for bar, (page, opens_system, opens_page) in zip(bars, reading.frames, strict=True):
             bar.page, bar.new_system, bar.new_page = page, opens_system, opens_page
             if (

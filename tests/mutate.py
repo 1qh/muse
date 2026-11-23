@@ -108,8 +108,8 @@ MUTATIONS = [
     ),
     (
         "layout.py",
-        "return port.imported(self.score, self.work, self.name, self.import_style, False)",
-        "return port.imported(self.score, self.work, self.name, self.style, False)",
+        "return port.imported(self.score, self.work, self.name, self.import_style, clear=False)",
+        "return port.imported(self.score, self.work, self.name, self.style, clear=False)",
         "1 import per size",
     ),
     (
@@ -440,7 +440,7 @@ MUTATIONS = [
         "semis = PITCH[target_root] - pitch",
         "nearest target",
     ),
-    ("song.py", "raise UnknownEncoding(", "return 'symbolfont' or (", "unknown encoding"),
+    ("song.py", "raise UnknownEncodingError(", "return 'symbolfont' or (", "unknown encoding"),
     ("song.py", "text.title() if text.isupper() else text", "text", "title case"),
     ("symbolfont.py", 'if ord(ch["c"]) not in LEAD_SHEET_GLYPHS:', "if False:", "unknown glyph"),
     ("publish.py", "        keep_last_good(out, song, run)\n", "        pass\n", "keep last good"),
@@ -460,7 +460,7 @@ MUTATIONS = [
     ),
     (
         "orchestral.py",
-        'raise UnknownGlyph(f"music glyph {code:#x} of the {kind} font is not decoded")',
+        'raise UnknownGlyphError(f"music glyph {code:#x} of the {kind} font is not decoded")',
         "continue",
         "full score unknown glyph skipped",
     ),

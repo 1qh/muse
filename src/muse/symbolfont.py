@@ -10,7 +10,7 @@ from typing import Any
 
 import pymupdf
 
-from muse.model import LETTERS, Bar, Chord, Event, Head, Issue, Score, Text, UnknownGlyph, bar_at
+from muse.model import LETTERS, Bar, Chord, Event, Head, Issue, Score, Text, UnknownGlyphError, bar_at
 
 HEADS = {
     0xF0CF: ("black", "down"),
@@ -289,7 +289,7 @@ def _music_glyphs(s: dict[str, Any]) -> list[G]:
     for ch in s["chars"]:
         if ord(ch["c"]) not in LEAD_SHEET_GLYPHS:
             msg = f"music glyph {ord(ch['c']):#x} is not decoded"
-            raise UnknownGlyph(msg)
+            raise UnknownGlyphError(msg)
         glyphs.append(G(ord(ch["c"]), ch["origin"][0], ch["origin"][1], s["size"]))
     return glyphs
 
@@ -1005,7 +1005,6 @@ class Decoder:
 
     def _read_staff(self, bar: Bar, staff: _Staff) -> list[list[Event]]:
         events: list[Event] = []
-        bar_rest = False
         for g in staff.near:
             if g.code in HEADS:
                 events.append(_head_event(g, bar.length, staff))
@@ -1014,15 +1013,13 @@ class Decoder:
                 events.append(Event(g.x, [head], Fraction(1, 2), 0, "up", grace=True))
             elif g.code in RESTS:
                 events.append(_rest_event(g, staff.near))
-            elif g.code == BAR_REST:
-                bar_rest = True
             elif g.code == SIMILE:
                 t = Text(g.x, g.y, [("//", True, False)], above=True, size=10)
                 (bar.texts if staff.base == self.top_base else bar.texts2).append(t)
         events.sort(key=lambda e: e.x)
-        return self.voices(bar, events, bar_rest, staff.near)
+        return self.voices(bar, events)
 
-    def voices(self, bar: Bar, events: list[Event], bar_rest: bool, near: list[G]) -> list[list[Event]]:
+    def voices(self, bar: Bar, events: list[Event]) -> list[list[Event]]:
         chords = _merge_chords(events)
         self._mark_threes(bar, chords)
         if not chords:

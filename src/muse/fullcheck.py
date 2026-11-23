@@ -159,7 +159,7 @@ def problems(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path, info: Son
     def guarded(label: str, step: collections.abc.Callable[[], list[str]]) -> None:
         try:
             failures.extend(f"{label}: {problem}" for problem in step())
-        except launch.MachineUnavailable:
+        except launch.MachineUnavailableError:
             raise
         except Exception as error:
             failures.append(f"{label}: could not run: {str(error)[:160]}")

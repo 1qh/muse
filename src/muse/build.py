@@ -273,7 +273,7 @@ def child_main(src: pathlib.Path, stage: pathlib.Path, work: pathlib.Path) -> No
     """
     try:
         song(src, stage, work)
-    except (port.DoesNotFit, RuntimeError, OSError, subprocess.SubprocessError, ValueError) as error:
+    except (port.DoesNotFitError, RuntimeError, OSError, subprocess.SubprocessError, ValueError) as error:
         (work / f"{song_of(src).name}-refusal.txt").write_text(str(error), encoding="utf-8")
         raise SystemExit(2) from error
 
@@ -315,7 +315,7 @@ def _collect(
         if publishing:
             try:
                 reason = publish_song(src_dir, out_dir, work, stage, song_of(src).name)
-            except launch.MachineUnavailable as error:
+            except launch.MachineUnavailableError as error:
                 pool.shutdown(wait=False, cancel_futures=True)
                 raise SystemExit(str(error)) from error
             _say(f"{'blocked' if reason else 'published'} {song_of(src).name} {reason}".rstrip())

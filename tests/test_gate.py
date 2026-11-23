@@ -9,7 +9,7 @@ import pymupdf
 import pytest
 
 from muse import chordseat, gate, pdfcheck, pdftext, port, publish, song, symbolfont
-from muse.model import Bar, Chord, Event, Head, Score, Text, UnknownEncoding, UnknownGlyph
+from muse.model import Bar, Chord, Event, Head, Score, Text, UnknownEncodingError, UnknownGlyphError
 
 
 def blank(
@@ -41,20 +41,20 @@ def blank(
         ("A", False, ("G", 1, "down", -2)),
     ],
 )
-def test_target_is_the_nearest_key(root: str, minor: bool, want: tuple[str, int, str, int]) -> None:
-    assert song.target_of(root, minor) == want
+def test_target_is_the_nearest_key(root: str, *, minor: bool, want: tuple[str, int, str, int]) -> None:
+    assert song.target_of(root, minor=minor) == want
 
 
 def test_name_and_printed_key_must_agree(tmp_path: pathlib.Path) -> None:
     path = blank(tmp_path / "Song-Cm.pdf", text="BIG TITLE")
     score = Score([Bar(1, 0, 0.0, 1.0, Fraction(4), key=-1)], [], [])
-    with pytest.raises(song.SongRefused, match="prints -1"):
+    with pytest.raises(song.SongRefusedError, match="prints -1"):
         song.song_of(path, score)
     assert song.song_of(path, Score([Bar(1, 0, 0.0, 1.0, Fraction(4), key=-3)], [], [])).tone == "Am"
 
 
 def test_a_name_without_a_key_is_refused(tmp_path: pathlib.Path) -> None:
-    with pytest.raises(song.SongRefused, match="must end in"):
+    with pytest.raises(song.SongRefusedError, match="must end in"):
         song.song_of(blank(tmp_path / "Song.pdf"))
 
 
@@ -72,7 +72,7 @@ def test_title_comes_from_the_largest_text_and_an_override_wins(tmp_path: pathli
 
 
 def test_unknown_encoding_is_refused_by_font_name(tmp_path: pathlib.Path) -> None:
-    with pytest.raises(UnknownEncoding, match="Helvetica"):
+    with pytest.raises(UnknownEncodingError, match="Helvetica"):
         song.encoding(blank(tmp_path / "Song-Am.pdf"))
 
 
@@ -83,7 +83,7 @@ def test_unknown_music_glyph_is_refused() -> None:
             char = {"c": "", "origin": (1.0, 1.0)}
             return {"blocks": [{"lines": [{"spans": [{"font": "M", "size": 17.9, "chars": [char]}]}]}]}
 
-    with pytest.raises(UnknownGlyph, match="0xf0aa"):
+    with pytest.raises(UnknownGlyphError, match="0xf0aa"):
         symbolfont.load(Page(), {"M": "music"})
 
 
@@ -142,7 +142,7 @@ def test_low_homr_agreement_fails(tmp_path: pathlib.Path, monkeypatch: pytest.Mo
 
 
 def test_missing_font_names_the_font_and_where_to_install(tmp_path: pathlib.Path) -> None:
-    with pytest.raises(port.MissingFont, match=f"SF Pro Display.*{tmp_path}"):
+    with pytest.raises(port.MissingFontError, match=f"SF Pro Display.*{tmp_path}"):
         port.require_font((tmp_path,))
     for name in port.SF_PRO_FILES:
         (tmp_path / name).write_bytes(b"")
@@ -163,7 +163,7 @@ def recorder(
             return state
         if "muse.gate" in args and gate_fails:
             msg = "failures 1"
-            raise publish.Refused(msg)
+            raise publish.RefusedError(msg)
         return "tree"
 
     return run, calls
@@ -232,7 +232,7 @@ def test_a_server_error_retries_and_a_real_refusal_does_not(tmp_path: pathlib.Pa
         seen.append(args)
         if len(seen) == 1:
             msg = "remote rejected (Internal Server Error)"
-            raise publish.Refused(msg)
+            raise publish.RefusedError(msg)
 
     publish.pushed(run, ("git", "push"), tmp_path, wait=0)
     assert len(seen) == 2
@@ -241,10 +241,10 @@ def test_a_server_error_retries_and_a_real_refusal_does_not(tmp_path: pathlib.Pa
         _ = cwd
         seen.append(args)
         msg = "non-fast-forward"
-        raise publish.Refused(msg)
+        raise publish.RefusedError(msg)
 
     seen.clear()
-    with pytest.raises(publish.Refused):
+    with pytest.raises(publish.RefusedError):
         publish.pushed(refuse, ("git", "push"), tmp_path, wait=0)
     assert len(seen) == 1
 
@@ -343,6 +343,7 @@ def test_a_sign_bar_leaves_both_the_evening_and_the_judgement_of_empty_bars() ->
 def test_print_mode_alone_lets_a_bar_of_crowded_chords_out_of_the_even_bars_judgement(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: pathlib.Path,
+    *,
     printing: bool,
 ) -> None:
     seen = {}
@@ -401,5 +402,5 @@ def test_the_gate_judges_a_pdf_against_the_positions_of_its_own_render(tmp_path:
     measured = gate.measured(pdf, work)
     assert measured.with_suffix(".mpos").read_text() == "<positions of that render/>"
     pdf.write_bytes(b"%PDF drawn by another render")
-    with pytest.raises(port.DoesNotFit):
+    with pytest.raises(port.DoesNotFitError):
         gate.measured(pdf, work)

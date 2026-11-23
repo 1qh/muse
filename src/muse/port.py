@@ -47,7 +47,7 @@ MIN_BALANCED_PAGES = 2
 TIE_LOOKBACK = 2
 
 
-class MissingFont(RuntimeError):
+class MissingFontError(RuntimeError):
     """MuseScore would quietly fall back to another font."""
 
 
@@ -55,7 +55,7 @@ def require_font(folders: tuple[pathlib.Path, ...] = FONT_DIRS) -> None:
     missing = [name for name in SF_PRO_FILES if not any((folder / name).exists() for folder in folders)]
     if missing:
         msg = f"SF Pro Display is missing {missing}; install it from Apple into {folders[0]}"
-        raise MissingFont(msg)
+        raise MissingFontError(msg)
 
 
 def run(*args: str) -> None:
@@ -72,7 +72,7 @@ BOX = (
 SIGN_BOX = {"segno": BOX.format(220, 0, 0), "coda": BOX.format(0, 0, 220)}
 
 
-def real_jumps(mscz: pathlib.Path, clear_chord: bool = False) -> None:
+def real_jumps(mscz: pathlib.Path, *, clear_chord: bool = False) -> None:
     """Import keeps jump words as staff text; replace them with MuseScore's own jump elements."""
     items = {}
     with zipfile.ZipFile(mscz) as z:
@@ -296,7 +296,7 @@ def line_heights(pdf: pathlib.Path, firsts: list[int]) -> tuple[list[float], int
         Each line's height, and the number of pages.
 
     Raises:
-        DoesNotFit: A page is blank, so its lines have no height.
+        DoesNotFitError: A page is blank, so its lines have no height.
 
     """
     where: dict[int, tuple[int, float]] = {}
@@ -307,7 +307,7 @@ def line_heights(pdf: pathlib.Path, firsts: list[int]) -> tuple[list[float], int
         inked, _ = pdfcheck.inked_rows(page.page, 72)
         if not inked:
             msg = f"{pdf.name}: page {page_no + 1} is blank, so its lines have no height"
-            raise DoesNotFit(msg)
+            raise DoesNotFitError(msg)
         tops.append(float(inked[0]))
         bottoms.append(float(inked[-1]))
         for block in page.get_text("dict")["blocks"]:
@@ -391,7 +391,7 @@ def page_of(pdf: pathlib.Path, bar: int) -> int:
         The page a bar's printed number stands on.
 
     Raises:
-        DoesNotFit: The bar opens a line that prints no number.
+        DoesNotFitError: The bar opens a line that prints no number.
 
     """
     if bar == 1:
@@ -403,10 +403,10 @@ def page_of(pdf: pathlib.Path, bar: int) -> int:
                     if span["text"].strip() == str(bar) and span["bbox"][0] < NUMBER_MARGIN and "Italic" in span["font"]:
                         return page_no
     msg = f"{pdf.name}: bar {bar} opens a line that prints no number"
-    raise DoesNotFit(msg)
+    raise DoesNotFitError(msg)
 
 
-class DoesNotFit(Exception):
+class DoesNotFitError(Exception):
     """The size does not fit the song's page count."""
 
 
@@ -531,7 +531,7 @@ IMPORTS: dict[str, threading.Lock] = {}
 IMPORTS_LOCK = threading.Lock()
 
 
-def imported(score: Score, work: pathlib.Path, sheet: str, style: pathlib.Path, clear: bool) -> pathlib.Path:
+def imported(score: Score, work: pathlib.Path, sheet: str, style: pathlib.Path, *, clear: bool) -> pathlib.Path:
     """1 import of a sheet with no line breaks, its signs set; every trial edits a copy of it.
 
     Returns:
@@ -562,7 +562,7 @@ def imported(score: Score, work: pathlib.Path, sheet: str, style: pathlib.Path, 
             fresh = path.with_name(path.stem + "-fresh.mscz")
             run("-S", str(style), "-o", str(fresh), str(xml))
             strip_title_frame(fresh)
-            real_jumps(fresh, clear)
+            real_jumps(fresh, clear_chord=clear)
             big_signs(fresh)
             fresh.replace(path)
     return path

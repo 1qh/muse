@@ -88,7 +88,7 @@ def fit(xml: pathlib.Path, work: pathlib.Path, final: pathlib.Path, info: Song, 
         The staff space that fits.
 
     Raises:
-        DoesNotFit: no staff space down to the floor holds every source system.
+        DoesNotFitError: no staff space down to the floor holds every source system.
 
     """
     tried = []
@@ -107,4 +107,4 @@ def fit(xml: pathlib.Path, work: pathlib.Path, final: pathlib.Path, info: Song, 
         tried.append(f"{spatium:g}: {problems[0]}")
         spatium = round(spatium - SPATIUM_STEP, 2)
     msg = f"{info.name}: no staff space holds every source system: {tried[-3:]}"
-    raise port.DoesNotFit(msg)
+    raise port.DoesNotFitError(msg)

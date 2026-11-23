@@ -79,7 +79,7 @@ UNAVAILABLE = "the locked Mac refuses the tools a build needs: unlock it"
 REFUSED_BY_LOCK = ("Error creating pasteboard", "Unable to compute the prediction using a neural network model")
 
 
-class MachineUnavailable(RuntimeError):
+class MachineUnavailableError(RuntimeError):
     """MuseScore aborted because the machine refused it a window session: no song is at fault."""
 
 
@@ -90,6 +90,7 @@ SAMPLE_SECONDS = 3
 def heavy(
     argv: list[str],
     timeout: float,
+    *,
     check: bool = False,
     cwd: pathlib.Path | None = None,
 ) -> subprocess.CompletedProcess[str]:
@@ -103,7 +104,7 @@ def heavy(
 
     Raises:
         TimeoutExpired: the run outlived its timeout; its stack was sampled first.
-        MachineUnavailable: the locked machine refused the tool a window session.
+        MachineUnavailableError: the locked machine refused the tool a window session.
 
     """
     with GATE:
@@ -127,7 +128,7 @@ def heavy(
         done = subprocess.CompletedProcess(argv, process.returncode, out, err)
         if process.returncode and any(sign in err for sign in REFUSED_BY_LOCK):
             msg = f"{UNAVAILABLE} ({argv[0]} failed: {err.strip()[-200:]})"
-            raise MachineUnavailable(msg)
+            raise MachineUnavailableError(msg)
         if check:
             done.check_returncode()
         return done
@@ -166,6 +167,7 @@ def mscore(
     args: list[str],
     timeout: float,
     command: str = "mscore",
+    *,
     check: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     """Launch MuseScore once through the shared slots, its own logs removed after it.
@@ -176,7 +178,7 @@ def mscore(
     """
     began = time.time()
     try:
-        return heavy([command, *args], timeout, check)
+        return heavy([command, *args], timeout, check=check)
     finally:
         drop_own_logs(roots_of(args), began - 1, time.time() + 1)
 

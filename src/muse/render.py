@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 JOB_SECONDS = 900
 
 
-class RenderFailed(RuntimeError):
+class RenderFailedError(RuntimeError):
     """MuseScore wrote no output for a render it was given."""
 
 
@@ -58,7 +58,7 @@ class Batcher:
         """Write every output of 1 score, waiting for the job that carries it.
 
         Raises:
-            RenderFailed: MuseScore wrote no output for this score.
+            RenderFailedError: MuseScore wrote no output for this score.
 
         """
         for out in outputs:
@@ -95,7 +95,7 @@ class Batcher:
             finally:
                 self.waiting -= 1
         if failure is not None and failure:
-            raise RenderFailed(failure)
+            raise RenderFailedError(failure)
 
     def run(self, batch: list[dict[str, Any]]) -> dict[int, str | None]:
         """1 MuseScore job for the batch; each render's verdict is whether its outputs exist.

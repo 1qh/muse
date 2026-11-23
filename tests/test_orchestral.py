@@ -13,7 +13,7 @@ from typing import Never, TypedDict, Unpack
 import pytest
 
 from muse import build, fullcheck, fullscore, gate, musicxml, orchestral, port, preflight, song, symbolfont
-from muse.model import Bar, Event, Head, Orchestra, Part, Text, UnknownGlyph
+from muse.model import Bar, Event, Head, Orchestra, Part, Text, UnknownGlyphError
 
 
 def test_every_full_score_glyph_is_known_with_its_meaning_and_none_reaches_a_lead_sheet() -> None:
@@ -65,9 +65,9 @@ class FakePage:
 
 
 def test_an_undecoded_glyph_is_refused_and_a_known_one_is_read() -> None:
-    with pytest.raises(UnknownGlyph, match="0xf0c3"):
+    with pytest.raises(UnknownGlyphError, match="0xf0c3"):
         orchestral.read(FakePage(0xF0C3), {"M": "music"})
-    with pytest.raises(UnknownGlyph, match="0xf0aa"):
+    with pytest.raises(UnknownGlyphError, match="0xf0aa"):
         orchestral.read(FakePage(symbolfont.AUGMENTATION_DOT), {"M": "music"})
     assert (
         orchestral.read(FakePage(symbolfont.AUGMENTATION_DOT), {"M": "extra"}).extra[0].code == symbolfont.AUGMENTATION_DOT
@@ -174,12 +174,12 @@ def test_a_full_score_song_names_3_files_and_its_key_from_its_strings(
     path.write_bytes(b"")
     monkeypatch.setattr(song, "title_of", lambda _path: "Title")
     monkeypatch.setattr(orchestral, "decode", lambda _path: small_orchestra())
-    with pytest.raises(song.SongRefused, match="Harp"):
+    with pytest.raises(song.SongRefusedError, match="Harp"):
         song.song_of(folder / "Score-E.pdf")
     found = song.song_of(path)
     assert found.orchestral
     assert found.files() == {found.score_file, found.original_pdf}
-    with pytest.raises(song.SongRefused, match="full score"):
+    with pytest.raises(song.SongRefusedError, match="full score"):
         song.decode(path)
 
 
@@ -314,7 +314,7 @@ def test_preflight_reads_a_full_score_with_its_own_reader(
     assert not preflight.song_problem(path)
     wrong = tmp_path / orchestral.FOLDER / "Score-E.pdf"
     wrong.write_bytes(b"source")
-    assert preflight.song_problem(wrong).startswith("SongRefused")
+    assert preflight.song_problem(wrong).startswith("SongRefusedError")
 
 
 def test_a_mark_between_2_systems_belongs_to_the_nearer_one_only() -> None:

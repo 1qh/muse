@@ -32,7 +32,7 @@ class _StandInSheet(layout.Sheet):
 
 def test_seated_render_refuses_a_missing_score(tmp_path: pathlib.Path) -> None:
     sheet = _StandInSheet(Score([], [], []), tmp_path, [1])
-    with pytest.raises(port.DoesNotFit, match="edits would be lost"):
+    with pytest.raises(port.DoesNotFitError, match="edits would be lost"):
         layout.render(sheet, "final", seated=True)
 
 
@@ -216,7 +216,7 @@ def test_every_size_of_a_sheet_shares_1_import(tmp_path: pathlib.Path, monkeypat
     monkeypatch.setattr(
         layout.port,
         "imported",
-        lambda _decoded, work, _name, style, _clear: styles.append(style.read_text()) or work / "import.mscz",
+        lambda _decoded, work, _name, style, **_options: styles.append(style.read_text()) or work / "import.mscz",
     )
     for size in (1.3, 1.8):
         layout.Sheet(tmp_path / "Song-Em.pdf", tmp_path, port.ORIGINAL, size).imported()
@@ -232,13 +232,13 @@ def test_finish_widens_the_line_gap_while_text_meets_text(monkeypatch: pytest.Mo
         tried.append(distance)
         if len(tried) < 3:
             msg = "s at 2.0: ['text on text: B']"
-            raise port.DoesNotFit(msg)
+            raise port.DoesNotFitError(msg)
         return ("score", "path", size, distance, 1)
 
     monkeypatch.setattr(layout, "finish_at", finish_at)
     assert layout.finish(tmp_path, tmp_path, port.ORIGINAL, 2.0)[3] == port.BASE_DISTANCE + 2 * layout.GAP_STEP  # type: ignore[arg-type]
-    monkeypatch.setattr(layout, "finish_at", lambda *_: (_ for _ in ()).throw(port.DoesNotFit("lines still wrap")))
-    with pytest.raises(port.DoesNotFit, match="wrap"):
+    monkeypatch.setattr(layout, "finish_at", lambda *_: (_ for _ in ()).throw(port.DoesNotFitError("lines still wrap")))
+    with pytest.raises(port.DoesNotFitError, match="wrap"):
         layout.finish(tmp_path, tmp_path, port.ORIGINAL, 2.0)
 
 
@@ -276,7 +276,7 @@ def test_every_line_gap_retry_starts_from_the_widths_the_last_one_learned(
         learned.append([float(len(seen))])
         if len(seen) < 3:
             msg = "s at 2.0: ['text on text: B']"
-            raise port.DoesNotFit(msg)
+            raise port.DoesNotFitError(msg)
         return ("score", "path", size, distance, 1)
 
     monkeypatch.setattr(layout, "finish_at", finish_at)
@@ -373,7 +373,7 @@ def test_the_line_gap_widens_past_any_fixed_count_until_the_checks_pass(monkeypa
         tried.append(distance)
         if distance < port.BASE_DISTANCE + 12:
             msg = "text on text: a cue below sits too close"
-            raise port.DoesNotFit(msg)
+            raise port.DoesNotFitError(msg)
         return ("score", "path", size, distance, 1)
 
     monkeypatch.setattr(layout, "finish_at", finish_at)

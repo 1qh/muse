@@ -170,7 +170,7 @@ def piano_problems(src: pathlib.Path, sheet: pathlib.Path) -> list[str]:
 def _guarded(failures: list[str], label: str, step: Callable[[], list[str]]) -> None:
     try:
         failures.extend(f"{label}: {problem}" for problem in step())
-    except launch.MachineUnavailable:
+    except launch.MachineUnavailableError:
         raise
     except Exception as error:
         failures.append(f"{label}: could not run: {str(error)[:160]}")
@@ -288,7 +288,7 @@ def measured(pdf: pathlib.Path, work: pathlib.Path) -> pathlib.Path:
         The path of the copy.
 
     Raises:
-        DoesNotFit: No render that drew the PDF left measure positions for it.
+        DoesNotFitError: No render that drew the PDF left measure positions for it.
 
     """
     folder = work / "measured"
@@ -299,7 +299,7 @@ def measured(pdf: pathlib.Path, work: pathlib.Path) -> pathlib.Path:
     drawn = port.paired(work, pdf.name)
     if not port.pairs(drawn, pdf):
         msg = f"{pdf.name}: no measure positions from the render that drew it"
-        raise port.DoesNotFit(msg)
+        raise port.DoesNotFitError(msg)
     shutil.copyfile(drawn, target)
     return copy
 
@@ -309,6 +309,7 @@ def even_bars(
     score_path: pathlib.Path,
     pdf: pathlib.Path,
     work: pathlib.Path,
+    *,
     reduced: bool,
 ) -> list[str]:
     """Empty bars of 1 line are equal on every sheet: chord text never sets a width.

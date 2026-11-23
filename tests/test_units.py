@@ -142,7 +142,7 @@ def test_two_rhythms_split_when_long_note_has_no_stem() -> None:
     whole = Event(10, [Head(10, 0, "D", 5)], Fraction(4))
     up = Event(10, [Head(10, 9, "G", 4)], Fraction(2), stem="up")
     down = Event(60, [Head(60, 12, "E", 4)], Fraction(2), stem="down")
-    voices = d.voices(b, [whole, up, down], bar_rest=False, near=[])
+    voices = d.voices(b, [whole, up, down])
     assert len(voices) == 2
     assert d.flags == []
 
@@ -691,7 +691,7 @@ def test_an_import_is_rebuilt_when_what_it_came_from_changes(
 
     monkeypatch.setattr(port, "run", lambda *a: made.append(a) or pathlib.Path(a[3]).write_bytes(b"PK"))
     monkeypatch.setattr(port, "strip_title_frame", lambda _p: None)
-    monkeypatch.setattr(port, "real_jumps", lambda _p, _c: None)
+    monkeypatch.setattr(port, "real_jumps", lambda _p, **_kw: None)
     monkeypatch.setattr(port, "big_signs", lambda _p: None)
     style = tmp_path / "s.mss"
     style.write_text("<Style>1</Style>", encoding="utf-8")
@@ -936,7 +936,7 @@ def test_a_job_that_raises_fails_its_renders_and_the_batcher_keeps_serving(tmp_p
         return {item["ticket"]: None for item in batch}
 
     batcher.run = run  # type: ignore[method-assign]
-    with pytest.raises(render.RenderFailed, match="job failed: mscore vanished"):
+    with pytest.raises(render.RenderFailedError, match="job failed: mscore vanished"):
         batcher.render(tmp_path / "a.mscz", [tmp_path / "a.pdf"])
     finished = threading.Event()
 
@@ -1088,7 +1088,7 @@ def test_a_launch_the_window_server_refuses_stops_as_the_machines_fault(monkeypa
         "-c",
         "echo 'PasteBoard: Error creating pasteboard: com.apple.pasteboard.clipboard [-4960]' >&2; kill -ABRT $$",
     ]
-    with pytest.raises(launch.MachineUnavailable, match=launch.UNAVAILABLE):
+    with pytest.raises(launch.MachineUnavailableError, match=launch.UNAVAILABLE):
         launch.heavy(refused, 10.0)
     coreml = [
         "sh",
@@ -1098,7 +1098,7 @@ def test_a_launch_the_window_server_refuses_stops_as_the_machines_fault(monkeypa
             "Unable to compute the prediction using a neural network model.' >&2; exit 1"
         ),
     ]
-    with pytest.raises(launch.MachineUnavailable, match=launch.UNAVAILABLE):
+    with pytest.raises(launch.MachineUnavailableError, match=launch.UNAVAILABLE):
         launch.heavy(coreml, 10.0)
     plain = launch.heavy(["sh", "-c", "kill -ABRT $$"], 10.0)
     assert plain.returncode == -6
