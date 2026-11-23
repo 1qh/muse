@@ -1119,3 +1119,30 @@ def test_no_fact_has_2_homes():
             if found:
                 defined[found[1]].add(path.name)
     assert {name for name, homes in defined.items() if len(homes) > 1} <= DISTINCT_FACTS
+
+
+def test_ink_is_read_off_a_page_in_1_place():
+    """Every reading of which rows and columns of a page hold ink goes through 1 reader, so a threshold or a row stride is decided once."""
+    import re
+
+    readers = {}
+    for path in pathlib.Path(port.__file__).parent.glob("*.py"):
+        found = len(re.findall(r"\.get_pixmap\(", path.read_text(encoding="utf-8")))
+        if found:
+            readers[path.name] = found
+    assert readers == {"pdfcheck.py": 2, "chordseat.py": 1, "gate.py": 1}  # the 2 ink readers, the chord-ink seat in colour, and the image the optical check reads
+
+
+def test_the_ink_reader_finds_a_mark_where_it_is_drawn(tmp_path):
+    import pymupdf
+
+    doc = pymupdf.open()
+    page = doc.new_page(width=595, height=842)
+    page.draw_rect(pymupdf.Rect(100, 200, 300, 210), color=(0, 0, 0), fill=(0, 0, 0))
+    rows, height = pdfcheck.inked_rows(page, 72)
+    cols, width = pdfcheck.inked_columns(page, 72)
+    assert (height, width) == (842, 595)
+    assert 199 <= rows[0] <= 201 and 209 <= rows[-1] <= 211
+    assert 99 <= cols[0] <= 101 and 299 <= cols[-1] <= 301
+    blank = doc.new_page(width=595, height=842)
+    assert pdfcheck.inked_rows(blank, 72)[0] == []

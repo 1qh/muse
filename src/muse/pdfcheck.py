@@ -401,13 +401,27 @@ def symbol_text_overlaps(path: pathlib.Path) -> list[str]:
 BLANK_BAND = 0.15  # share of a page's height a blank band between its first and last ink may span
 
 
+INK_LEVEL = 128  # a gray pixel darker than this is ink
+
+
+def inked_rows(page: pymupdf.Page, dpi: int) -> tuple[list[int], int]:
+    """The pixel rows holding any ink at this resolution, and the page's height in rows."""
+    pix = page.get_pixmap(dpi=dpi, colorspace=pymupdf.csGRAY, alpha=False)
+    return [y for y in range(pix.height) if min(pix.samples[y * pix.stride:y * pix.stride + pix.width]) < INK_LEVEL], pix.height
+
+
+def inked_columns(page: pymupdf.Page, dpi: int) -> tuple[list[int], int]:
+    """The pixel columns holding any ink at this resolution, and the page's width in columns."""
+    pix = page.get_pixmap(dpi=dpi, colorspace=pymupdf.csGRAY, alpha=False)
+    return [x for x in range(pix.width) if min(pix.samples[x + y * pix.stride] for y in range(pix.height)) < INK_LEVEL], pix.width
+
+
 def blank_bands(path: pathlib.Path) -> list[str]:
     """Every page leaving a blank band taller than BLANK_BAND of its height between its first and last ink."""
     found = []
     for number, page in enumerate(pdftext.open(path), 1):
-        pix = page.get_pixmap(dpi=36, colorspace=pymupdf.csGRAY)
-        rows = [y for y in range(pix.height) if min(pix.samples[y * pix.stride:y * pix.stride + pix.width]) < 128]
-        gap = max((b - a for a, b in zip(rows, rows[1:], strict=False)), default=0) / pix.height
+        rows, height = inked_rows(page, 36)
+        gap = max((b - a for a, b in zip(rows, rows[1:], strict=False)), default=0) / height
         if gap > BLANK_BAND:
             found.append(f"p{number}: a blank band of {gap:.0%} of the page between its ink")
     return found
@@ -431,10 +445,8 @@ def paper_problems(path: pathlib.Path) -> list[str]:
 def ink_problems(path: pathlib.Path) -> list[str]:
     problems = []
     for number, page in enumerate(pymupdf.open(path), 1):
-        pix = page.get_pixmap(dpi=LOW_DPI, colorspace=pymupdf.csGRAY)
-        width, height, data = pix.width, pix.height, pix.samples
-        rows = [y for y in range(height) if min(data[y * width:(y + 1) * width]) < 128]
-        cols = [x for x in range(width) if min(data[x::width][:height]) < 128]
+        rows, height = inked_rows(page, LOW_DPI)
+        cols, width = inked_columns(page, LOW_DPI)
         if not rows:
             problems.append(f"p{number}: blank page")
         elif rows[0] < EDGE or rows[-1] > height - EDGE or cols[0] < EDGE or cols[-1] > width - EDGE:

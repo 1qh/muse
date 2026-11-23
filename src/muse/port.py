@@ -12,8 +12,6 @@ import zipfile
 from collections.abc import Callable
 from typing import Any
 
-import pymupdf
-
 from muse import buildcache, chordnames, chordseat, launch, mode, musicxml, pdfcheck, pdftext, piano
 from muse.model import Bar, Score
 from muse.song import Song, decode
@@ -256,8 +254,9 @@ def line_heights(pdf: pathlib.Path, firsts: list[int]) -> tuple[list[float], int
     bottoms = []
     tops = []
     for page_no, page in enumerate(doc):
-        pix = page.get_pixmap(dpi=72, colorspace=pymupdf.csGRAY)
-        inked = [y for y in range(pix.height) if min(pix.samples[y * pix.width:(y + 1) * pix.width]) < 128]
+        inked, _ = pdfcheck.inked_rows(page, 72)
+        if not inked:
+            raise DoesNotFit(f"{pdf.name}: page {page_no + 1} is blank, so its lines have no height")
         tops.append(float(inked[0]))
         bottoms.append(float(inked[-1]))
         for block in page.get_text("dict")["blocks"]:
@@ -574,9 +573,8 @@ def page_fill(pdf: pathlib.Path) -> float:
     """How far down its page the music reaches on the least filled page, as a share of the page height."""
     shares = []
     for page in pdftext.open(pdf):
-        pix = page.get_pixmap(dpi=36, colorspace=pymupdf.csGRAY)
-        inked = [y for y in range(pix.height) if min(pix.samples[y * pix.width:(y + 1) * pix.width]) < 128]
-        shares.append((max(inked) + 1) / pix.height if inked else 0.0)
+        inked, height = pdfcheck.inked_rows(page, 36)
+        shares.append((max(inked) + 1) / height if inked else 0.0)  # a blank page fills nothing
     return min(shares, default=0.0)
 
 
