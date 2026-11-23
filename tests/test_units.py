@@ -1,5 +1,6 @@
 """Pure logic: chords, note values, playing order, margin check, writer."""
 
+import ast
 import collections
 import dataclasses
 import inspect
@@ -1389,12 +1390,12 @@ def test_no_code_names_anything_by_age() -> None:
 
 def test_no_script_runs_its_main_on_import() -> None:
     """A script that calls main() at import runs its whole job whenever another tool loads it to read its definitions."""
-    import ast
-
     root = pathlib.Path(port.__file__).parents[2]
-    found = []
-    for path in sorted([*root.glob("src/muse/*.py"), *root.glob("tests/*.py"), *root.glob("tools/*.py")]):
-        for node in ast.parse(path.read_text(encoding="utf-8")).body:
-            if isinstance(node, ast.Expr) and isinstance(node.value, ast.Call) and getattr(node.value.func, "id", "") == "main":
-                found.append(f"{path.name}:{node.lineno}")
+    scripts = sorted([*root.glob("src/muse/*.py"), *root.glob("tests/*.py"), *root.glob("tools/*.py")])
+    found = [
+        f"{path.name}:{node.lineno}"
+        for path in scripts
+        for node in ast.parse(path.read_text(encoding="utf-8")).body
+        if isinstance(node, ast.Expr) and isinstance(node.value, ast.Call) and getattr(node.value.func, "id", "") == "main"
+    ]
     assert found == []
