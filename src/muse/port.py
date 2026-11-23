@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import pathlib
 import re
+import shutil
 import threading
 import zipfile
 from collections.abc import Callable
@@ -662,6 +664,26 @@ def legacy_signs(mscz: pathlib.Path) -> None:
     with zipfile.ZipFile(mscz, "w", zipfile.ZIP_DEFLATED) as z:
         for key, data in items.items():
             z.writestr(key, data)
+
+
+def render_pair(score: pathlib.Path, pdf: pathlib.Path, command: str = "mscore") -> pathlib.Path:
+    """A PDF and its measure positions drawn in 1 load of the score, so the positions describe that very print."""
+    job = pdf.with_suffix(".job.json")
+    job.write_text(json.dumps([{"in": str(score), "out": [str(pdf), str(pdf.with_suffix(".mpos"))]}]))
+    launch.mscore(["-j", str(job)], LAUNCH_SECONDS, command, check=True)
+    return pdf.with_suffix(".mpos")
+
+
+def keep_pair(positions: pathlib.Path, pdf: pathlib.Path, target: pathlib.Path) -> None:
+    """Keep a render's positions as the published PDF's pair, stamped with that PDF's digest."""
+    shutil.copyfile(positions, target)
+    target.with_suffix(".sha").write_text(hashlib.sha256(pdf.read_bytes()).hexdigest())
+
+
+def pairs(positions: pathlib.Path, pdf: pathlib.Path) -> bool:
+    """Whether kept positions were drawn by the render that printed exactly this PDF."""
+    stamp = positions.with_suffix(".sha")
+    return positions.exists() and stamp.exists() and stamp.read_text() == hashlib.sha256(pdf.read_bytes()).hexdigest()
 
 
 def paired(work: pathlib.Path, pdf_name: str) -> pathlib.Path:

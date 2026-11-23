@@ -288,7 +288,7 @@ def test_print_mode_alone_lets_a_bar_of_crowded_chords_out_of_the_even_bars_judg
     monkeypatch.setattr(gate, "decode", lambda src: Score([crowded], [], []))
     monkeypatch.setattr(gate, "measured", lambda *args: tmp_path / "x.pdf")
     monkeypatch.setattr(gate.chordseat, "uneven", lambda score, pdf, noted: seen.setdefault("noted", noted) and [])
-    gate.even_bars(tmp_path / "s", tmp_path / "s.mscz", tmp_path / "s.pdf", tmp_path, None, False)
+    gate.even_bars(tmp_path / "s", tmp_path / "s.mscz", tmp_path / "s.pdf", tmp_path, False)
     assert (7 in seen["noted"]) == printing
 
 
@@ -313,7 +313,7 @@ def test_print_mode_hands_chord_bound_bars_to_the_judgement(monkeypatch, tmp_pat
     monkeypatch.setattr(gate, "decode", lambda src: Score([], [], []))
     monkeypatch.setattr(gate, "measured", lambda *args: tmp_path / "x.pdf")
     monkeypatch.setattr(gate.chordseat, "uneven", lambda score, pdf, noted: seen.setdefault("noted", noted) and [])
-    gate.even_bars(tmp_path / "s", tmp_path / "s.mscz", tmp_path / "s.pdf", tmp_path, None, False)
+    gate.even_bars(tmp_path / "s", tmp_path / "s.mscz", tmp_path / "s.pdf", tmp_path, False)
     assert 9 in seen["noted"]
 
 
@@ -322,7 +322,11 @@ def test_the_gate_judges_a_pdf_against_the_positions_of_its_own_render(tmp_path,
     work.mkdir()
     pdf = tmp_path / "Song-C.pdf"
     pdf.write_bytes(b"%PDF drawn by the layout's render")
-    port.paired(work, pdf.name).write_text("<positions of that render/>")
-    monkeypatch.setattr(port, "run", lambda *args: pytest.fail("a fresh render would pair this PDF with another layout"))
-    measured = gate.measured(tmp_path / "Song-C.mscz", pdf, work, None)
+    drawn = tmp_path / "drawn.mpos"
+    drawn.write_text("<positions of that render/>")
+    port.keep_pair(drawn, pdf, port.paired(work, pdf.name))
+    measured = gate.measured(pdf, work)
     assert measured.with_suffix(".mpos").read_text() == "<positions of that render/>"
+    pdf.write_bytes(b"%PDF drawn by another render")  # the published PDF moved on; its kept positions no longer describe it
+    with pytest.raises(port.DoesNotFit):
+        gate.measured(pdf, work)

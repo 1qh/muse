@@ -27,8 +27,7 @@ WITHHELD = "withheld.json"
 def legacy_staff_problems(legacy: pathlib.Path, work: pathlib.Path, title: str) -> list[str]:
     """Render the file in MuseScore 3 itself and refuse an empty staff on a shared line."""
     pdf = work / f"{legacy.stem}-staves.pdf"
-    launch.mscore(["-o", str(pdf), str(legacy)], port.LAUNCH_SECONDS, port.legacy_command(), check=True)
-    launch.mscore(["-o", str(pdf.with_suffix(".mpos")), str(legacy)], port.LAUNCH_SECONDS, port.legacy_command(), check=True)
+    port.render_pair(legacy, pdf, port.legacy_command())  # 1 load draws both: positions from another render misplace every bar
     return chordseat.problems(legacy, pdf, chordseat.LEGACY_REACH) + pdfcheck.bass_problems(pdf) + pdfcheck.empty_staves(pdf) + [f"text on text: {c[2]}" for c in pdfcheck.text_collisions(pdf)] + pdfcheck.title_problems(pdf, title)
 
 
@@ -200,19 +199,19 @@ def check_song(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> tupl
     guarded("lines", ties)
     sheet = work / f"{song.name}-piano-final.mscz"
     guarded("piano", lambda: piano_problems(src, sheet))
-    guarded("even bars piano", lambda: even_bars(src, sheet, out / song.piano_pdf, work, port.transpose_options(song), True))
-    guarded("even bars original", lambda: even_bars(src, out / song.score_file, out / song.original_pdf, work, None, False))
+    guarded("even bars piano", lambda: even_bars(src, sheet, out / song.piano_pdf, work, True))
+    guarded("even bars original", lambda: even_bars(src, out / song.score_file, out / song.original_pdf, work, False))
     if song.direction:
-        guarded("even bars tone", lambda: even_bars(src, work / f"{song.name}-{port.TONE}.mscz", out / song.tone_pdf, work, port.transpose_options(song), False))
-    options = port.transpose_options(song)
+        guarded("even bars tone", lambda: even_bars(src, work / f"{song.name}-{port.TONE}.mscz", out / song.tone_pdf, work, False))
+    port.transpose_options(song)
     guarded("line start piano", lambda: port.chord_starts(sheet, score))
     guarded("line start original", lambda: port.chord_starts(out / song.score_file, score))
     if song.direction:
         guarded("line start tone", lambda: port.chord_starts(work / f"{song.name}-{port.TONE}.mscz", score))
-    guarded("chord seat piano", lambda: chordseat.problems(sheet, measured(sheet, out / song.piano_pdf, work, options)))
-    guarded("chord seat original", lambda: chordseat.problems(out / song.score_file, measured(out / song.score_file, out / song.original_pdf, work, None)))
+    guarded("chord seat piano", lambda: chordseat.problems(sheet, measured(out / song.piano_pdf, work)))
+    guarded("chord seat original", lambda: chordseat.problems(out / song.score_file, measured(out / song.original_pdf, work)))
     if song.direction:
-        guarded("chord seat tone", lambda: chordseat.problems(work / f"{song.name}-{port.TONE}.mscz", measured(work / f"{song.name}-{port.TONE}.mscz", out / song.tone_pdf, work, options)))
+        guarded("chord seat tone", lambda: chordseat.problems(work / f"{song.name}-{port.TONE}.mscz", measured(out / song.tone_pdf, work)))
 
     def homr() -> list[str]:
         wrong, note = homr_findings(src, score, work)
@@ -224,7 +223,7 @@ def check_song(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> tupl
     return failures, notes
 
 
-def measured(score_path: pathlib.Path, pdf: pathlib.Path, work: pathlib.Path, options: dict[str, object] | None) -> pathlib.Path:
+def measured(pdf: pathlib.Path, work: pathlib.Path) -> pathlib.Path:
     """A copy of a final PDF beside the program's measure positions for it, outside the sheets folder."""
     folder = work / "measured"
     folder.mkdir(parents=True, exist_ok=True)
@@ -232,22 +231,18 @@ def measured(score_path: pathlib.Path, pdf: pathlib.Path, work: pathlib.Path, op
     shutil.copyfile(pdf, copy)
     target = copy.with_suffix(".mpos")
     drawn = port.paired(work, pdf.name)
-    if drawn.exists():  # the positions of the very render that drew this PDF
-        shutil.copyfile(drawn, target)
-        return copy
-    if options:
-        port.run("-o", str(target), "--transpose", json.dumps(options), str(score_path))
-    else:
-        port.run("-o", str(target), str(score_path))
+    if not port.pairs(drawn, pdf):  # positions from any other render misplace bars by up to a point: judging with them accuses correct sheets
+        raise port.DoesNotFit(f"{pdf.name}: no measure positions from the render that drew it")
+    shutil.copyfile(drawn, target)
     return copy
 
 
-def even_bars(src: pathlib.Path, score_path: pathlib.Path, pdf: pathlib.Path, work: pathlib.Path, options: dict[str, object] | None, reduced: bool) -> list[str]:
+def even_bars(src: pathlib.Path, score_path: pathlib.Path, pdf: pathlib.Path, work: pathlib.Path, reduced: bool) -> list[str]:
     """Empty bars of 1 line are equal on every sheet: chord text never sets a width."""
     score = decode(src)
     if reduced:
         piano.reduce(score)
-    probe = measured(score_path, pdf, work, options)
+    probe = measured(pdf, work)
     widened = ({bar.number for bar in score.bars if len(bar.chords) > 1} | chord_bound_bars(score_path, probe)) if mode.PRINT else set()  # print mode lets a bar widen for its own chords: beat-spaced chords in 1 bar, or a chord crowding the next
     return chordseat.uneven(score_path, probe, {bar.number for bar in score.bars if piano.has_notes(bar)} | widened)  # sign bars leave the judgement inside chordseat.empty_widths, as they leave the evening
 
