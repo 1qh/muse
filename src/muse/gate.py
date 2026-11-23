@@ -258,6 +258,10 @@ def measured(score_path: pathlib.Path, pdf: pathlib.Path, work: pathlib.Path, op
     copy = folder / pdf.name
     shutil.copyfile(pdf, copy)
     target = copy.with_suffix(".mpos")
+    drawn = port.paired(work, pdf.name)
+    if drawn.exists():  # the positions of the very render that drew this PDF
+        shutil.copyfile(drawn, target)
+        return copy
     if options:
         port.run("-o", str(target), "--transpose", json.dumps(options), str(score_path))
     else:

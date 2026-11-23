@@ -64,12 +64,13 @@ def song(src: pathlib.Path, out_dir: pathlib.Path, work: pathlib.Path) -> dict[s
         report[variant] = (found[2], found[3], found[4])
         built.append(variant)
 
-    outputs = [out_dir / info.score_file, out_dir / info.original_pdf] + ([out_dir / info.legacy_file] if LEGACY_FILES else [])
+    outputs = [out_dir / info.score_file, out_dir / info.original_pdf, port.paired(work, info.original_pdf)] + ([out_dir / info.legacy_file] if LEGACY_FILES else [])
     key, ready = current(port.ORIGINAL, outputs)
     if not ready:
         found = layout.lay(src, work, port.ORIGINAL)
         (out_dir / info.score_file).write_bytes(found[1].read_bytes())
         shutil.copyfile(found[1].with_name(found[1].stem + "-layout.pdf"), out_dir / info.original_pdf)
+        shutil.copyfile(found[1].with_name(found[1].stem + "-layout.mpos"), port.paired(work, info.original_pdf))  # the positions of the render that drew the PDF
         if LEGACY_FILES:
             # the legacy file reads the original tone's MusicXML, so it is built before anything overwrites it
             port.build_legacy(src, work, out_dir / info.legacy_file, found[2], found[3], info)
@@ -79,26 +80,28 @@ def song(src: pathlib.Path, out_dir: pathlib.Path, work: pathlib.Path) -> dict[s
             report["legacy"] = legacy_gap[:6]
             if legacy_gap:
                 (out_dir / info.legacy_file).unlink()
-                outputs = outputs[:2]
+                outputs = outputs[:3]
         else:
             chordnames.drop_chord_path(out_dir / info.score_file)
             (out_dir / info.legacy_file).unlink(missing_ok=True)
         keep(port.ORIGINAL, key, outputs, found)
     if info.direction:
         tone_score = work / f"{info.name}-{port.TONE}.mscz"  # the gate reads the tone sheet's own score
-        outputs = [out_dir / info.tone_pdf, tone_score]
+        outputs = [out_dir / info.tone_pdf, tone_score, port.paired(work, info.tone_pdf)]
         key, ready = current(port.TONE, outputs)
         if not ready:
             found = layout.lay(src, work, port.TONE)
             shutil.copyfile(found[1].with_name(found[1].stem + "-layout.pdf"), out_dir / info.tone_pdf)
+            shutil.copyfile(found[1].with_name(found[1].stem + "-layout.mpos"), port.paired(work, info.tone_pdf))
             shutil.copyfile(found[1], tone_score)
             keep(port.TONE, key, outputs, found)
     final = work / f"{info.name}-piano-final.mscz"
-    outputs = [out_dir / info.piano_pdf, final]
+    outputs = [out_dir / info.piano_pdf, final, port.paired(work, info.piano_pdf)]
     key, ready = current(port.PIANO, outputs)
     if not ready:
         found = layout.lay(src, work, port.PIANO)
         shutil.copyfile(found[1].with_name(found[1].stem + "-layout.pdf"), out_dir / info.piano_pdf)
+        shutil.copyfile(found[1].with_name(found[1].stem + "-layout.mpos"), port.paired(work, info.piano_pdf))
         final.write_bytes(found[1].read_bytes())
         keep(port.PIANO, key, outputs, found)
     found_parts = piano.parts(decode(src))

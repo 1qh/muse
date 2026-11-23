@@ -643,3 +643,10 @@ def legacy_signs(mscz: pathlib.Path) -> None:
     with zipfile.ZipFile(mscz, "w", zipfile.ZIP_DEFLATED) as z:
         for key, data in items.items():
             z.writestr(key, data)
+
+
+def paired(work: pathlib.Path, pdf_name: str) -> pathlib.Path:
+    """Where the measure positions of the render that drew a published PDF are kept, outside the sheets folder."""
+    folder = work / "paired"
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder / pathlib.Path(pdf_name).with_suffix(".mpos").name
