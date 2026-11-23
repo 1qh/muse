@@ -1,6 +1,13 @@
 #!/bin/sh
-# Install or refresh MuseScore 3.7 at the newest build of its continuous release, native on Apple silicon.
+# Bring the machine to the pipeline's state: the Python environment at the newest Python and dependencies, and MuseScore 3.7 at the newest build of its continuous release, native on Apple silicon.
 set -eu
+root=$(cd "$(dirname "$0")" && pwd -P)
+python=3.14  # the newest Python every dependency ships for; the pipeline ADR names what moves it
+rm -rf "$root/.venv.new"
+uv venv -q --python "$python" "$root/.venv.new"
+VIRTUAL_ENV="$root/.venv.new" uv pip install -q --refresh --upgrade -e "${root}[dev]"
+rm -rf "$root/.venv"
+mv "$root/.venv.new" "$root/.venv"
 app="$HOME/Applications/MuseScore 3.7.app"
 repo="Jojo-Schmitz/MuseScore"
 dir=$(cd "$(mktemp -d)" && pwd -P)  # the resolved path, as mount reports it
