@@ -121,7 +121,7 @@ def problems(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path, info: Son
 
     def page() -> list[str]:
         notes.append(f"{pdf.name}: {len(pdftext.open(pdf))} pages")
-        return gate.page_problems(pdf) + gate.ink_problems(pdf) + verify.pdf_words_problems(pdf, info.title) + pdfcheck.foreign_fonts(pdf) + [f"off the page: {what}" for _, _, what in pdfcheck.off_page(pdf)]
+        return pdfcheck.paper_problems(pdf) + pdfcheck.ink_problems(pdf) + verify.pdf_words_problems(pdf, info.title) + pdfcheck.foreign_fonts(pdf) + [f"off the page: {what}" for _, _, what in pdfcheck.off_page(pdf)]
 
     def homr() -> list[str]:
         wrong, note = homr_problems(src, orchestra, work)

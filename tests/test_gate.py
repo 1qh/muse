@@ -69,19 +69,19 @@ def test_unknown_music_glyph_is_refused():
 
 
 def test_any_page_count_passes_and_every_page_is_a4(tmp_path):
-    assert gate.page_problems(blank(tmp_path / "ok.pdf", pages=2)) == []
-    assert gate.page_problems(blank(tmp_path / "long.pdf", pages=5)) == []
-    assert gate.page_problems(blank(tmp_path / "letter.pdf", width=612.0, height=792.0))[0].startswith("p1: not A4")
-    assert gate.page_problems(blank(tmp_path / "wide.pdf", width=612.0))[0].startswith("p1: not A4")
+    assert pdfcheck.paper_problems(blank(tmp_path / "ok.pdf", pages=2)) == []
+    assert pdfcheck.paper_problems(blank(tmp_path / "long.pdf", pages=5)) == []
+    assert pdfcheck.paper_problems(blank(tmp_path / "letter.pdf", width=612.0, height=792.0))[0].startswith("p1: not A4")
+    assert pdfcheck.paper_problems(blank(tmp_path / "wide.pdf", width=612.0))[0].startswith("p1: not A4")
 
 
 def test_ink_near_any_edge_fails(tmp_path):
-    assert gate.ink_problems(blank(tmp_path / "ok.pdf")) == []
+    assert pdfcheck.ink_problems(blank(tmp_path / "ok.pdf")) == []
     path = tmp_path / "top.pdf"
     doc = pymupdf.open()
     doc.new_page().draw_rect(pymupdf.Rect(100, 1, 200, 3), fill=(0, 0, 0))
     doc.save(path)
-    assert "ink within" in gate.ink_problems(path)[0]
+    assert "ink within" in pdfcheck.ink_problems(path)[0]
 
 
 def test_tie_over_a_line_end_fails_unless_the_run_cannot_fit():
@@ -239,8 +239,8 @@ def test_a_label_may_follow_a_mark_that_opens_its_line_on_any_sheet(monkeypatch,
     monkeypatch.setattr(chordseat, "score_text", lambda path: (None, ""))
     monkeypatch.setattr(chordseat, "chordless_starts", lambda text: [])
     monkeypatch.setattr(chordseat, "bar_rows", lambda text: [[1, 2], [3, 4, 5]])
-    assert gate.chord_starts(tmp_path / "x-piano-final.mscz", score) == []
-    assert gate.chord_starts(tmp_path / "x-original.mscz", score) == []  # any sheet: a 1-bar section shares its line with the next
+    assert port.chord_starts(tmp_path / "x-piano-final.mscz", score) == []
+    assert port.chord_starts(tmp_path / "x-original.mscz", score) == []  # any sheet: a 1-bar section shares its line with the next
 
 
 def test_a_publish_commit_names_its_songs():

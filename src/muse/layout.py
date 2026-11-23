@@ -508,6 +508,7 @@ def finish_at(src: pathlib.Path, work: pathlib.Path, variant: str, size: float, 
     probe = current_render(score_path, probe, lambda: render(sheet, "final", seated=True)[1])
     problems = pdfcheck.all_problems(probe, sheet.title) + chordseat.problems(score_path, probe) + chordseat.crowded_line_texts(score_path, probe) + port.line_rule_reasons(sheet.score, sheet.variant) + uneven_empty_bars(sheet, score_path, probe) + port.page_problems(sheet.score, probe)
     problems += port.short_line_problems(port.rows(sheet.score))  # judged on the finished sheet, never on the plan alone
+    problems += port.chord_starts(score_path, sheet.score)  # the gate's own line rules, read from the file
     if problems:
         raise port.DoesNotFit(f"{sheet.name} at {size}: {problems[:3]}")
     return sheet.score, score_path, size, sheet.distance, len(pdftext.open(probe))

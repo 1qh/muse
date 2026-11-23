@@ -413,8 +413,37 @@ def blank_bands(path: pathlib.Path) -> list[str]:
     return found
 
 
+A4 = (595.0, 842.0)
+A4_TOLERANCE = 1.5
+EDGE = 8.0  # points of clear paper on every side
+LOW_DPI = 72
+
+
+def paper_problems(path: pathlib.Path) -> list[str]:
+    problems = []
+    doc = pymupdf.open(path)
+    for number, page in enumerate(doc, 1):
+        if abs(page.rect.width - A4[0]) > A4_TOLERANCE or abs(page.rect.height - A4[1]) > A4_TOLERANCE:
+            problems.append(f"p{number}: not A4 ({page.rect.width:.0f} x {page.rect.height:.0f})")
+    return problems
+
+
+def ink_problems(path: pathlib.Path) -> list[str]:
+    problems = []
+    for number, page in enumerate(pymupdf.open(path), 1):
+        pix = page.get_pixmap(dpi=LOW_DPI, colorspace=pymupdf.csGRAY)
+        width, height, data = pix.width, pix.height, pix.samples
+        rows = [y for y in range(height) if min(data[y * width:(y + 1) * width]) < 128]
+        cols = [x for x in range(width) if min(data[x::width][:height]) < 128]
+        if not rows:
+            problems.append(f"p{number}: blank page")
+        elif rows[0] < EDGE or rows[-1] > height - EDGE or cols[0] < EDGE or cols[-1] > width - EDGE:
+            problems.append(f"p{number}: ink within {EDGE:g} points of the edge")
+    return problems
+
+
 def all_problems(path: pathlib.Path, title: str) -> list[str]:
-    page = blank_bands(path)  # an empty band any cause leaves
+    page = paper_problems(path) + ink_problems(path) + blank_bands(path)  # an empty band any cause leaves
     return page + empty_staves(path) + text_problems(path) + title_problems(path, title) + sign_problems(path) + sign_row_problems(path) + sign_on_chord(path) + seating_problems(path) + [f"text on text: {c[2]}" for c in text_collisions(path)] + sign_text_overlaps(path) + symbol_text_overlaps(path)
 
 

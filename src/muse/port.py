@@ -521,17 +521,30 @@ def tie_findings(starts: list[int], tied: list[bool]) -> tuple[list[str], list[s
     return failures, reported
 
 
+def line_findings(score: Score, opening: set[int], bare: set[int]) -> list[str]:
+    """The line rules, 1 home for the layout and the gate: opening holds the bars that start a line, bare those of them printed without a chord."""
+    marks = {bar.number for at, bar in enumerate(score.bars) if must_start_line(bar, score.bars[at - 1] if at else None)}  # a mark tied into still opens its line
+    tied_in = {bar.number for bar in score.bars if bar.number > 1 and tied_out(score.bars[bar.number - 2])}
+    labels = {bar.number for bar in score.bars if piano.label_of(bar)}
+    after_mark = {bar + 1 for bar in opening & marks if bar > 1}  # on any sheet: starting both would strand the mark's bar alone
+    sourced = {bar.number for bar in score.bars if bar.source_line}  # the source itself opens a line on that chordless bar
+    lone = [f"bar {first}: lone bar on a line" for first in piano.lone_lines(sorted(opening), len(score.bars))]  # no stranded single bar on any sheet
+    return [f"bar {bar}: line starts without its chord" for bar in sorted(bare - marks - sourced)] + [f"bar {bar}: lyric label inside a line" for bar in sorted(labels - opening - tied_in - after_mark)] + lone
+
+
+def chord_starts(score_path: pathlib.Path, score: Score) -> list[str]:
+    """The line rules judged on a score file as written: its own line starts and the chords it prints."""
+    text = chordseat.score_text(score_path)[1]
+    bare = set(chordseat.chordless_starts(text))
+    opening = {numbers[0] for numbers in chordseat.bar_rows(text) if numbers}
+    return line_findings(score, opening, bare)
+
+
 def line_rule_reasons(score: Score, variant: str = TONE) -> list[str]:
-    """Bars the line rules say start a line and that sit inside one, or lines opening on a bar without a chord that a mark does not excuse; on any sheet a label may sit second after a mark bar that opens its line."""
+    """The line rules judged on a plan, with the tie rule; the same findings the gate reads off the file."""
     firsts = {row[0] for row in rows(score)}
-    marks = {block[0] + 1 for block in sections(score)}
-    second = {number + 1 for number in firsts & marks}  # on any sheet a 1-bar section shares its line with the next, whose label then sits second
-    inside = [bar.number for bar in score.bars if bar.number not in firsts and bar.number not in second and piano.label_of(bar) and not (bar.number > 1 and tied_out(score.bars[bar.number - 2]))]
-    bare = [n for n in firsts if n not in marks and not score.bars[n - 1].chords and not score.bars[n - 1].source_line]  # the source's own break on a chordless bar reads as the original does
-    lone = piano.lone_lines(sorted(firsts), len(score.bars))  # the gate's own reading: no stranded single bar on any sheet
-    found = [(n, "its label sits inside a line") for n in inside] + [(n, "opens a line with no chord") for n in bare] + [(n, "a line holds this bar alone") for n in lone]
-    ties = tie_findings(sorted(firsts), [tied_out(bar) for bar in score.bars])[0]  # the gate's own tie rule
-    return [f"bar {n}: {why}" for n, why in sorted(set(found))] + ties
+    bare = {n for n in firsts if not score.bars[n - 1].chords}
+    return line_findings(score, firsts, bare) + tie_findings(sorted(firsts), [tied_out(bar) for bar in score.bars])[0]
 
 
 def line_rule_breaks(score: Score, variant: str = TONE) -> list[int]:

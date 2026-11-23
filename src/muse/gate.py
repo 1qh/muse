@@ -19,12 +19,8 @@ from muse import buildcache, chordnames, chordseat, fullcheck, inverse, launch, 
 from muse.model import Score
 from muse.song import Song, decode, song_of, sources
 
-A4 = (595.0, 842.0)
-A4_TOLERANCE = 1.5
-EDGE = 8.0  # points of clear paper on every side
 HOMR_SECONDS = 1500  # 1 page through the optical cross-check, counted from when its slot frees
 MIN_HOMR_AGREEMENT = 0.6  # below this the independent reading has stopped agreeing about the song
-LOW_DPI = 72
 WITHHELD = "withheld.json"
 
 
@@ -34,29 +30,6 @@ def legacy_staff_problems(legacy: pathlib.Path, work: pathlib.Path, title: str) 
     launch.mscore(["-o", str(pdf), str(legacy)], port.LAUNCH_SECONDS, port.legacy_command(), check=True)
     launch.mscore(["-o", str(pdf.with_suffix(".mpos")), str(legacy)], port.LAUNCH_SECONDS, port.legacy_command(), check=True)
     return chordseat.problems(legacy, pdf, chordseat.LEGACY_REACH) + pdfcheck.bass_problems(pdf) + pdfcheck.empty_staves(pdf) + [f"text on text: {c[2]}" for c in pdfcheck.text_collisions(pdf)] + pdfcheck.title_problems(pdf, title)
-
-
-def page_problems(path: pathlib.Path) -> list[str]:
-    problems = []
-    doc = pymupdf.open(path)
-    for number, page in enumerate(doc, 1):
-        if abs(page.rect.width - A4[0]) > A4_TOLERANCE or abs(page.rect.height - A4[1]) > A4_TOLERANCE:
-            problems.append(f"p{number}: not A4 ({page.rect.width:.0f} x {page.rect.height:.0f})")
-    return problems
-
-
-def ink_problems(path: pathlib.Path) -> list[str]:
-    problems = []
-    for number, page in enumerate(pymupdf.open(path), 1):
-        pix = page.get_pixmap(dpi=LOW_DPI, colorspace=pymupdf.csGRAY)
-        width, height, data = pix.width, pix.height, pix.samples
-        rows = [y for y in range(height) if min(data[y * width:(y + 1) * width]) < 128]
-        cols = [x for x in range(width) if min(data[x::width][:height]) < 128]
-        if not rows:
-            problems.append(f"p{number}: blank page")
-        elif rows[0] < EDGE or rows[-1] > height - EDGE or cols[0] < EDGE or cols[-1] > width - EDGE:
-            problems.append(f"p{number}: ink within {EDGE:g} points of the edge")
-    return problems
 
 
 def line_starts(pdf: pathlib.Path) -> list[int]:
@@ -203,8 +176,7 @@ def check_song(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> tupl
 
         guarded(f"pdf {short}", lambda: pdfcheck.all_problems(final, song.title))
         guarded(f"words {short}", lambda: verify.pdf_words_problems(final, song.title))
-        guarded(f"pages {short}", lambda: page_problems(final) + port.balance_problems(final, line_starts(final)))
-        guarded(f"ink {short}", lambda: ink_problems(final))
+        guarded(f"pages {short}", lambda: port.balance_problems(final, line_starts(final)))
         guarded(f"signs {short}", signs)
         notes.append(f"{final.name}: {len(pymupdf.open(final))} pages")
 
@@ -233,10 +205,10 @@ def check_song(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> tupl
     if song.direction:
         guarded("even bars tone", lambda: even_bars(src, work / f"{song.name}-{port.TONE}.mscz", out / song.tone_pdf, work, port.transpose_options(song), False))
     options = port.transpose_options(song)
-    guarded("line start piano", lambda: chord_starts(sheet, score))
-    guarded("line start original", lambda: chord_starts(out / song.score_file, score))
+    guarded("line start piano", lambda: port.chord_starts(sheet, score))
+    guarded("line start original", lambda: port.chord_starts(out / song.score_file, score))
     if song.direction:
-        guarded("line start tone", lambda: chord_starts(work / f"{song.name}-{port.TONE}.mscz", score))
+        guarded("line start tone", lambda: port.chord_starts(work / f"{song.name}-{port.TONE}.mscz", score))
     guarded("chord seat piano", lambda: chordseat.problems(sheet, measured(sheet, out / song.piano_pdf, work, options)))
     guarded("chord seat original", lambda: chordseat.problems(out / song.score_file, measured(out / song.score_file, out / song.original_pdf, work, None)))
     if song.direction:
@@ -268,26 +240,6 @@ def measured(score_path: pathlib.Path, pdf: pathlib.Path, work: pathlib.Path, op
     else:
         port.run("-o", str(target), str(score_path))
     return copy
-
-
-def chord_starts(score_path: pathlib.Path, score: Score) -> list[str]:
-    """A line starting on a bar without its chord fails; 1 a section mark holds there is listed."""
-    marks = {bar.number for at, bar in enumerate(score.bars) if port.must_start_line(bar, score.bars[at - 1] if at else None)}  # a mark tied into still opens its line
-    found = chordseat.chordless_starts(chordseat.score_text(score_path)[1])
-    held = [bar for bar in found if bar in marks]
-    if held:
-        print(f"{score_path.name}: section marks open these lines without a chord: {held}", flush=True)
-    tied_in = {bar.number for bar in score.bars if bar.number > 1 and port.tied_out(score.bars[bar.number - 2])}
-    labels = {bar.number for bar in score.bars if piano.label_of(bar)}
-    opening = {numbers[0] for numbers in chordseat.bar_rows(chordseat.score_text(score_path)[1]) if numbers}
-    after_mark = {bar + 1 for bar in opening & marks if bar > 1}  # on any sheet: starting both would strand the mark's bar alone
-    tied_labels = sorted((labels - opening) & tied_in)
-    if tied_labels:
-        print(f"{score_path.name}: a tie holds these lyric labels inside a line: {tied_labels}", flush=True)
-    starts = sorted(opening)
-    lone = [f"bar {first}: lone bar on a line" for first in piano.lone_lines(starts, len(score.bars))]  # no stranded single bar on any sheet
-    sourced = {bar.number for bar in score.bars if bar.source_line}  # the source itself opens a line on that chordless bar
-    return [f"bar {bar}: line starts without its chord" for bar in found if bar not in marks and bar not in sourced] + [f"bar {bar}: lyric label inside a line" for bar in sorted(labels - opening - tied_in - after_mark)] + lone
 
 
 def even_bars(src: pathlib.Path, score_path: pathlib.Path, pdf: pathlib.Path, work: pathlib.Path, options: dict[str, object] | None, reduced: bool) -> list[str]:

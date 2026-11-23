@@ -399,18 +399,17 @@ def test_a_lyric_label_starts_a_line():
 
 
 def test_the_gate_refuses_a_label_inside_a_line(monkeypatch, tmp_path):
-    from muse import gate
     plain = [Bar(n, 0, 0.0, 100.0, F(4), voices=[]) for n in (1, 2, 4)]
     labelled = Bar(3, 0, 0.0, 100.0, F(4), voices=[], texts=[Text(0.0, 0.0, [("Chorus-a: words", True, True)], False)])
     score = Score([plain[0], plain[1], labelled, plain[2]], [], [])
     monkeypatch.setattr(chordseat, "score_text", lambda _: ("x", ""))
     monkeypatch.setattr(chordseat, "chordless_starts", lambda _: [])
     monkeypatch.setattr(chordseat, "bar_rows", lambda _: [[1, 2, 3, 4]])
-    assert gate.chord_starts(tmp_path, score) == ["bar 3: lyric label inside a line"]
+    assert port.chord_starts(tmp_path, score) == ["bar 3: lyric label inside a line"]
     monkeypatch.setattr(chordseat, "bar_rows", lambda _: [[1, 2], [3, 4]])
-    assert gate.chord_starts(tmp_path, score) == []
+    assert port.chord_starts(tmp_path, score) == []
     monkeypatch.setattr(chordseat, "bar_rows", lambda _: [[1, 2], [3], [4]])
-    assert gate.chord_starts(tmp_path, score) == ["bar 3: lone bar on a line", "bar 4: lone bar on a line"]
+    assert port.chord_starts(tmp_path, score) == ["bar 3: lone bar on a line", "bar 4: lone bar on a line"]
 
 
 def test_no_chord_stretches_a_bar():
@@ -990,7 +989,7 @@ def test_a_line_rule_refusal_names_its_bar_and_its_rule():
     for bar in bars:
         bar.chords.append(Chord("C", 0, "", None, 0, 0.0))
     bars[2].new_system = True
-    assert port.line_rule_reasons(Score(bars, [], [])) == ["bar 3: a line holds this bar alone"]
+    assert port.line_rule_reasons(Score(bars, [], [])) == ["bar 3: lone bar on a line"]
 
 
 def test_a_crowded_chord_takes_its_letters_bearing_from_the_clean_chords():
@@ -1008,15 +1007,14 @@ def test_a_crowded_chord_takes_its_letters_bearing_from_the_clean_chords():
 
 
 def test_the_gate_passes_a_chordless_line_start_only_where_the_source_opens_one(monkeypatch, tmp_path):
-    from muse import gate
     bars = [Bar(n, 0, 0.0, 100.0, F(4), voices=[]) for n in (1, 2, 3, 4)]
     score = Score(bars, [], [])
     monkeypatch.setattr(chordseat, "score_text", lambda _: ("x", ""))
     monkeypatch.setattr(chordseat, "chordless_starts", lambda _: [3])
     monkeypatch.setattr(chordseat, "bar_rows", lambda _: [[1, 2], [3, 4]])
-    assert gate.chord_starts(tmp_path, score) == ["bar 3: line starts without its chord"]
+    assert port.chord_starts(tmp_path, score) == ["bar 3: line starts without its chord"]
     bars[2].source_line = True
-    assert gate.chord_starts(tmp_path, score) == []
+    assert port.chord_starts(tmp_path, score) == []
 
 
 def test_decoding_keeps_the_sources_line_starts(monkeypatch):
