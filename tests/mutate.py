@@ -727,4 +727,5 @@ def main() -> None:
     raise SystemExit(1 if any(not outcome.endswith(": red") for outcome in outcomes) else 0)
 
 
-main()
+if __name__ == "__main__":
+    main()

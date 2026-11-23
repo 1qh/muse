@@ -1385,3 +1385,16 @@ def test_no_code_names_anything_by_age() -> None:
         if words.search(line) and "words = re.compile" not in line
     ]
     assert found == []
+
+
+def test_no_script_runs_its_main_on_import() -> None:
+    """A script that calls main() at import runs its whole job whenever another tool loads it to read its definitions."""
+    import ast
+
+    root = pathlib.Path(port.__file__).parents[2]
+    found = []
+    for path in sorted([*root.glob("src/muse/*.py"), *root.glob("tests/*.py"), *root.glob("tools/*.py")]):
+        for node in ast.parse(path.read_text(encoding="utf-8")).body:
+            if isinstance(node, ast.Expr) and isinstance(node.value, ast.Call) and getattr(node.value.func, "id", "") == "main":
+                found.append(f"{path.name}:{node.lineno}")
+    assert found == []
