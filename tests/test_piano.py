@@ -121,6 +121,20 @@ def test_hint_lyric_is_shortened_and_its_label_stays() -> None:
     assert "five" not in whole
 
 
+def test_a_label_printed_apart_from_its_colon_stays() -> None:
+    text = Text(
+        0.0,
+        0.0,
+        [("Chorus", False, False), (": ", False, False), ("one two three four five six", False, False)],
+        above=False,
+    )
+    piano.shorten(text)
+    whole = "".join(run[0] for run in text.runs)
+    assert whole.startswith(" Chorus")
+    assert "four" in whole
+    assert "five" not in whole
+
+
 def test_a_plain_cue_is_never_shortened() -> None:
     text = Text(0.0, 0.0, [("one two three four five six seven", False, False)], above=False)
     piano.shorten(text)

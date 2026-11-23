@@ -478,6 +478,12 @@ def test_signatures_end_at_the_first_glyph_that_is_no_signature() -> None:
         (120.0, 0.0, 125.0, accidental),
     ]
     assert max(chordseat.signature_ends(glyphs)) == pytest.approx(40.0)
+    close = [
+        (20.0, 0.0, 30.0, clef),
+        (31.0, 0.0, 35.0, head),
+        (36.0, 0.0, 40.0, flat),
+    ]
+    assert chordseat.signature_ends(close) == [30.0]
 
 
 def test_a_full_height_stem_is_no_barline() -> None:
