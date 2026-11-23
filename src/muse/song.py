@@ -95,6 +95,7 @@ class Song:
 
         Returns:
             The folder's file paths.
+
         """
         if self.orchestral:
             return {self.score_file, self.original_pdf}
@@ -114,6 +115,7 @@ def sources(folders: pathlib.Path) -> list[pathlib.Path]:
 
     Raises:
         SongRefused: a song name repeats across the folders.
+
     """
     found = sorted(
         (pdf for folder in str(folders).split(os.pathsep) for pdf in pathlib.Path(folder).glob("*.pdf")),
@@ -135,6 +137,7 @@ def encoding(path: pathlib.Path) -> str:
 
     Raises:
         UnknownEncoding: no decoder knows the PDF's fonts or glyphs.
+
     """
     doc = pymupdf.open(path)
     fonts = sorted({font[3] for page in doc for font in page.get_fonts()})
@@ -156,6 +159,7 @@ def settle_chord_bars(score: Score) -> Score:
 
     Returns:
         The same score, its chords settled.
+
     """
     for bar, following in zip(score.bars, score.bars[1:], strict=False):
         if following.new_system or following.new_page:
@@ -185,6 +189,7 @@ def is_orchestral(path: pathlib.Path) -> bool:
 
     Returns:
         Whether the source sits in the full-score folder.
+
     """
     return path.parent.name == orchestral.FOLDER
 
@@ -197,6 +202,7 @@ def orchestra_of(path: pathlib.Path) -> Orchestra:
 
     Raises:
         SongRefused: the source is not in the full-score folder.
+
     """
     if not is_orchestral(path):
         msg = f"{path.name}: not in the {orchestral.FOLDER} folder, so not a full score"
@@ -225,6 +231,7 @@ def target_of(root: str, minor: bool) -> tuple[str, int, str, int]:
 
     Returns:
         The target's name, fifths, direction and signed semitones.
+
     """
     pitch = PITCH[root[0]] + {"": 0, "b": -1, "#": 1}[root[1:]]
     options = []
@@ -243,6 +250,7 @@ def title_of(path: pathlib.Path) -> str:
 
     Raises:
         SongRefused: page 1 carries no title text.
+
     """
     spans = []
     for block in pymupdf.open(path)[0].get_text("dict")["blocks"]:
@@ -300,6 +308,7 @@ def concert_key_problem(path: pathlib.Path, score: Orchestra, fifths: int, named
 
     Raises:
         SongRefused: a part prints another key, or no part prints the named one.
+
     """
     wrong = [
         f"{part.name} {part.key}"

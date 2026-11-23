@@ -134,6 +134,7 @@ def bar_at(bars: list[Bar], x: float, lead: float) -> Bar:
 
     Returns:
         The bar the mark belongs to.
+
     """
     begun = [bar for bar in bars if bar.left - lead <= x]
     return begun[-1] if begun else bars[0]
@@ -150,6 +151,7 @@ def mark_bar(bars: list[Bar], left: float, right: float) -> Bar:
 
     Returns:
         The bar the label marks.
+
     """
     middle = (left + right) / 2
     near = [bar for bar in bars[1:] if left - MARK_REACH <= bar.left <= right + MARK_REACH]

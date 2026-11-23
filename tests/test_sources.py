@@ -48,6 +48,7 @@ def reading(score: Score) -> str:
 
     Returns:
         The reading, 1 row per voice, chord list, flag set, text list and rehearsal list.
+
     """
     rows = []
     for b in score.bars:
@@ -127,6 +128,7 @@ def lead_sheets(folder: pathlib.Path) -> list[pathlib.Path]:
 
     Returns:
         The folder's PDFs that are not full scores, sorted.
+
     """
     return [path for path in sorted(folder.glob("*.pdf")) if not song.is_orchestral(path)]
 
@@ -173,6 +175,7 @@ def printed_line_starts(path: pathlib.Path) -> list[int]:
 
     Returns:
         The printed bar numbers, sorted by page and height.
+
     """
     found = []
     for at, page in enumerate(pymupdf.open(path)):
@@ -291,6 +294,7 @@ def lyric_spans(path: pathlib.Path) -> list[str]:
 
     Returns:
         The stripped text of every lyric span longer than 3 characters.
+
     """
 
     def lyric(span: dict) -> bool:
@@ -333,6 +337,7 @@ def boxed_labels(path: pathlib.Path) -> list[str]:
 
     Returns:
         The text of each boxed all-bold label.
+
     """
     found = []
     for page in pymupdf.open(path):
@@ -379,6 +384,7 @@ def orchestral_sources() -> list[str]:
 
     Returns:
         The sorted paths, or 1 placeholder naming why there are none.
+
     """
     root = os.environ.get("MUSE_SOURCES")
     if not root:
@@ -398,6 +404,7 @@ def orchestral_pin(path: str) -> dict[str, Any]:
 
     Returns:
         The score's orchestral pin entry.
+
     """
     if not os.environ.get("MUSE_PINS"):
         pytest.fail("MUSE_PINS is not set")
@@ -425,6 +432,7 @@ def spike_reader(pin: dict[str, Any]) -> dict[str, Any]:
 
     Returns:
         The namespace the reader's code defines.
+
     """
     text = (pathlib.Path(os.environ["MUSE_PINS"]).parent / pin["reader"]).read_text(encoding="utf-8")
     space: dict[str, Any] = {}
@@ -494,7 +502,7 @@ def _spike_bars(
             for g in quiet
         )
         if _spike_adds_up(here, rest):
-            found[(*key, at)] = sum((e[2] for e in here), Fraction(0))
+            found[*key, at] = sum((e[2] for e in here), Fraction(0))
 
 
 def _spike_staff(
@@ -518,6 +526,7 @@ def spike_staff_bars(path: str, reader: dict[str, Any]) -> dict[tuple[int, float
 
     Returns:
         The sounding quarters keyed by page number, staff top and bar index.
+
     """
     found: dict[tuple[int, float, int], Fraction] = {}
     for page in pymupdf.open(path):
@@ -558,7 +567,8 @@ def test_full_score_adds_up_on_every_staff_bar_the_spike_reader_adds_up_on(path:
                     except orchestral.Unreadable:
                         continue
                     ours[page.number, round(staff.top, 1), at] = sum(
-                        (s.nominal * (s.ratio or 1) for s in here), Fraction(0)
+                        (s.nominal * (s.ratio or 1) for s in here),
+                        Fraction(0),
                     )
     assert {key: ours.get(key) for key in spike} == spike
 
@@ -581,7 +591,8 @@ def test_a_line_crossing_a_braced_pair_reads_as_1_line(path: str) -> None:
 @pytest.mark.musescore
 @pytest.mark.parametrize("path", orchestral_sources())
 def test_full_score_builds_3_files_that_hold_the_decode_and_the_source_s_systems(
-    path: str, tmp_path: pathlib.Path
+    path: str,
+    tmp_path: pathlib.Path,
 ) -> None:
     src = pathlib.Path(path)
     info = song.song_of(src)

@@ -271,6 +271,7 @@ def font_map(doc: pymupdf.Document) -> dict[str, str]:
 
     Returns:
         The music role keyed by every font printing more private-use glyphs than the threshold.
+
     """
     counts: dict[str, dict[str, int]] = {}
     for page in doc:
@@ -335,6 +336,7 @@ def assemble_chords(items: list[tuple[float, float, str]]) -> list[tuple[float, 
 
     Returns:
         Each assembled chord text with the x it starts at.
+
     """
     chords: list[tuple[float, str]] = []
     cur: list[str] = []
@@ -377,6 +379,7 @@ def voice_split(
 
     Returns:
         The 2 voices, or None when no split keeps the coincident events apart.
+
     """
     for mask in range(1, 2 ** len(chords) - 1):
         a = [e for i, e in enumerate(chords) if mask >> i & 1]
@@ -402,6 +405,7 @@ def stem_split(chords: list[Event], length: Fraction) -> tuple[list[Event], list
 
     Returns:
         The up-stem and down-stem voices, or None when no assignment fills both.
+
     """
     up = [e for e in chords if e.heads and e.stem == "up"]
     down = [e for e in chords if e.heads and e.stem == "down"]
@@ -429,6 +433,7 @@ def beam_levels(centres: list[float]) -> int:
 
     Returns:
         The number of beam levels.
+
     """
     levels = 0
     last = -100.0
@@ -452,6 +457,7 @@ def is_dust(text: str) -> bool:
 
     Returns:
         True when the text is only punctuation.
+
     """
     return bool(re.fullmatch(r"[.,;:…·'`-]+", text))
 
@@ -690,9 +696,7 @@ def _head_event(g: G, bar_length: Fraction, staff: _Staff) -> Event:
             nominal /= 2**level
     near = staff.near
     dots = int(
-        any(
-            d.code == DOT and HEAD_DOT_MIN_DX < d.x - g.x < DOT_MAX_DX and abs(d.y - g.y) < HEAD_DOT_DY for d in near
-        ),
+        any(d.code == DOT and HEAD_DOT_MIN_DX < d.x - g.x < DOT_MAX_DX and abs(d.y - g.y) < HEAD_DOT_DY for d in near),
     )
     if dots:
         nominal *= Fraction(3, 2)
@@ -810,13 +814,7 @@ def _apart(prev: str, piece: str, gap: float) -> bool:
 
 
 def _joins_apart(prev: str, piece: str, gap: float) -> bool:
-    return (
-        bool(piece)
-        and bool(prev)
-        and _apart(prev, piece, gap)
-        and not piece.startswith(" ")
-        and not prev.endswith(" ")
-    )
+    return bool(piece) and bool(prev) and _apart(prev, piece, gap) and not piece.startswith(" ") and not prev.endswith(" ")
 
 
 def _runs(group: list[Span]) -> list[tuple[str, bool, bool]]:
@@ -1119,6 +1117,7 @@ class Decoder:
 
         Returns:
             The repaired voices, or None when no repair fits the bar.
+
         """
         split = self._split_voices(bar, chords)
         if split is not None:

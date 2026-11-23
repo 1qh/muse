@@ -55,6 +55,7 @@ def musicxml_letters(path: pathlib.Path) -> list[str]:
 
     Returns:
         The note letters in file order.
+
     """
     letters: list[str] = []
     for note in ET.parse(path).getroot().iter("note"):
@@ -73,6 +74,7 @@ def agreement(ours: list[str], where: list[int], theirs: list[str]) -> tuple[flo
 
     Returns:
         The agreeing share and the sorted bars where the readings part.
+
     """
     matcher = difflib.SequenceMatcher(None, ours, theirs, autojunk=False)
     matched = sum(block.size for block in matcher.get_matching_blocks())
@@ -89,6 +91,7 @@ def homr_reading(src: pathlib.Path, page_no: int, work: pathlib.Path, command: s
 
     Returns:
         The path of the MusicXML reading.
+
     """
     digest = hashlib.sha256(src.read_bytes()).hexdigest()[:16]
     folder = work / "homr" / digest
@@ -125,6 +128,7 @@ def folder_problems(out: pathlib.Path, songs: list[Song]) -> list[str]:
 
     Returns:
         Every missing and every stray file.
+
     """
     wanted: set[str] = set()
     for song in songs:
@@ -142,6 +146,7 @@ def piano_problems(src: pathlib.Path, sheet: pathlib.Path) -> list[str]:
 
     Returns:
         Every way the piano sheet departs from that.
+
     """
     original = decode(src)
     parts = piano.kept_parts(original)
@@ -284,6 +289,7 @@ def measured(pdf: pathlib.Path, work: pathlib.Path) -> pathlib.Path:
 
     Raises:
         DoesNotFit: No render that drew the PDF left measure positions for it.
+
     """
     folder = work / "measured"
     folder.mkdir(parents=True, exist_ok=True)
@@ -309,6 +315,7 @@ def even_bars(
 
     Returns:
         Every uneven-bar problem.
+
     """
     score = decode(src)
     if reduced:
@@ -333,6 +340,7 @@ def chord_bound_bars(score_path: pathlib.Path, pdf: pathlib.Path) -> set[int]:
 
     Returns:
         The 1-based numbers of those bars.
+
     """
     text = chordseat.score_text(score_path)[1]
     rows = [row for row, chords in zip(chordseat.bar_rows(text), chordseat.rows_of(text), strict=True) if chords]
@@ -358,6 +366,7 @@ def gate_key(src: pathlib.Path) -> str:
 
     Returns:
         The cache key.
+
     """
     private = pathlib.Path(os.environ["MUSE_PRIVATE"])
     lists = "".join(
@@ -376,6 +385,7 @@ def cached_check(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> tu
 
     Returns:
         The failures, the notes, and whether the recorded pass was reused.
+
     """
     info = song_of(src)
     outputs = sorted(path for path in (out / info.name).iterdir() if path.is_file()) + (
@@ -399,6 +409,7 @@ def chord_name_problems(work: pathlib.Path) -> list[str]:
 
     Returns:
         Every playback and transposition problem.
+
     """
     style = port.styled(work, "chord-check.mss", "x", 1.5, 11.0)
     program = shutil.which("mscore") or "mscore"
@@ -418,6 +429,7 @@ def verdicts(
 
     Returns:
         The failures of each song folder, by song name.
+
     """
     work.mkdir(parents=True, exist_ok=True)
     found: dict[str, list[str]] = {}

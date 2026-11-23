@@ -42,6 +42,7 @@ def song_problem(src: pathlib.Path) -> str:
 
     Returns:
         The first problem found, or an empty string.
+
     """
     try:
         return _checked_problem(src)
@@ -54,6 +55,7 @@ def code_problems(check: Callable[..., subprocess.CompletedProcess[str]] = subpr
 
     Returns:
         The failing check's label and output tail, or an empty list.
+
     """
     for label, command in CODE_CHECKS:
         done = check(command, capture_output=True, text=True, stdin=subprocess.DEVNULL)

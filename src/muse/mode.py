@@ -15,6 +15,7 @@ def pick(strict: float, loose: float) -> float:
 
     Returns:
         The loose value in print mode, the strict value otherwise.
+
     """
     return loose if PRINT else strict
 
@@ -24,5 +25,6 @@ def label() -> str:
 
     Returns:
         `print` in print mode, `strict` otherwise.
+
     """
     return "print" if PRINT else "strict"

@@ -229,9 +229,7 @@ def _read_system(sheet: _Sheet, base: float, above: float | None) -> None:
     cols, reps = _columns(sheet, base)
     mark_lo = base - 60 if above is None else max(base - 60, above + 14)
     note_lo = base - 50 if above is None else max(base - 50, above + 22)
-    row_chars = [
-        c for c in sheet.chars if note_lo < c[2] < base + 22 and abs(c[3] - sheet.size) < ROW_SIZE_TOLERANCE
-    ]
+    row_chars = [c for c in sheet.chars if note_lo < c[2] < base + 22 and abs(c[3] - sheet.size) < ROW_SIZE_TOLERANCE]
     row_new = _read_bars(sheet, base, cols, reps, row_chars)
     if not row_new:
         return
@@ -261,11 +259,7 @@ def _columns(sheet: _Sheet, base: float) -> tuple[list[float], list[_Glyph]]:
         if not merged or x - merged[-1] > BARLINE_MERGE_GAP:
             merged.append(x)
     next(
-        (
-            c[1]
-            for c in sheet.chars
-            if abs(c[2] - base) < TIME_ROW_REACH and c[0] in TIME_DIGITS
-        ),
+        (c[1] for c in sheet.chars if abs(c[2] - base) < TIME_ROW_REACH and c[0] in TIME_DIGITS),
         None,
     )
     left_edge = 58.0
@@ -361,11 +355,7 @@ def _chord_text(t: _Span, row_ch: list[_Glyph], items: list[_Span], taken: set[i
     for c in row_ch:
         if c[0] == CHORD_SLASH and 0 < c[1] - t[3] < SLASH_X_REACH:
             follow = next(
-                (
-                    q
-                    for q in items
-                    if 0 < q[1] - c[1] < SLASH_BASS_X_REACH and abs(q[2] - t[2]) < SLASH_BASS_Y_REACH
-                ),
+                (q for q in items if 0 < q[1] - c[1] < SLASH_BASS_X_REACH and abs(q[2] - t[2]) < SLASH_BASS_Y_REACH),
                 None,
             )
             if follow:
@@ -478,11 +468,7 @@ def _stemmed_value(
 def _accidental(x: float, y: float, content: list[_Glyph]) -> int | None:
     accidental = None
     for f in content:
-        if (
-            0 < x - f[1] < ACCIDENTAL_X_REACH
-            and abs(f[2] - y) < ACCIDENTAL_Y_REACH
-            and f[0] in {0xE260, 0xE261, 0xE262}
-        ):
+        if 0 < x - f[1] < ACCIDENTAL_X_REACH and abs(f[2] - y) < ACCIDENTAL_Y_REACH and f[0] in {0xE260, 0xE261, 0xE262}:
             accidental = {0xE260: -1, 0xE261: 0, 0xE262: 1}[f[0]]
     return accidental
 
@@ -492,13 +478,7 @@ def _merge_chords(events: list[Event]) -> list[Event]:
     merged: list[Event] = []
     for ev in events:
         for other in merged:
-            if (
-                abs(other.x - ev.x) < CHORD_MERGE_REACH
-                and other.heads
-                and ev.heads
-                and not other.grace
-                and not ev.grace
-            ):
+            if abs(other.x - ev.x) < CHORD_MERGE_REACH and other.heads and ev.heads and not other.grace and not ev.grace:
                 other.heads += ev.heads
                 break
         else:

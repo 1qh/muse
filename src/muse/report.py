@@ -30,7 +30,8 @@ for bar in score.bars:
                 ),
             )
     chords = " ".join(
-        c.root + {-1: "b", 1: "#", 0: ""}[c.root_alter] + c.kind + ("/" + c.bass if c.bass not in {None, ""} else "") for c in bar.chords
+        c.root + {-1: "b", 1: "#", 0: ""}[c.root_alter] + c.kind + ("/" + c.bass if c.bass not in {None, ""} else "")
+        for c in bar.chords
     )
     sys.stdout.write(f"{bar.number} p{bar.page} len={bar.length} [{chords}] " + " || ".join(rows) + "\n")
 for f in score.flags:

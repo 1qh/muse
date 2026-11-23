@@ -57,6 +57,7 @@ def stored(kind: str) -> str:
 
     Returns:
         The stored spelling of the chord kind.
+
     """
     return SHORT.get(kind, kind)
 
@@ -79,6 +80,7 @@ def chord_path_problems(mscz: pathlib.Path) -> list[str]:
 
     Returns:
         A problem line per chord file a style names other than the embedded list.
+
     """
     with zipfile.ZipFile(mscz) as source:
         found = [
@@ -95,6 +97,7 @@ def chord_file(work: pathlib.Path) -> pathlib.Path:
 
     Returns:
         The path of the copied chord description.
+
     """
     path = work / "chords_short.xml"
     work.mkdir(parents=True, exist_ok=True)
@@ -109,6 +112,7 @@ def bars_xml(kinds: list[str]) -> str:
 
     Returns:
         A MusicXML score holding 1 bar per chord kind.
+
     """
     bars = []
     for number, kind in enumerate(kinds, 1):
@@ -137,6 +141,7 @@ def variable_length(track: bytes, at: int) -> tuple[int, int]:
 
     Returns:
         The number and the position after it.
+
     """
     value = 0
     while True:
@@ -152,6 +157,7 @@ def sounding(mid: pathlib.Path) -> dict[int, list[int]]:
 
     Returns:
         The sorted pitch classes sounding in each bar.
+
     """
     data = mid.read_bytes()
     division = struct.unpack(">H", data[12:14])[0]
@@ -189,6 +195,7 @@ def wrong_playback(kinds: list[str], heard: dict[int, list[int]]) -> list[str]:
 
     Returns:
         A problem line per kind whose bar sounds wrong.
+
     """
     return [
         f"{kind}: plays {heard.get(bar)}, wanted {PLAYS[kind]}"
@@ -204,6 +211,7 @@ def playback_problems(command: str, style: pathlib.Path, work: pathlib.Path, run
 
     Returns:
         A problem line per kind whose bar sounds wrong.
+
     """
     kinds = sorted(set(SHORT.values()))
     folder = work / "playback"
@@ -224,6 +232,7 @@ def transposes(command: str, style: pathlib.Path, work: pathlib.Path, run: Runne
 
     Returns:
         A problem line per kind that does not sound as proved a tone up.
+
     """
     folder = work / "playback4"
     folder.mkdir(parents=True, exist_ok=True)

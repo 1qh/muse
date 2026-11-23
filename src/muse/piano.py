@@ -34,6 +34,7 @@ def label_of(bar: Bar) -> str:
 
     Returns:
         The label, or an empty string.
+
     """
     for text in [*bar.texts, *bar.texts2]:
         whole = "".join(run[0] for run in text.runs)
@@ -47,6 +48,7 @@ def lyric_of(bar: Bar) -> str:
 
     Returns:
         The hint words, or an empty string.
+
     """
     for text in [*bar.texts, *bar.texts2]:
         whole = "".join(run[0] for run in text.runs)
@@ -72,6 +74,7 @@ def segments(score: Score) -> list[tuple[int, int]]:
 
     Returns:
         The stretches in bar order.
+
     """
     bars = score.bars
     cuts = {1, len(bars) + 1}
@@ -91,6 +94,7 @@ def sung_stretches(score: Score) -> list[tuple[int, int]]:
 
     Returns:
         The sung stretches in bar order.
+
     """
     by_number = {b.number: b for b in score.bars}
     labelled = any(label_of(b) for b in score.bars)
@@ -139,6 +143,7 @@ def _tail_run(by_number: dict[int, Bar], first: int, end: int) -> int:
 
     Returns:
         The number of trailing bars with notes.
+
     """
     run = 0
     for number in range(end - 1, first, -1):
@@ -153,6 +158,7 @@ def parts(score: Score) -> list[Part]:
 
     Returns:
         The kept parts in bar order.
+
     """
     sung = sung_stretches(score)
     kept = sorted(b.number for b in score.bars if not any(a <= b.number < z for a, z in sung))
@@ -183,6 +189,7 @@ def lone_lines(starts: list[int], total: int) -> list[int]:
 
     Returns:
         The first bar number of each line holding 1 bar.
+
     """
     if len(starts) < MIN_LINES:
         return []
@@ -198,6 +205,7 @@ def staff_of(bars: list[Bar]) -> int:
 
     Returns:
         The staff number, 1 or 2.
+
     """
     for bar in bars:
         if any(PIANO_CUE.search("".join(run[0] for run in t.runs)) for t in bar.texts2):
@@ -270,6 +278,7 @@ def hit_bars(score: Score) -> set[int]:
 
     Returns:
         The bar numbers the pianist plays with.
+
     """
     found = {
         bar.number
@@ -291,6 +300,7 @@ def kept_parts(score: Score) -> list[Part]:
 
     Returns:
         The kept parts sorted by first bar.
+
     """
     found = parts(score)
     inside = {n for part in found for n in range(part.first, part.last + 1)}
@@ -308,6 +318,7 @@ def reduce(score: Score) -> list[Part]:
 
     Returns:
         The parts that kept their notes.
+
     """
     found = kept_parts(score)
     keep = {n: part for part in found for n in range(part.first, part.last + 1)}

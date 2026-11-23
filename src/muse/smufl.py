@@ -21,6 +21,7 @@ def beam_y(beam: tuple[float, float, float, float], x: float) -> float:
 
     Returns:
         The beam's height at x, clamped to its ends.
+
     """
     x0, x1, y0, y1 = beam
     return y0 if x1 - x0 < FLAT_BEAM_WIDTH else y0 + (y1 - y0) * (min(max(x, x0), x1) - x0) / (x1 - x0)

@@ -53,6 +53,7 @@ def extensions_root() -> pathlib.Path:
 
     Returns:
         The extensions folder.
+
     """
     given = os.environ.get("MUSE_EXTENSIONS")
     return (
@@ -69,6 +70,7 @@ def install_extension() -> str:
 
     Returns:
         The address to run the installed extension by.
+
     """
     script = (EXTENSION / "main.js").read_bytes()
     digest = hashlib.sha256(script + (EXTENSION / "manifest.json").read_bytes()).hexdigest()[:12]
@@ -97,6 +99,7 @@ def run_extension(source: pathlib.Path, target: pathlib.Path) -> None:
 
     Raises:
         DoesNotFit: when the launch fails or writes no target.
+
     """
     uri = install_extension()
     done = launch.mscore(["--extension", uri, "-o", str(target), str(source)], EXTENSION_SECONDS)
@@ -131,6 +134,7 @@ def read_tag(score_path: pathlib.Path, key: str) -> str:
 
     Raises:
         DoesNotFit: when the extension never wrote the tag.
+
     """
     _, text = chordseat.score_text(score_path)
     found = re.search(rf'<metaTag name="{key}">([^<]*)</metaTag>', text)
@@ -180,6 +184,7 @@ class Sheet:
 
         Returns:
             The bar numbers that open a line.
+
         """
         return [1] + [bar.number for bar in self.score.bars[1:] if bar.new_system]
 
@@ -208,6 +213,7 @@ def unjustified(name: str, text: str) -> str:
 
     Returns:
         The changed text.
+
     """
     text = re.sub(r"<pageWidth>[^<]*</pageWidth>", f"<pageWidth>{WIDE_PAGE}</pageWidth>", text)
     text = re.sub(
@@ -226,6 +232,7 @@ def placed(name: str, text: str) -> str:
 
     Returns:
         The changed text.
+
     """
     if not name.endswith(".mscx"):
         return text
@@ -244,6 +251,7 @@ def measure(sheet: Sheet) -> tuple[list[float], float]:
 
     Returns:
         The natural widths and the room of 1 line.
+
     """
     flags = [(bar.new_system, bar.new_page) for bar in sheet.score.bars]
     sheet.set_lines({1})
@@ -280,6 +288,7 @@ def chord_shares(natural: pathlib.Path, bars: int, noted: list[int]) -> list[flo
 
     Raises:
         DoesNotFit: when the extension reports crowding or measures the wrong bar count.
+
     """
     probe = natural.with_name(natural.stem + "-chords.mscz")
     shutil.copyfile(natural, probe)
@@ -310,6 +319,7 @@ def blocks_of(score: Score, variant: str | None) -> list[list[int]]:
 
     Returns:
         The bars of each block.
+
     """
     blocks = [list(block) for block in port.sections(score)]
     joined: list[list[int]] = []
@@ -329,6 +339,7 @@ def plan(score: Score, widths: list[float], room: float, variant: str | None = N
 
     Returns:
         The 1-based bars that open a line.
+
     """
     cap = room * LINE_SHARE
     tied = [port.tied_out(bar) for bar in score.bars]
@@ -342,6 +353,7 @@ def plan(score: Score, widths: list[float], room: float, variant: str | None = N
 
         Returns:
             The line's width.
+
         """
         widest = max((widths[i] for i in line if empty[i]), default=0.0)
         return sum(widest if empty[i] else widths[i] for i in line)
@@ -395,6 +407,7 @@ def render(sheet: Sheet, label: str, *, seated: bool = False) -> tuple[pathlib.P
 
     Raises:
         DoesNotFit: when a seated render finds no seated score.
+
     """
     score_path = sheet.path(label)
     if seated and not score_path.exists():
@@ -413,6 +426,7 @@ def candidate(src: pathlib.Path, work: pathlib.Path, variant: str, size: float) 
 
     Returns:
         The candidate's measurements.
+
     """
     with BATCHER.worker():
         sheet = Sheet(src, work, variant, size)
@@ -441,6 +455,7 @@ def ranked(fit: list[dict[str, Any]]) -> list[float]:
 
     Returns:
         The sizes, best first.
+
     """
     return [
         c["size"]
@@ -458,6 +473,7 @@ def choose(found: list[dict[str, Any]], variant: str) -> list[float]:
 
     Returns:
         The sizes to finish, best first.
+
     """
     order: list[float] = []
     for share in (port.MAX_SHORT_SHARE, port.RELAXED_SHORT_SHARE):
@@ -471,6 +487,7 @@ def overflowing(sheet: Sheet, probe: pathlib.Path, *, seated: bool) -> set[int]:
 
     Returns:
         The 0-based bars that overflow.
+
     """
     wanted, got = sheet.starts(), sorted({1, *port.system_starts(probe)})
     extra = set(got) - set(wanted)
@@ -492,6 +509,7 @@ def merged_rows(score: Score, probe: pathlib.Path) -> set[int]:
 
     Returns:
         The first bar of every merged line.
+
     """
     rows = [row for row in port.rows(score) if any(score.bars[number - 1].chords for number in row)]
     lines = chordseat.page_lines(probe)
@@ -527,6 +545,7 @@ def next_bias(
 
     Returns:
         Each chord's next correction.
+
     """
     found = []
     for at, (gap, space) in enumerate(zip(gaps, spaces, strict=True)):
@@ -678,6 +697,7 @@ def seat_inked(
 
     Returns:
         The render of the seated score.
+
     """
     state = _InkState(probe=score_path, reach=SIGN_REACH)
     for _ in range(INK_ROUNDS):
@@ -697,6 +717,7 @@ def current_render(score_path: pathlib.Path, probe: pathlib.Path, rendered: Call
 
     Returns:
         The current render.
+
     """
     return rendered() if score_path.stat().st_mtime_ns > probe.stat().st_mtime_ns else probe
 
@@ -706,6 +727,7 @@ def seat(sheet: Sheet, score_path: pathlib.Path) -> pathlib.Path:
 
     Returns:
         The render of the seated score.
+
     """
     noted = [index for index, bar in enumerate(sheet.score.bars) if piano.has_notes(bar)]
     return seat_inked(
@@ -729,6 +751,7 @@ def finish(
 
     Raises:
         DoesNotFit: when no line gap passes.
+
     """
     refusal: port.DoesNotFit | None = None
     learned: list[list[float]] = []
@@ -752,6 +775,7 @@ def uneven_empty_bars(sheet: Sheet, score_path: pathlib.Path, probe: pathlib.Pat
 
     Returns:
         The uneven-bar problems.
+
     """
     if mode.PRINT:
         return []
@@ -823,6 +847,7 @@ def finish_at(
 
     Raises:
         DoesNotFit: when lines still overflow or a final check fails.
+
     """
     sheet = Sheet(src, work, variant, size, distance)
     widths, room = measure(sheet)
@@ -872,6 +897,7 @@ def lay(src: pathlib.Path, work: pathlib.Path, variant: str) -> tuple[Score, pat
 
     Raises:
         DoesNotFit: when no size passes.
+
     """
     sizes = port.sizes_between(port.SIZE_FLOORS[-1], port.SIZE_CAP)
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(sizes)) as pool:

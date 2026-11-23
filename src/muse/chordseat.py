@@ -75,6 +75,7 @@ def rows_of(text: str) -> list[list[tuple[int, bool]]]:
 
     Returns:
         Per line, (bar index on the line, on beat 1) of each chord, in print order.
+
     """
     first = text.index('<Staff id="1">', text.index("</Part>"))
     end = text.find('<Staff id="2">', first)
@@ -97,6 +98,7 @@ def segments(page: pymupdf.Page | pdftext.Page) -> list[pymupdf.Rect]:
 
     Returns:
         Every drawn stroke's box.
+
     """
     found: list[pymupdf.Rect] = []
     for drawing in page.get_drawings():
@@ -125,6 +127,7 @@ def staves_of(shapes: list[pymupdf.Rect]) -> list[list[float]]:
 
     Returns:
         The 5 line heights of each staff.
+
     """
     widths: dict[float, float] = {}
     for rect in shapes:
@@ -162,6 +165,7 @@ def char_boxes(
 
     Returns:
         The boxes of the chord's own letters, and the boxes of every other character.
+
     """
     own: list[pymupdf.Rect] = []
     foreign: list[pymupdf.Rect] = []
@@ -171,12 +175,9 @@ def char_boxes(
                 for c in span["chars"]:
                     box = pymupdf.Rect(c["bbox"])
                     if box.intersects(clip):
-                        (
-                            foreign
-                            if abs(c["origin"][1] - base) > BASE_MATCH
-                            or ord(c["c"]) in PRIVATE_USE
-                            else own
-                        ).append(box)
+                        (foreign if abs(c["origin"][1] - base) > BASE_MATCH or ord(c["c"]) in PRIVATE_USE else own).append(
+                            box,
+                        )
     return own, foreign
 
 
@@ -185,6 +186,7 @@ def crowded(page: pymupdf.Page | pdftext.Page, left: float, base: float, size: f
 
     Returns:
         True when another character's box enters the chord's ink window.
+
     """
     return bool(char_boxes(page, ink_window(left, base, size), base)[1])
 
@@ -194,6 +196,7 @@ def ink_window(left: float, base: float, size: float) -> pymupdf.Rect:
 
     Returns:
         The window a chord's first ink can lie in.
+
     """
     return pymupdf.Rect(left - INK_REACH, base - size * 0.75, left + size * 0.7, base - 0.2)
 
@@ -206,6 +209,7 @@ def ink_left(page: pymupdf.Page | pdftext.Page, left: float, base: float, size: 
 
     Returns:
         Where the letter's ink starts.
+
     """
     clip = ink_window(left, base, size)
     shot = page.get_pixmap(dpi=INK_DPI, clip=clip, colorspace=pymupdf.csRGB, alpha=False)
@@ -218,6 +222,7 @@ def ink_left(page: pymupdf.Page | pdftext.Page, left: float, base: float, size: 
 
         Returns:
             True when the pixel prints black.
+
         """
         at = row * shot.stride + column * n
         return bool(max(samples[at : at + 3]) < INK_DARK)
@@ -247,6 +252,7 @@ def chord_size_of(words: Iterable[tuple[float, str]]) -> float | None:
 
     Returns:
         The size chord symbols print at, or None when no text is chord-shaped.
+
     """
     shaped = Counter(round(size, 1) for size, text in words if CHORD_SHAPE.match(text.strip()))
     return shaped.most_common(1)[0][0] if shaped else None
@@ -262,6 +268,7 @@ def chord_size(path: pathlib.Path) -> float:
 
     Raises:
         ValueError: The PDF holds no chord text.
+
     """
     words = [
         (span["size"], span["text"])
@@ -283,6 +290,7 @@ def measure_boxes(mpos: pathlib.Path) -> list[dict[str, float]]:
 
     Returns:
         Every measure's box in points.
+
     """
     elements = list(ET.parse(mpos).getroot().iter("element"))
     units = MPOS_UNITS
@@ -300,6 +308,7 @@ def sign_end(char: dict[str, Any], size: float, frames: list[pymupdf.Rect]) -> f
 
     Returns:
         Where the sign stops taking room.
+
     """
     middle = ((char["bbox"][0] + char["bbox"][2]) / 2, (char["bbox"][1] + char["bbox"][3]) / 2)
     around = [frame.x1 for frame in frames if frame.x0 <= middle[0] <= frame.x1 and frame.y0 <= middle[1] <= frame.y1]
@@ -312,6 +321,7 @@ def sign_ink_end(x: float, size: float) -> float:
 
     Returns:
         Where the sign's printed part ends.
+
     """
     return x + size * SIGN_INK_WIDTH - SIGN_TOUCH_SLACK
 
@@ -323,6 +333,7 @@ def sign_middle(char: dict[str, Any]) -> float:
 
     Returns:
         The middle of the glyph.
+
     """
     return (float(char["bbox"][0]) + float(char["bbox"][2])) / 2
 
@@ -452,11 +463,7 @@ def _line_start(
     opening = start
     start = max([
         start,
-        *(
-            end
-            for end, y, _ in marks.signs_here
-            if above + space * 4 < y <= staff_top + 1 and end < start + marks.top * 4
-        ),
+        *(end for end, y, _ in marks.signs_here if above + space * 4 < y <= staff_top + 1 and end < start + marks.top * 4),
     ])
     return start, opening
 
@@ -555,6 +562,7 @@ def page_lines(pdf: pathlib.Path) -> list[dict[str, Any]]:
 
     Returns:
         Every staff carrying chords, in print order.
+
     """
     lines: list[dict[str, Any]] = []
     readings: list[tuple[int, int, str, float, float, bool]] = []
@@ -582,6 +590,7 @@ def clean_bearings(
 
     Returns:
         Per first letter and size, the median ink offset past the text box, in sizes.
+
     """
     found: dict[tuple[str, float], list[float]] = {}
     for line, place, letter, size, left, busy in readings:
@@ -595,6 +604,7 @@ def is_stem(x: float, heads: list[tuple[float, float]]) -> bool:
 
     Returns:
         True when the vertical touches a notehead's edge.
+
     """
     return any(abs(x - left) < STEM_REACH or abs(x - right) < STEM_REACH for left, right in heads)
 
@@ -611,6 +621,7 @@ def signature_ends(
 
     Returns:
         The right edges of the run.
+
     """
     ends: list[float] = []
     for glyph in glyphs:
@@ -636,6 +647,7 @@ def target_bars(text: str) -> set[int]:
 
     Returns:
         The 1-based bars holding a target.
+
     """
     first = text.index('<Staff id="1">', text.index("</Part>"))
     end = text.find('<Staff id="2">', first)
@@ -656,6 +668,7 @@ def matched(text: str, pdf: pathlib.Path) -> list[dict[str, Any]]:
 
     Returns:
         The PDF's chord lines.
+
     """
     lines = page_lines(pdf)
     targets = target_bars(text)
@@ -678,12 +691,9 @@ def is_signature(code: int) -> bool:
 
     Returns:
         True when the code is a clef, a key signature accidental or a time signature digit.
+
     """
-    return (
-        CLEF_FIRST <= code <= CLEF_LAST
-        or code in TIME_SIGNATURES
-        or ACCIDENTAL_FIRST <= code <= ACCIDENTAL_LAST
-    )
+    return CLEF_FIRST <= code <= CLEF_LAST or code in TIME_SIGNATURES or ACCIDENTAL_FIRST <= code <= ACCIDENTAL_LAST
 
 
 def missing(rows: list[list[tuple[int, bool]]], lines: list[dict[str, Any]]) -> list[str]:
@@ -691,6 +701,7 @@ def missing(rows: list[list[tuple[int, bool]]], lines: list[dict[str, Any]]) -> 
 
     Returns:
         A message per line whose chord count differs.
+
     """
     filled = [row for row in rows if row]
     if len(filled) != len(lines):
@@ -711,6 +722,7 @@ def gaps(rows: list[list[tuple[int, bool]]], lines: list[dict[str, Any]]) -> lis
 
     Raises:
         ValueError: The score and the PDF disagree on lines or chords per line.
+
     """
     filled = [row for row in rows if row]
     if len(filled) != len(lines):
@@ -740,6 +752,7 @@ def space_points(score_path: pathlib.Path) -> float:
 
     Raises:
         ValueError: The style holds other than 1 staff space.
+
     """
     with zipfile.ZipFile(score_path) as archive:
         styles = [name for name in archive.namelist() if name.endswith(".mss")]
@@ -761,6 +774,7 @@ def ink_widths(rows: list[list[tuple[int, bool]]], lines: list[dict[str, Any]]) 
 
     Raises:
         ValueError: The score and the PDF disagree on chords per line.
+
     """
     filled = [row for row in rows if row]
     if len(filled) != len(lines) or any(len(row) != len(line["chords"]) for row, line in zip(filled, lines, strict=True)):
@@ -808,6 +822,7 @@ def bar_rows(text: str) -> list[list[int]]:
 
     Returns:
         The 1-based bar numbers per line.
+
     """
     first = text.index('<Staff id="1">', text.index("</Part>"))
     end = text.find('<Staff id="2">', first)
@@ -827,6 +842,7 @@ def widths_of(line: dict[str, Any]) -> list[float]:
 
     Returns:
         The laid-out bar widths.
+
     """
     edges = [line["opening"], *line["bars"]]
     return [right - left for left, right in itertools.pairwise(edges)]
@@ -839,6 +855,7 @@ def signed_bars(text: str) -> set[int]:
 
     Returns:
         The 1-based bars carrying a sign.
+
     """
     first = text.index('<Staff id="1">', text.index("</Part>"))
     end = text.find('<Staff id="2">', first)
@@ -857,6 +874,7 @@ def empty_lines(text: str, lines: list[dict[str, Any]], noted: set[int]) -> list
 
     Returns:
         Per such line, (bar, width) of each empty bar.
+
     """
     noted |= signed_bars(text)
     found = []
@@ -878,6 +896,7 @@ def empty_widths(text: str, lines: list[dict[str, Any]], noted: set[int]) -> lis
 
     Returns:
         (bar, width, the line's mean empty width) per empty bar.
+
     """
     return [
         (bar, width, sum(w for _, w in empty) / len(empty))
@@ -893,6 +912,7 @@ def equalize(mscz: pathlib.Path, pdf: pathlib.Path, noted: set[int]) -> bool:
 
     Returns:
         True when anything moved.
+
     """
     _name, text = score_text(mscz)
     off = {
@@ -913,6 +933,7 @@ def uneven(mscz: pathlib.Path, pdf: pathlib.Path, noted: set[int]) -> list[str]:
 
     Returns:
         A message per uneven bar.
+
     """
     return [
         f"bar {bar}: {width:.1f} pt wide, line mean {mean:.1f}"
@@ -926,6 +947,7 @@ def chordless_starts(text: str) -> list[int]:
 
     Returns:
         The bar numbers.
+
     """
     found = []
     for numbers, chords in zip(bar_rows(text), rows_of(text), strict=True):
@@ -939,6 +961,7 @@ def jump_crossings(mscz: pathlib.Path, pdf: pathlib.Path) -> list[tuple[int, flo
 
     Returns:
         (bar, points) per crossing.
+
     """
     return [crossed for line in matched(score_text(mscz)[1], pdf) for crossed in line["crossed"]]
 
@@ -948,6 +971,7 @@ def problems(mscz: pathlib.Path, pdf: pathlib.Path) -> list[str]:
 
     Returns:
         A message per problem.
+
     """
     text = score_text(mscz)[1]
     rows = rows_of(text)
@@ -986,6 +1010,7 @@ def line_texts(text: str) -> list[tuple[list[str], list[str]]]:
 
     Returns:
         Per line, its texts above and its texts below.
+
     """
     first = text.index('<Staff id="1">', text.index("</Part>"))
     end = text.find('<Staff id="2">', first)
@@ -1013,6 +1038,7 @@ def crowded_line_texts(score_path: pathlib.Path, pdf: pathlib.Path) -> list[str]
 
     Returns:
         A message per crowded pair.
+
     """
     text = score_text(score_path)[1]
     owners = line_texts(text)

@@ -68,6 +68,7 @@ def pdf_words_problems(pdf: pathlib.Path, title: str) -> list[str]:
 
     Returns:
         Every problem found; empty when the PDF is clean.
+
     """
     text = subprocess.run(["pdftotext", str(pdf), "-"], capture_output=True, text=True, check=True).stdout
     problems = [f"banned text in {pdf.name}: {word}" for word in BANNED if word.lower() in text.lower()]
@@ -83,6 +84,7 @@ def chord_beat_problems(src: pathlib.Path, path: pathlib.Path) -> list[str]:
 
     Returns:
         Every bar whose chords sit off their beats.
+
     """
     score = decode(src)
     problems = []
@@ -100,6 +102,7 @@ def tempo_text(final: pathlib.Path) -> str:
 
     Returns:
         The printed tempo number, or empty when the score has no tempo mark.
+
     """
     with zipfile.ZipFile(final) as z:
         name = next(n for n in z.namelist() if n.endswith(".mscx") and "/" not in n)
@@ -114,6 +117,7 @@ def expected_keys(score: Score, fifths: int) -> set[int]:
 
     Returns:
         The moved keys, in fifths.
+
     """
     first = next((bar.key for bar in score.bars if bar.key is not None), fifths)
     return {fifths, *(bar.key - first + fifths for bar in score.bars if bar.key is not None)}
@@ -124,6 +128,7 @@ def same_keys(found: set[str], wanted: set[int]) -> bool:
 
     Returns:
         Whether both sets hold the same keys.
+
     """
     return {int(k) % 12 for k in found} == {k % 12 for k in wanted}
 
@@ -186,6 +191,7 @@ def check(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> list[str]
 
     Returns:
         Every problem found; empty when the song matches its source.
+
     """
     info = song_of(src)
     song, fifths = info.name, info.source_fifths

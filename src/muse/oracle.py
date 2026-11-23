@@ -56,6 +56,7 @@ def lost_words(printed: collections.Counter[str], decoded: collections.Counter[s
 
     Returns:
         Each lost word and how many more times it was printed than decoded.
+
     """
     joined = "".join(decoded)
     return {

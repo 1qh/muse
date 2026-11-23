@@ -90,7 +90,8 @@ def test_a_failing_code_check_stops_the_rest() -> None:
 
 
 def test_a_song_with_no_piano_part_or_a_refused_source_is_named(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: pathlib.Path,
 ) -> None:
     source = tmp_path / "x.pdf"
     source.write_text("x")
@@ -108,7 +109,8 @@ def test_build_key_covers_the_extension() -> None:
 
 
 def test_songs_build_in_the_owners_priority_order_then_by_name(
-    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     (tmp_path / "PRIORITY.txt").write_text("Zeta Beta\n", encoding="utf-8")
     monkeypatch.setenv("MUSE_PRIVATE", str(tmp_path))
@@ -135,12 +137,15 @@ def test_a_print_mode_build_is_never_reused_as_strict(tmp_path: pathlib.Path, mo
 
 
 def test_a_song_child_hands_back_its_report_or_its_refusal(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: pathlib.Path,
 ) -> None:
     monkeypatch.setattr(build, "song_of", lambda _: SimpleNamespace(name="Song"))
 
     def finished(
-        code: int, report: dict[str, str] | None, reason: str | None
+        code: int,
+        report: dict[str, str] | None,
+        reason: str | None,
     ) -> Callable[..., subprocess.CompletedProcess[str]]:
         def run(argv: list[str], **_: object) -> subprocess.CompletedProcess[str]:
             assert argv[3] == build.CHILD_FLAG

@@ -46,6 +46,7 @@ def stray_files(tracked: str) -> list[str]:
 
     Returns:
         The tracked names that are neither a PDF nor a MuseScore file.
+
     """
     return [name for name in tracked.split("\n") if name and not name.endswith((".pdf", ".mscz"))]
 
@@ -61,6 +62,7 @@ def pushed(
 
     Raises:
         Refused: A refusal that is not a server error, or the last try's refusal.
+
     """
     for attempt in range(1, tries + 1):
         try:
@@ -92,6 +94,7 @@ def superseded(current_tree: str, history: str) -> list[str]:
 
     Returns:
         The sorted stale blob ids.
+
     """
     current = {line.split()[2] for line in current_tree.splitlines() if line.split()[1:2] == ["blob"]}
     stale = set()
@@ -116,6 +119,7 @@ def commit_message(songs: list[str]) -> str:
 
     Returns:
         The commit message for the published songs.
+
     """
     return f"feat: publish {', '.join(songs)}" if songs else "chore: refresh sheets"
 
@@ -136,6 +140,7 @@ def publish(
     Raises:
         SystemExit: The sheets repo holds a file that is neither a PDF nor a MuseScore file.
         Refused: The purge changed the current files, or the local tree differs after it.
+
     """
     verdicts = judge(src, out, work, names)
     blocked = {song: failures for song, failures in verdicts.items() if failures}

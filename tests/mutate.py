@@ -591,6 +591,7 @@ def control(mutation: tuple[str, str, str, str]) -> str:
 
     Returns:
         The control's label and verdict.
+
     """
     name, old, new, label = mutation
     with tempfile.TemporaryDirectory() as tmp:
@@ -639,7 +640,13 @@ def main() -> None:
             ]
             try:
                 done = subprocess.run(
-                    args, env=env, cwd=ROOT, capture_output=True, text=True, timeout=HEAVY_SECONDS, check=False
+                    args,
+                    env=env,
+                    cwd=ROOT,
+                    capture_output=True,
+                    text=True,
+                    timeout=HEAVY_SECONDS,
+                    check=False,
                 )
             except subprocess.TimeoutExpired:
                 msg = f"baseline did not finish in {CONTROL_SECONDS} seconds"

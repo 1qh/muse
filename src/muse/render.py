@@ -59,6 +59,7 @@ class Batcher:
 
         Raises:
             RenderFailed: MuseScore wrote no output for this score.
+
         """
         for out in outputs:
             out.unlink(missing_ok=True)
@@ -101,6 +102,7 @@ class Batcher:
 
         Returns:
             Each ticket's failure note, or None where every output exists.
+
         """
         with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".json", delete=False) as handle:
             json.dump([item["entry"] for item in batch], handle)

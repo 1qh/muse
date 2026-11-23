@@ -28,6 +28,7 @@ def code_files(root: pathlib.Path = ROOT, skip: frozenset[str] | set[str] = froz
 
     Returns:
         The sorted code file paths.
+
     """
     return sorted(
         path
@@ -41,6 +42,7 @@ def imports_of(module: str, root: pathlib.Path = ROOT) -> set[str]:
 
     Returns:
         The names of the package modules imported.
+
     """
     tree = ast.parse((root / f"{module}.py").read_text(encoding="utf-8"))
     found: set[str] = set()
@@ -61,6 +63,7 @@ def sheet_code(root: pathlib.Path = ROOT) -> list[pathlib.Path]:
 
     Returns:
         The sorted file paths.
+
     """
     seen: set[str] = set()
     todo = list(SHEET_WRITERS)
@@ -84,6 +87,7 @@ def tool_identity() -> str:
 
     Returns:
         The identity of every MuseScore found, joined by bars.
+
     """
     parts = []
     for name in ("mscore",):
@@ -105,6 +109,7 @@ def key_of(
 
     Returns:
         The hex digest.
+
     """
     whole = hashlib.sha256()
     for part in (
@@ -142,6 +147,7 @@ def fresh(entry: dict[str, Any] | None, key: str, outputs: list[pathlib.Path]) -
 
     Returns:
         Whether the recorded outputs are still fresh.
+
     """
     entry = entry if entry is not None else {}
     if not entry or entry.get("key") != key:

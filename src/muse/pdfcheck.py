@@ -49,6 +49,7 @@ def _raw_spans(page: pdftext.Page) -> list[dict[str, Any]]:
 
     Returns:
         Each span of every line of every block.
+
     """
     return [
         span for block in page.get_text("rawdict")["blocks"] for line in block.get("lines", []) for span in line["spans"]
@@ -86,6 +87,7 @@ def foreign_fonts(path: pathlib.Path) -> list[str]:
 
     Returns:
         The sorted names of every text font outside the style's own.
+
     """
     names = {font[3].split("+")[-1] for page in pdftext.open(path) for font in page.get_fonts()}
     return sorted(name for name in names if not name.startswith((*MUSIC_FONTS, "SFPro", "SF-Pro", "SF Pro")))
@@ -96,6 +98,7 @@ def oversized_text(path: pathlib.Path) -> list[str]:
 
     Returns:
         The sorted words, other than chords, printed at the chord size or above.
+
     """
     spans = []
     for page in pdftext.open(path):
@@ -114,6 +117,7 @@ def chord_collisions(path: pathlib.Path) -> list[tuple[int, float, str]]:
 
     Returns:
         Each crowded root as page, height and root letter.
+
     """
     found: list[tuple[int, float, str]] = []
     for number, page in enumerate(pdftext.open(path), 1):
@@ -124,13 +128,14 @@ def chord_collisions(path: pathlib.Path) -> list[tuple[int, float, str]]:
                     chars.extend(
                         (span["size"], ch["origin"][1], ch["bbox"][0], ch["bbox"][2], ch["c"])
                         for ch in span["chars"]
-                        if not ch["c"].isspace() and not ord(ch["c"]) in PRIVATE_USE
+                        if not ch["c"].isspace() and ord(ch["c"]) not in PRIVATE_USE
                     )
         if not chars:
             continue
         top = chordseat.chord_size(path)
         ordered = sorted(
-            (c for c in chars if abs(c[0] - top) < CHORD_SIZE_TOLERANCE), key=lambda c: (round(c[1], 0), c[2])
+            (c for c in chars if abs(c[0] - top) < CHORD_SIZE_TOLERANCE),
+            key=lambda c: (round(c[1], 0), c[2]),
         )
         for before, after in itertools.pairwise(ordered):
             is_root = after[4] in "ABCDEFG" and before[4] != "/"
@@ -144,6 +149,7 @@ def title_problems(path: pathlib.Path, title: str) -> list[str]:
 
     Returns:
         1 problem per page whose top right corner holds the title other than once.
+
     """
     problems = []
     spellings = {title, title.replace("Đ", "Ð")}
@@ -164,6 +170,7 @@ def off_page(path: pathlib.Path) -> list[tuple[int, float, str]]:
 
     Returns:
         Each span past an edge as page, height and description.
+
     """
     found: list[tuple[int, float, str]] = []
     for number, page in enumerate(pdftext.open(path), 1):
@@ -182,6 +189,7 @@ def past_margin(path: pathlib.Path) -> list[tuple[int, float, str]]:
 
     Returns:
         Each word past the margin as page, height and word.
+
     """
     found: list[tuple[int, float, str]] = []
     for number, page in enumerate(pdftext.open(path), 1):
@@ -209,6 +217,7 @@ def sign_sizes(path: pathlib.Path) -> tuple[list[float], float]:
 
     Returns:
         The sign sizes and the chord size.
+
     """
     signs: list[float] = []
     for page in pdftext.open(path):
@@ -228,6 +237,7 @@ def sign_row_problems(path: pathlib.Path) -> list[str]:
 
     Returns:
         1 problem per jump sign above its chord row.
+
     """
     problems = []
     for number, page in enumerate(pdftext.open(path), 1):
@@ -268,6 +278,7 @@ def sign_problems(path: pathlib.Path) -> list[str]:
 
     Returns:
         1 problem per sign too small and per jump phrase not bold.
+
     """
     signs, chords = sign_sizes(path)
     problems = [
@@ -291,6 +302,7 @@ def sign_on_chord(path: pathlib.Path) -> list[str]:
 
     Returns:
         1 problem per sign touching or covering a chord, named by page.
+
     """
     return [f"p{page + 1}: {what}" for page, _, what in sign_chord_hits(path)]
 
@@ -300,6 +312,7 @@ def sign_chord_hits(path: pathlib.Path) -> list[tuple[int, float, str]]:
 
     Returns:
         Each hit as page, height and what the sign does to the chord.
+
     """
     found: list[tuple[int, float, str]] = []
     for number, page in enumerate(pdftext.open(path), 1):
@@ -309,7 +322,7 @@ def sign_chord_hits(path: pathlib.Path) -> list[tuple[int, float, str]]:
                 if ch["c"] in SIGNS:
                     signs.append((ch["origin"], span["size"]))
                     sign_boxes.append(ch["bbox"])
-                elif not ch["c"].isspace() and not ord(ch["c"]) in PRIVATE_USE:
+                elif not ch["c"].isspace() and ord(ch["c"]) not in PRIVATE_USE:
                     chars.append((ch, span["size"]))
         top = chordseat.chord_size(path)
         boxes = [
@@ -354,6 +367,7 @@ def chord_seating(path: pathlib.Path) -> list[tuple[int, float, float, str]]:
 
     Returns:
         Each chord as page, overhang, spaces above the staff (-1.0 on a line with notes) and chord text.
+
     """
     found: list[tuple[int, float, float, str]] = []
     for number, page in enumerate(pdftext.open(path), 1):
@@ -403,6 +417,7 @@ def seating_problems(path: pathlib.Path) -> list[str]:
 
     Returns:
         1 problem per chord seated too far above its staff.
+
     """
     return [
         f"p{page + 1}: chord {text} {spaces:.1f} spaces above the staff"
@@ -416,6 +431,7 @@ def text_collisions(path: pathlib.Path) -> list[tuple[int, float, str]]:
 
     Returns:
         Each collision as page, height and the later word.
+
     """
     found: list[tuple[int, float, str]] = []
     for number, page in enumerate(pdftext.open(path), 1):
@@ -441,6 +457,7 @@ def empty_staves(path: pathlib.Path) -> list[str]:
 
     Returns:
         1 problem per empty staff, named by page and height.
+
     """
     found: list[str] = []
     try:
@@ -480,6 +497,7 @@ def idle_staves(
 
     Returns:
         The clef height of every idle staff.
+
     """
     lines: dict[int, list[float]] = {}
     for clef in sorted({round(c, 1) for c in clefs}):
@@ -510,14 +528,13 @@ def ink_words(page: pymupdf.Page | pdftext.Page) -> list[tuple[str, pymupdf.Rect
 
     Returns:
         Each span's letters and the union of their ink boxes.
+
     """
     found: list[tuple[str, pymupdf.Rect]] = []
     for block in page.get_text("rawdict", flags=pymupdf.TEXT_ACCURATE_BBOXES)["blocks"]:
         for line in block.get("lines", []):
             for span in line["spans"]:
-                letters = [
-                    c for c in span["chars"] if c["c"].strip() and not ord(c["c"]) in PRIVATE_USE
-                ]
+                letters = [c for c in span["chars"] if c["c"].strip() and ord(c["c"]) not in PRIVATE_USE]
                 if letters:
                     box = pymupdf.Rect(letters[0]["bbox"])
                     for c in letters[1:]:
@@ -531,6 +548,7 @@ def symbol_boxes(page: pymupdf.Page | pdftext.Page) -> list[pymupdf.Rect]:
 
     Returns:
         The ink box of each such glyph.
+
     """
     return [
         pymupdf.Rect(c["bbox"])
@@ -547,6 +565,7 @@ def words_over(number: int, words: list[tuple[str, pymupdf.Rect]], boxes: list[p
 
     Returns:
         1 problem per word under a box.
+
     """
     found = []
     for word, box in words:
@@ -563,6 +582,7 @@ def sign_word_overlaps(path: pathlib.Path) -> list[float]:
 
     Returns:
         The width of each overlap.
+
     """
     found: list[float] = []
     for page in pdftext.open(path):
@@ -588,6 +608,7 @@ def sign_text_overlaps(path: pathlib.Path) -> list[str]:
 
     Returns:
         1 problem per word under a sign box.
+
     """
     found: list[str] = []
     for number, page in enumerate(pdftext.open(path), 1):
@@ -610,6 +631,7 @@ def symbol_text_overlaps(path: pathlib.Path) -> list[str]:
 
     Returns:
         1 problem per word over a dynamic or tempo note.
+
     """
     found: list[str] = []
     for number, page in enumerate(pdftext.open(path), 1):
@@ -630,6 +652,7 @@ def inked_rows(page: pymupdf.Page, dpi: int) -> tuple[list[int], int]:
 
     Returns:
         The inked row indexes and the page height in rows.
+
     """
     pix = page.get_pixmap(dpi=dpi, colorspace=pymupdf.csGRAY, alpha=False)
     return [
@@ -642,6 +665,7 @@ def inked_columns(page: pymupdf.Page, dpi: int) -> tuple[list[int], int]:
 
     Returns:
         The inked column indexes and the page width in columns.
+
     """
     pix = page.get_pixmap(dpi=dpi, colorspace=pymupdf.csGRAY, alpha=False)
     return [
@@ -654,6 +678,7 @@ def blank_bands(path: pathlib.Path) -> list[str]:
 
     Returns:
         1 problem per page with such a band.
+
     """
     found = []
     for number, page in enumerate(pdftext.open(path), 1):
@@ -730,6 +755,7 @@ def bass_problems(pdf: pathlib.Path) -> list[str]:
 
     Returns:
         1 problem per slash chord set apart or split across baselines or sizes.
+
     """
     problems = []
     for number, page in enumerate(pdftext.open(pdf), 1):

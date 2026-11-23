@@ -25,6 +25,7 @@ def expected_order(score: Score) -> list[int]:
 
     Raises:
         RuntimeError: the walk never reaches the last bar.
+
     """
     bars = score.bars
     by_number: dict[int, Bar] = {b.number: b for b in bars}

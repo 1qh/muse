@@ -27,6 +27,7 @@ def variant_key(src: pathlib.Path, variant: str) -> str:
 
     Returns:
         The build key.
+
     """
     return buildcache.key_of(src, repr(song_of(src)), buildcache.sheet_code(), mode.label())
 
@@ -36,6 +37,7 @@ def decision(found: tuple[Score, pathlib.Path, float, float, int]) -> dict[str, 
 
     Returns:
         The settled spatium, distance, pages and line starts.
+
     """
     return {"spatium": found[2], "distance": found[3], "pages": found[4], "lines": port.line_starts(found[0])}
 
@@ -164,6 +166,7 @@ def song(src: pathlib.Path, out_dir: pathlib.Path, work: pathlib.Path) -> dict[s
 
     Returns:
         What was built, for the report.
+
     """
     began = time.monotonic()
     launch.LAUNCHES["count"] = 0
@@ -199,6 +202,7 @@ def free_workers(count: int, cores: int | None = None) -> int:
 
     Returns:
         The number of workers.
+
     """
     cores = cores if cores is not None else os.cpu_count() or 1
     return max(1, min(count, port.MAX_WORKERS, cores))
@@ -212,6 +216,7 @@ def ordered(sources: list[pathlib.Path]) -> list[pathlib.Path]:
 
     Returns:
         The sources in build order.
+
     """
     path = pathlib.Path(os.environ["MUSE_PRIVATE"]) / PRIORITY
     first = path.read_text(encoding="utf-8").split() if path.exists() else []
@@ -224,6 +229,7 @@ def publish_song(src_dir: pathlib.Path, out_dir: pathlib.Path, work: pathlib.Pat
 
     Returns:
         The reason it was blocked, or empty.
+
     """
     publish.resync(out_dir)
     shutil.rmtree(out_dir / name, ignore_errors=True)
@@ -240,6 +246,7 @@ def child(src: pathlib.Path, stage: pathlib.Path, work: pathlib.Path) -> tuple[d
 
     Returns:
         Its report, or none and the reason the child wrote.
+
     """
     name = song_of(src).name
     refusal = work / f"{name}-refusal.txt"
@@ -262,6 +269,7 @@ def child_main(src: pathlib.Path, stage: pathlib.Path, work: pathlib.Path) -> No
 
     Raises:
         SystemExit: the song was refused; the reason is in its refusal file.
+
     """
     try:
         song(src, stage, work)

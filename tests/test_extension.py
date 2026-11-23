@@ -32,6 +32,7 @@ def held(number: int, chords: list[Chord]) -> Bar:
 
     Returns:
         The bar.
+
     """
     for at, item in enumerate(chords):
         item.x = 10.0 + at * 20.0
@@ -99,6 +100,7 @@ def chord_heights(pdf: pathlib.Path) -> list[list[float]]:
 
     Returns:
         Per page, the height of each staff's chords in points.
+
     """
     found: list[list[float]] = []
     for page in pdftext.open(pdf):
@@ -156,6 +158,7 @@ def resting(number: int, chords: list[Chord], texts: list[Text] | None = None) -
 
     Returns:
         The bar.
+
     """
     return Bar(
         number,
@@ -567,6 +570,7 @@ def score_body(path: pathlib.Path) -> list[str]:
 
     Returns:
         The lines: what a 2nd run may not move.
+
     """
     with zipfile.ZipFile(path) as archive:
         name = next(item for item in archive.namelist() if item.endswith(".mscx") and "/" not in item)

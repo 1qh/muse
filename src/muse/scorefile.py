@@ -105,6 +105,7 @@ def read(path: pathlib.Path) -> list[list[FileBar]]:
 
     Returns:
         The bars of every staff.
+
     """
     return [[read_bar(m) for m in staff.findall("Measure")] for staff in staves(root_of(path))]
 
@@ -114,6 +115,7 @@ def difference(a: pathlib.Path, b: pathlib.Path) -> list[str]:
 
     Returns:
         Every disagreement found.
+
     """
     one, two = read(a), read(b)
     problems = []
@@ -140,6 +142,7 @@ def builtin_sign_problems(path: pathlib.Path) -> list[str]:
 
     Returns:
         Every sign problem found.
+
     """
     problems = []
     root = root_of(path)
@@ -178,6 +181,7 @@ def empty_text_problems(path: pathlib.Path) -> list[str]:
 
     Returns:
         Every empty text element found.
+
     """
     problems = []
     for number, staff in enumerate(staves(root_of(path)), 1):

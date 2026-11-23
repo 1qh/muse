@@ -115,6 +115,7 @@ def small_orchestra() -> Orchestra:
 
     Returns:
         The orchestra of the clarinet and the harp.
+
     """
     fives = [note(10.0 + i, "C", 5, Fraction(1, 4), Fraction(i, 5), tuplet=True, ratio=Fraction(4, 5)) for i in range(5)]
     clarinet = bar(1, [[*fives, note(30.0, "E", 5, Fraction(3), Fraction(1), dots=1)]], key=4, time=(4, 4))

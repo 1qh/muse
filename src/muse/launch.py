@@ -30,6 +30,7 @@ def slots() -> int:
 
     Returns:
         This process's share of simultaneous launches: what the build assigned it, else every core.
+
     """
     given = os.environ.get(SLOTS_VARIABLE, "")
     return max(1, int(given)) if given else max(1, os.cpu_count() or 1)
@@ -47,6 +48,7 @@ def idle_percent() -> float:
 
     Returns:
         The idle share, measured, never the load average, which counts waiting threads.
+
     """
     return 100.0 - float(psutil.cpu_percent(interval=IDLE_WINDOW))
 
@@ -63,6 +65,7 @@ def free_core(
 
     Raises:
         TimeoutError: no whole core sat idle before the deadline.
+
     """
     total = cores or os.cpu_count() or 1
     give_up = time.monotonic() + deadline
@@ -101,6 +104,7 @@ def heavy(
     Raises:
         TimeoutExpired: the run outlived its timeout; its stack was sampled first.
         MachineUnavailable: the locked machine refused the tool a window session.
+
     """
     with GATE:
         free_core()
@@ -136,6 +140,7 @@ def sample(pid: int) -> pathlib.Path | None:
 
     Returns:
         The file holding the stack; none where the sampler is absent.
+
     """
     tool = shutil.which("sample")
     if tool is None:
@@ -167,6 +172,7 @@ def mscore(
 
     Returns:
         The finished MuseScore run.
+
     """
     began = time.time()
     try:
@@ -180,6 +186,7 @@ def roots_of(args: list[str]) -> list[pathlib.Path]:
 
     Returns:
         Each path argument's own folder, and for a job file, the folder of each path it lists.
+
     """
     paths = [pathlib.Path(arg) for arg in args if pathlib.Path(arg).exists()]
     for job in [path for path in paths if path.suffix == ".json"]:
@@ -198,6 +205,7 @@ def drop_own_logs(roots: list[pathlib.Path], start: float, end: float, logs: pat
 
     Returns:
         The number of logs deleted.
+
     """
     folder = logs or LOGS
     if not roots or not folder.is_dir():

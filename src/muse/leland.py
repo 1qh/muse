@@ -130,6 +130,7 @@ def free_accidentals(content: list[tuple[int, float, float]]) -> list[tuple[int,
 
     Returns:
         The accidentals beside no notehead.
+
     """
     heads = [g for g in content if g[0] in HEADS]
     return [
@@ -157,6 +158,7 @@ def stems_of(code: int, x: float, y: float, stems: list[Any]) -> list[Any]:
 
     Returns:
         The stems of the head.
+
     """
     margin = 3.5 if code == CROSS else 1.0
     right = (5.0, 12.0) if code == CROSS else (5.0, 9.5)
@@ -172,6 +174,7 @@ def same_chord(one: Event, other: Event, stem_at: dict[int, float]) -> bool:
 
     Returns:
         Whether the 2 heads belong to 1 chord.
+
     """
     if not (one.heads and other.heads) or one.nominal != other.nominal or one.heads[0].shape != other.heads[0].shape:
         return False
@@ -188,9 +191,7 @@ def set_tuplets(bar: Bar, events: list[Event], marks: list[tuple[float, int]], f
             for hi in range(lo + 2, len(events) + 1):
                 window = events[lo:hi]
                 units = sum((e.nominal for e in window), Fraction(0))
-                fits = any(
-                    units == count * unit for unit in (Fraction(1), Fraction(1, 2), Fraction(1, 4), Fraction(1, 8))
-                )
+                fits = any(units == count * unit for unit in (Fraction(1), Fraction(1, 2), Fraction(1, 4), Fraction(1, 8)))
                 if (
                     fits
                     and not any(e.tuplet for e in window)
@@ -219,14 +220,16 @@ class _Reading:
 
 
 def _stemmed(
-    reading: _Reading, code: int, x: float, st: tuple[float, float, float], nominal: Fraction
+    reading: _Reading,
+    code: int,
+    x: float,
+    st: tuple[float, float, float],
+    nominal: Fraction,
 ) -> tuple[Fraction, str, int | None, float]:
     stem_x = st[0]
     stem = "up" if st[0] - x > STEM_UP_OFFSET else "down"
     hits = [
-        b
-        for b in reading.beams
-        if b[0] - 0.8 <= st[0] <= b[1] + 0.8 and st[1] - 1.5 <= beam_y(b, st[0]) <= st[2] + 1.5
+        b for b in reading.beams if b[0] - 0.8 <= st[0] <= b[1] + 0.8 and st[1] - 1.5 <= beam_y(b, st[0]) <= st[2] + 1.5
     ]
     level = len(hits)
     for f in reading.content:
@@ -350,7 +353,7 @@ def split_voices(bar: Bar, events: list[Event], flags: list[Issue]) -> list[list
         if first and second and timed(first, bar.length) and timed(second, bar.length):
             return [place(first), place(second)]
     flags.append(
-        Issue(bar.number, "bar reads " + str(sum((e.length for e in events), Fraction(0))) + " of " + str(bar.length))
+        Issue(bar.number, "bar reads " + str(sum((e.length for e in events), Fraction(0))) + " of " + str(bar.length)),
     )
     return [place(events)]
 
@@ -424,6 +427,7 @@ class Staff:
 
         Returns:
             Whether this staff continues the system of the staff above.
+
         """
         mine, theirs = self.cols[1:-1], above.cols[1:-1]
         same_end = abs(self.right - above.right) < BAR_LINE_MATCH
@@ -433,9 +437,7 @@ class Staff:
             if any(abs(x - c) < BAR_LINE_MATCH for c in mine)
         )
         return (
-            bool(mine)
-            and bool(same_end or joined)
-            and all(any(abs(a - b) < BAR_LINE_MATCH for b in theirs) for a in mine)
+            bool(mine) and bool(same_end or joined) and all(any(abs(a - b) < BAR_LINE_MATCH for b in theirs) for a in mine)
         )
 
 
@@ -446,6 +448,7 @@ def staff_lines(rules: list[tuple[float, float, float]]) -> list[tuple[float, fl
 
     Returns:
         The height, start and end of each staff line.
+
     """
     found = []
     for y in sorted({round(y, 1) for y, _, _ in rules}):
@@ -467,6 +470,7 @@ def staff_tops(ys: list[float]) -> list[float]:
 
     Returns:
         The top line height of each staff.
+
     """
     tops = []
     at = 0
@@ -561,7 +565,10 @@ def _key_change(marks: list[tuple[int, float, float]], sheet: _Sheet) -> None:
 
 
 def _time_change(
-    content: list[tuple[int, float, float]], first_x: float, staff: Staff, sheet: _Sheet
+    content: list[tuple[int, float, float]],
+    first_x: float,
+    staff: Staff,
+    sheet: _Sheet,
 ) -> tuple[int, int] | None:
     digits = [g for g in content if g[0] in TIME_DIGITS and g[1] < first_x]
     changed = None
@@ -592,11 +599,17 @@ def _lower_voices(bar: Bar, group: list[Staff], drawn: _Drawn, sheet: _Sheet) ->
     lower_content = [
         g
         for g in group[1].glyphs
-        if a <= g[1] < b - 0.3
-        and (g[0] in HEADS or g[0] in RESTS or g[0] in FLAGS or g[0] == DOT or g[0] in ACCIDENTALS)
+        if a <= g[1] < b - 0.3 and (g[0] in HEADS or g[0] in RESTS or g[0] in FLAGS or g[0] == DOT or g[0] in ACCIDENTALS)
     ]
     bar.voices2 = read_events(
-        bar, lower_content, group[1].base, group[1].step, drawn.stems, drawn.beams, sheet.key, sheet.flags
+        bar,
+        lower_content,
+        group[1].base,
+        group[1].step,
+        drawn.stems,
+        drawn.beams,
+        sheet.key,
+        sheet.flags,
     )
     sheet.second = True
 
@@ -717,6 +730,7 @@ def is_lyric(font: str) -> bool:
 
     Returns:
         Whether the font is the lyric font.
+
     """
     return font.rsplit("+", maxsplit=1)[-1].startswith(LYRIC_FONT)
 
@@ -729,6 +743,7 @@ def text_owners(spans: list[Any], groups: list[list[Staff]]) -> list[int | None]
 
     Returns:
         The index of the owning line of each text, or None for a text in no line's window.
+
     """
     owners: list[int | None] = []
     for span in spans:

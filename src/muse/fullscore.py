@@ -40,6 +40,7 @@ def breaks_of(orchestra: Orchestra) -> Score:
 
     Returns:
         A score carrying the first part's bars.
+
     """
     return Score(orchestra.parts[0].bars, [], [])
 
@@ -49,6 +50,7 @@ def build(src: pathlib.Path, out_dir: pathlib.Path, work: pathlib.Path, info: So
 
     Returns:
         The build report: PDF page count and the chosen staff space.
+
     """
     orchestra = orchestra_of(src)
     xml = xml_path(work, info)
@@ -67,6 +69,7 @@ def system_problems(orchestra: Orchestra, mpos: pathlib.Path) -> list[str]:
 
     Returns:
         The mismatch, or an empty list.
+
     """
     boxes = [
         (int(float(e.get("page") or 0)), round(float(e.get("y") or 0))) for e in ET.parse(mpos).getroot().iter("element")
@@ -86,6 +89,7 @@ def fit(xml: pathlib.Path, work: pathlib.Path, final: pathlib.Path, info: Song, 
 
     Raises:
         DoesNotFit: no staff space down to the floor holds every source system.
+
     """
     tried = []
     spatium = SPATIUM

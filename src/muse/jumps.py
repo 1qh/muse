@@ -32,6 +32,7 @@ def sign_marker(sym: str) -> str:
 
     Returns:
         The marker element.
+
     """
     return (
         f"<Marker><style>repeat_left</style><text><sym>{sym}</sym></text><label>{LABELS[sym]}</label>"
@@ -45,6 +46,7 @@ def staff_text(inner: str) -> re.Pattern[str]:
 
     Returns:
         The compiled pattern.
+
     """
     return re.compile(r"\s*<StaffText>(?:(?!</StaffText>).)*?<text>" + inner + r"</text>\s*</StaffText>", re.DOTALL)
 
@@ -56,6 +58,7 @@ def rewrite(text: str, words: dict[str, str], sign: Callable[[str], str], cleara
 
     Returns:
         The rewritten text.
+
     """
     for word, element in words.items():
         pattern = staff_text(re.escape(word))

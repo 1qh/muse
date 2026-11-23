@@ -32,9 +32,7 @@ def bar(number: int, **kw: Unpack[BarExtras]) -> Bar:
 
 
 def rest(number: int, **kw: Unpack[BarExtras]) -> Bar:
-    return Bar(
-        number, 0, 0.0, 100.0, Fraction(4), voices=[[Event(0.0, [], Fraction(4), bar_rest=True)]], **kw
-    )
+    return Bar(number, 0, 0.0, 100.0, Fraction(4), voices=[[Event(0.0, [], Fraction(4), bar_rest=True)]], **kw)
 
 
 def lyric(words: str) -> Text:
@@ -162,7 +160,10 @@ def test_a_kept_tie_stays() -> None:
     ],
 )
 def test_chords_of_an_empty_bar_land_on_real_beats(
-    count: int, length: Fraction, time: tuple[int, int], want: list[Fraction]
+    count: int,
+    length: Fraction,
+    time: tuple[int, int],
+    want: list[Fraction],
 ) -> None:
     assert musicxml.empty_bar_onsets(count, length, time) == want
 
@@ -186,7 +187,7 @@ def test_a_lone_chord_exactly_over_a_late_note_follows_it() -> None:
             [
                 Event(10.0, [Head(10.0, 0.0, "C", 5)], Fraction(2)),
                 Event(60.0, [Head(60.0, 0.0, "C", 5)], Fraction(2), onset=Fraction(2)),
-            ]
+            ],
         ],
         chords=[chord(60.0)],
     )
@@ -204,7 +205,7 @@ def test_a_lone_chord_between_notes_opens_the_bar() -> None:
             [
                 Event(10.0, [Head(10.0, 0.0, "C", 5)], Fraction(1)),
                 Event(30.0, [Head(30.0, 0.0, "C", 5)], Fraction(3), onset=Fraction(1)),
-            ]
+            ],
         ],
         chords=[chord(25.0)],
     )

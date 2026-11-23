@@ -112,6 +112,7 @@ def system_starts(pdf: pathlib.Path) -> list[int]:
 
     Returns:
         The bar number printed at the start of every line, read from the exported PDF.
+
     """
     found = []
     for page in pdftext.open(pdf):
@@ -130,6 +131,7 @@ def rows(score: Score) -> list[list[int]]:
 
     Returns:
         The 1-based bar numbers of each declared row.
+
     """
     out: list[list[int]] = []
     for number, bar in enumerate(score.bars, 1):
@@ -144,6 +146,7 @@ def tied_out(bar: Bar) -> bool:
 
     Returns:
         Whether a tie leaves the bar.
+
     """
     return any(head.tie_start for voice in [*bar.voices, *bar.voices2] if voice for head in voice[-1].heads)
 
@@ -153,6 +156,7 @@ def last_before(where: list[tuple[int, float, int]], page_no: int) -> int:
 
     Returns:
         The line a page with no printed bar number continues.
+
     """
     return max(item for item in where if item[0] < page_no)[2]
 
@@ -162,6 +166,7 @@ def crowded_reasons(pdf: pathlib.Path) -> list[str]:
 
     Returns:
         What makes a line overflow, in words.
+
     """
     return (
         [f"chords too close at {root}" for _, _, root in pdfcheck.chord_collisions(pdf)]
@@ -177,6 +182,7 @@ def crowded_rows(pdf: pathlib.Path, firsts: list[int]) -> set[int]:
 
     Returns:
         The first bar of every line a wider line can cure.
+
     """
     where = []
     for page_no, page in enumerate(pdftext.open(pdf)):
@@ -207,6 +213,7 @@ def must_start_line(bar: Bar, previous: Bar | None) -> bool:
 
     Returns:
         Whether a section mark or a lyric label starts a new block of lines here.
+
     """
     return previous is None or bool(bar.rehearsal or bar.segno or bar.coda or previous.final or piano.label_of(bar))
 
@@ -216,6 +223,7 @@ def sections(score: Score) -> list[list[int]]:
 
     Returns:
         The bar indexes of each block.
+
     """
     blocks: list[list[int]] = []
     for index, bar in enumerate(score.bars):
@@ -231,6 +239,7 @@ def short_line_problems(lines: list[list[int]]) -> list[str]:
 
     Returns:
         The refusal, empty when the share is within the widest allowed.
+
     """
     share = short_line_share(lines)
     return (
@@ -245,6 +254,7 @@ def short_line_share(lines: list[list[int]]) -> float:
 
     Returns:
         The share of lines with 2 bars or fewer.
+
     """
     return sum(1 for line in lines if len(line) <= SHORT_LINE_BARS) / len(lines)
 
@@ -254,6 +264,7 @@ def balanced_pages(heights: list[float], pages: int) -> list[int]:
 
     Returns:
         The indexes of the lines that start pages 2 and up.
+
     """
     count = len(heights)
     pages = min(pages, count)
@@ -286,6 +297,7 @@ def line_heights(pdf: pathlib.Path, firsts: list[int]) -> tuple[list[float], int
 
     Raises:
         DoesNotFit: A page is blank, so its lines have no height.
+
     """
     where: dict[int, tuple[int, float]] = {}
     doc = pdftext.open(pdf)
@@ -317,6 +329,7 @@ def balance(score: Score, probe: pathlib.Path) -> bool:
 
     Returns:
         False when nothing changes.
+
     """
     firsts = [row[0] for row in rows(score)]
     heights, pages = line_heights(probe, firsts)
@@ -332,6 +345,7 @@ def page_problems(score: Score, probe: pathlib.Path) -> list[str]:
 
     Returns:
         The refusal, empty when the pages are balanced.
+
     """
     return balance_problems(probe, [row[0] for row in rows(score)])
 
@@ -343,6 +357,7 @@ def balance_problems(probe: pathlib.Path, firsts: list[int]) -> list[str]:
 
     Returns:
         The refusal, empty when the tallest page is within the slack.
+
     """
     heights, pages = line_heights(probe, firsts)
     if pages < MIN_BALANCED_PAGES:
@@ -363,6 +378,7 @@ def lines_per_page(pdf: pathlib.Path, firsts: list[int]) -> list[int]:
 
     Returns:
         How many of the score's lines each page prints.
+
     """
     pages = [page_of(pdf, first) for first in firsts]
     return [pages.count(page) for page in range(len(pdftext.open(pdf)))]
@@ -376,6 +392,7 @@ def page_of(pdf: pathlib.Path, bar: int) -> int:
 
     Raises:
         DoesNotFit: The bar opens a line that prints no number.
+
     """
     if bar == 1:
         return 0
@@ -410,6 +427,7 @@ def styled(
 
     Raises:
         RuntimeError: The style has no single tag to set, or holds an override more than once.
+
     """
     text = STYLE.read_text(encoding="utf-8")
     for tag, value in (
@@ -446,6 +464,7 @@ def boxed_sign(element: str) -> str:
 
     Returns:
         The element as its sign alone in its colored box.
+
     """
     kind = "segno" if element.startswith("<Jump") or "<label>segno" in element else "coda"
     bare = re.sub(r"<offset[^>]*/>", "", element)
@@ -461,6 +480,7 @@ def beside_each_other(text: str) -> str:
 
     Returns:
         The text with the Jump stepped left in every such bar.
+
     """
     measures = re.split(r"(?=<Measure)", text)
     for at, measure in enumerate(measures):
@@ -516,6 +536,7 @@ def imported(score: Score, work: pathlib.Path, sheet: str, style: pathlib.Path, 
 
     Returns:
         The path of the import.
+
     """
     flags = [(bar.new_system, bar.new_page) for bar in score.bars]
     for bar in score.bars:
@@ -554,6 +575,7 @@ def staff_texts(text: str) -> str:
 
     Returns:
         The text with every Expression rewritten as staff text.
+
     """
 
     def rewritten(match: re.Match[str]) -> str:
@@ -615,6 +637,7 @@ def tie_findings(starts: list[int], tied: list[bool]) -> tuple[list[str], list[s
 
     Returns:
         The failures and the reported ties.
+
     """
     failures: list[str] = []
     reported: list[str] = []
@@ -641,6 +664,7 @@ def line_findings(score: Score, opening: set[int], bare: set[int]) -> list[str]:
 
     Returns:
         The line rule findings.
+
     """
     marks = {bar.number for at, bar in enumerate(score.bars) if must_start_line(bar, score.bars[at - 1] if at else None)}
     tied_in = {bar.number for bar in score.bars if bar.number > 1 and tied_out(score.bars[bar.number - 2])}
@@ -660,6 +684,7 @@ def chord_starts(score_path: pathlib.Path, score: Score) -> list[str]:
 
     Returns:
         The line rule findings.
+
     """
     text = chordseat.score_text(score_path)[1]
     bare = set(chordseat.chordless_starts(text))
@@ -672,6 +697,7 @@ def line_rule_reasons(score: Score, variant: str = TONE) -> list[str]:
 
     Returns:
         The line rule findings.
+
     """
     firsts = {row[0] for row in rows(score)}
     bare = {n for n in firsts if not score.bars[n - 1].chords}
@@ -683,6 +709,7 @@ def line_rule_breaks(score: Score, variant: str = TONE) -> list[int]:
 
     Returns:
         The bars that break a line rule, each once.
+
     """
     return sorted({bar_of(reason) for reason in line_rule_reasons(score, variant)})
 
@@ -695,6 +722,7 @@ def bar_of(reason: str) -> int:
 
     Raises:
         ValueError: The reason names no bar.
+
     """
     found = re.search(r"bar (\d+)", reason)
     if found is None:
@@ -708,6 +736,7 @@ def page_fill(pdf: pathlib.Path) -> float:
 
     Returns:
         The share of the page height the music reaches on the least filled page.
+
     """
     shares = []
     for page in pdftext.open(pdf):
@@ -739,6 +768,7 @@ def pairs(positions: pathlib.Path, pdf: pathlib.Path) -> bool:
 
     Returns:
         Whether kept positions were drawn by the render that printed exactly this PDF.
+
     """
     stamp = positions.with_suffix(".sha")
     return positions.exists() and stamp.exists() and stamp.read_text() == hashlib.sha256(pdf.read_bytes()).hexdigest()
@@ -749,6 +779,7 @@ def paired(work: pathlib.Path, pdf_name: str) -> pathlib.Path:
 
     Returns:
         The path of the kept measure positions.
+
     """
     folder = work / "paired"
     folder.mkdir(parents=True, exist_ok=True)

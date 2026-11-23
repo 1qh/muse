@@ -18,7 +18,8 @@ def blank_pdf(path: pathlib.Path, pages: int = 2) -> pathlib.Path:
 
 
 def test_a_fault_on_a_page_with_no_bar_number_lands_on_the_last_numbered_line(
-    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     pdf = blank_pdf(tmp_path / "p.pdf")
     monkeypatch.setattr(pdfcheck, "chord_collisions", lambda _: [(1, 100.0, "x")])
@@ -38,7 +39,8 @@ def test_text_on_text_is_never_a_width_fault(tmp_path: pathlib.Path, monkeypatch
 
 
 def test_a_margin_fault_on_a_page_with_no_bar_number_lands_on_the_last_numbered_line(
-    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     pdf = blank_pdf(tmp_path / "p.pdf")
     monkeypatch.setattr(pdfcheck, "chord_collisions", lambda _: [])
@@ -97,8 +99,10 @@ def test_a_jump_without_its_box_or_with_words_is_refused(tmp_path: pathlib.Path)
         ("<Jump><text>D.S.</text></Jump>", "words"),
         ("<Jump><text><sym>segno</sym></text></Jump>", "no box"),
         (
-            '<Jump><frameType>1</frameType><frameFgColor r="0" g="0" b="220" a="255"/>'
-            "<text><sym>segno</sym></text></Jump>",
+            (
+                '<Jump><frameType>1</frameType><frameFgColor r="0" g="0" b="220" a="255"/>'
+                "<text><sym>segno</sym></text></Jump>"
+            ),
             "wrong box",
         ),
     ):
@@ -132,7 +136,8 @@ def test_a_sign_over_a_chord_letter_is_refused() -> None:
 
 
 def test_a_sign_drawn_over_a_chord_is_refused_and_one_beside_it_passes(
-    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(pdfcheck, "SIGNS", "S")
 
@@ -163,7 +168,8 @@ def test_a_pdf_is_parsed_once_until_it_changes(tmp_path: pathlib.Path) -> None:
 
 
 def test_a_sign_over_a_chord_marks_its_line_for_a_wider_plan(
-    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     pdf = blank_pdf(tmp_path / "p.pdf")
     monkeypatch.setattr(pdfcheck, "chord_collisions", lambda _: [])

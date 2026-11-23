@@ -29,6 +29,7 @@ class Page:
 
         Returns:
             The page text of that kind, parsed on the first call and shared after.
+
         """
         with self.lock:
             key = (kind, flags)
@@ -72,6 +73,7 @@ def open(path: pathlib.Path | str) -> Document:  # ruff: ignore[builtin-variable
 
     Returns:
         The cached document for this version of the file.
+
     """
     stat = pathlib.Path(path).stat()
     key = (str(path), stat.st_size, stat.st_mtime_ns)

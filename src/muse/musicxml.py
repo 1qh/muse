@@ -76,6 +76,7 @@ def words(text: Text) -> str:
 
     Returns:
         The direction element, or an empty string for a text with nothing to print.
+
     """
     if not any(content.strip() for content, _, _ in text.runs):
         return ""
@@ -106,6 +107,7 @@ def time_modification(ev: Event) -> str:
 
     Returns:
         The time-modification element, or an empty string for a note outside a tuplet.
+
     """
     return (
         f"<time-modification><actual-notes>{ev.ratio.denominator}</actual-notes>"
@@ -203,6 +205,7 @@ def note_xml(ev: Event, voice: int, div: int = DIV) -> str:
 
     Raises:
         ValueError: when the event's length is no whole number of divisions.
+
     """
     out = []
     base = ev.nominal
@@ -254,6 +257,7 @@ def beat_of(time: tuple[int, int] | None) -> Fraction:
 
     Returns:
         The length of 1 beat in quarters.
+
     """
     if time and time[1] == COMPOUND_BEAT_TYPE and time[0] % 3 == 0:
         return Fraction(3, 2)
@@ -265,6 +269,7 @@ def empty_bar_onsets(count: int, length: Fraction, time: tuple[int, int] | None)
 
     Returns:
         The onset of each chord in quarters, in printed order.
+
     """
     step = beat_of(time)
     while count * step > length:
@@ -286,6 +291,7 @@ def lone_chord_onset(bar: Bar, voices: list[list[Event]], chord: Chord) -> Fract
 
     Returns:
         The onset of the lone chord in quarters.
+
     """
     for event in sorted((e for voice in voices for e in voice if e.heads and not e.grace), key=lambda e: e.onset):
         if event.onset * 2 >= bar.length and abs(event.x - chord.x) <= EXACT_OVER_NOTE:
@@ -298,6 +304,7 @@ def chord_onsets(bar: Bar, time: tuple[int, int] | None) -> list[tuple[Fraction,
 
     Returns:
         Each chord paired with its onset in quarters, in onset order.
+
     """
     if not bar.chords:
         return []
@@ -511,6 +518,7 @@ def times(score: Score) -> list[tuple[int, int] | None]:
 
     Returns:
         The time signature in force in each bar, or None before the first one.
+
     """
     current = None
     found = []
@@ -583,6 +591,7 @@ def direction_xml(text: Text, staff: int | None) -> str:
 
     Returns:
         The direction element, or an empty string for a text with nothing to print.
+
     """
     on_staff = f"<staff>{staff}</staff>" if _given_number(staff) else ""
     if text.kind in WEDGES:
@@ -682,6 +691,7 @@ def orchestral_measure(bar: Bar, part: Part, *, minor: bool | None) -> str:
 
     Raises:
         ValueError: when the bar carries a key signature and the mode is unknown.
+
     """
     out = [f'<measure number="{bar.number}">']
     if bar.new_page or bar.new_system:
@@ -700,6 +710,7 @@ def write_orchestra(orchestra: Orchestra) -> str:
 
     Returns:
         The MusicXML document.
+
     """
     listed = "".join(
         f'<score-part id="P{at}"><part-name>{escape(part.name)}</part-name>'

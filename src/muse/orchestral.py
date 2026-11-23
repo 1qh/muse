@@ -217,6 +217,7 @@ def written_key(concert: int, transposition: Transposition | None) -> int:
 
     Returns:
         The written key in fifths.
+
     """
     if transposition is None:
         return concert
@@ -305,6 +306,7 @@ def roles(doc: pymupdf.Document) -> dict[str, str]:
 
     Raises:
         UnknownGlyph: a music font plays no known role.
+
     """
     music = symbolfont.font_map(doc)
     found: dict[str, str] = {}
@@ -374,12 +376,7 @@ def _read_drawing(d: dict[str, Any], page_width: float, sheet: Sheet) -> None:
     r = d["rect"]
     if kinds == "l":
         _read_stroke(d, r, sheet)
-    elif (
-        kinds == "re"
-        and d["type"] == "f"
-        and r.height < BEAM_MAX_HEIGHT
-        and BEAM_MIN_WIDTH < r.width < BEAM_MAX_WIDTH
-    ):
+    elif kinds == "re" and d["type"] == "f" and r.height < BEAM_MAX_HEIGHT and BEAM_MIN_WIDTH < r.width < BEAM_MAX_WIDTH:
         sheet.beams.append((r.x0, r.x1, (r.y0 + r.y1) / 2, (r.y0 + r.y1) / 2))
     elif kinds == "llll" and SLANTED_BEAM_MIN_WIDTH < r.width < page_width - 1:
         corners = [p for item in d["items"] for p in (item[1], item[2])]
@@ -410,6 +407,7 @@ def hairpins(slants: list[tuple[float, float, float, float]]) -> list[tuple[str,
 
     Returns:
         Each hairpin's kind, left, right and the height of its point.
+
     """
     found = []
     used: set[int] = set()
@@ -442,6 +440,7 @@ def staves(lines: list[tuple[float, float, float]]) -> list[Staff]:
 
     Returns:
         The staves, top down.
+
     """
     ys = sorted({round(y, 1) for y, _, _ in lines})
     out: list[Staff] = []
@@ -463,10 +462,9 @@ def dot_count(heads: list[Glyph], dots: list[Glyph], step: float) -> int:
 
     Returns:
         The number of dots.
+
     """
-    return max(
-        len({round(f.x) for f in dots if 0 < f.x - h.x < DOT_REACH and abs(f.y - h.y) < step * 2}) for h in heads
-    )
+    return max(len({round(f.x) for f in dots if 0 < f.x - h.x < DOT_REACH and abs(f.y - h.y) < step * 2}) for h in heads)
 
 
 def nearest_of(found: list[Staff]) -> Callable[[float], Staff]:
@@ -688,6 +686,7 @@ def sounds(
 
     Returns:
         The page's sounds, and each bracketed tuplet's staff, left, right and ratio.
+
     """
     nearest = nearest_of(found)
     step = found[0].step
@@ -724,6 +723,7 @@ class System:
 
         Returns:
             Whether the system holds the height.
+
         """
         return (
             max(self.staves[0].top - reach_above, self.above) < y < min(self.staves[-1].bottom + reach_below, self.below)
@@ -738,6 +738,7 @@ def systems_of(page_no: int, sheet: Sheet, found: list[Staff], braces: list[tupl
 
     Raises:
         Unreadable: a staff belongs to no system.
+
     """
     left = min(s.left for s in found)
     joins = sorted({
@@ -765,6 +766,7 @@ def names_of(sheet: Sheet, members: list[Staff], braces: list[tuple[float, float
 
     Raises:
         Unreadable: a staff prints no label, an unknown label, or a shared label that names no part for certain.
+
     """
     labels = [
         (" ".join(text.split()), y)
@@ -813,6 +815,7 @@ def bar_lines(staff: Staff, verticals: list[tuple[float, float, float, float]]) 
 
     Returns:
         The bar lines' x, left to right.
+
     """
     rules = [v for v in verticals if v[3] >= STEM_WIDTH]
     spans = [round(x, 0) for x, y0, y1, _ in rules if y0 - 1 <= staff.top and y1 + 1 >= staff.bottom]
@@ -841,6 +844,7 @@ def system_bars(system: System, verticals: list[tuple[float, float, float, float
 
     Raises:
         Unreadable: a staff's bar lines disagree with its system's.
+
     """
     each = [bar_lines(staff, verticals) for staff in system.staves]
     common = max(each, key=len)
@@ -858,6 +862,7 @@ def clef_of(glyph: Glyph, staff: Staff, extra: list[Glyph]) -> tuple[Clef, int]:
 
     Returns:
         The clef, and the diatonic index of its staff's bottom line.
+
     """
     sign, origin = CLEF_LINES[glyph.code]
     line = 1 + round((staff.bottom - glyph.y) / (2 * staff.step))
@@ -947,6 +952,7 @@ def voices_of(sounds_here: list[Sound], rests: list[Rest], length: F, where: str
 
     Raises:
         Unreadable: no way to give the rests to the voices fills every voice.
+
     """
     split = _voice_split(sounds_here)
     voice: dict[str, list[Sound | Rest]] = collections.defaultdict(list)
@@ -978,6 +984,7 @@ def _assignments(count: int, voices: int) -> list[tuple[int, ...]]:
 
     Returns:
         Each assignment: per rest, its voice, or the voice count for every voice.
+
     """
     if voices == 1:
         return [tuple([0] * count)]
@@ -1032,6 +1039,7 @@ def brace_spans(page: pymupdf.Page, role: dict[str, str]) -> list[tuple[float, f
 
     Returns:
         Each brace's top and bottom.
+
     """
     out: list[tuple[float, float]] = []
     for span in _spans(page):
@@ -1061,6 +1069,7 @@ def clefs_on(sheet: Sheet, staff: Staff, nearest: Callable[[float], Staff]) -> l
 
     Returns:
         The staff's clefs, left to right.
+
     """
     reach = staff.step * CLEF_REACH
     return sorted(
@@ -1078,6 +1087,7 @@ def read_system(reading: Reading, system: System, page: _PageItems, *, opens_pag
 
     Raises:
         Unreadable: the system's bar number disagrees with the reading, or no time signature precedes its first bar.
+
     """
     sheet = page.sheet
     edges = list(zip(system.bars, system.bars[1:], strict=False))
@@ -1131,6 +1141,7 @@ def owner(system: System, y: float, *, below: bool) -> tuple[str, int]:
 
     Returns:
         The part's name and the staff's number within it.
+
     """
     staves = system.staves
     if below:
@@ -1150,6 +1161,7 @@ def phrases(
 
     Returns:
         The phrases, row by row, left to right.
+
     """
     rows: list[list[tuple[str, float, float, float, bool, bool]]] = []
     for piece in sorted(pieces, key=operator.itemgetter(3)):
@@ -1469,6 +1481,7 @@ def staff_voices(
 
     Raises:
         Unreadable: a staff's voices fill no bar, and the pair read together does not make 1 line.
+
     """
     lo, hi, length, where = window.lo, window.hi, window.length, window.where
     found: list[list[list[Sound | Rest]]] = []
@@ -1495,6 +1508,7 @@ def event_of(item: Sound | Rest, pitching: _Pitching) -> Event:
 
     Returns:
         The model's event.
+
     """
     own, nearest, number = pitching.own, pitching.nearest, pitching.number
     state = pitching.state
@@ -1553,6 +1567,7 @@ def key_of(music: list[Glyph], staff: Staff, clef: Glyph) -> list[Glyph]:
 
     Returns:
         The key signature's accidentals, left to right.
+
     """
     run: list[Glyph] = []
     for g in sorted(

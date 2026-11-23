@@ -34,6 +34,7 @@ def content_problems(orchestra: Orchestra, xml: pathlib.Path) -> list[str]:
 
     Returns:
         A problem line per difference found.
+
     """
     found = file_bars(xml)
     problems = []
@@ -85,6 +86,7 @@ def _length_problems(name: str, bar: Bar, measure: ET.Element, divisions: int) -
 
     Returns:
         A problem line per voice whose length differs.
+
     """
     problems = []
     totals: dict[str, int] = collections.Counter()
@@ -104,6 +106,7 @@ def navigation_problems(score_file: pathlib.Path) -> list[str]:
 
     Returns:
         Up to 5 bars holding a repeat sign or a jump.
+
     """
     found = [
         f"bar {at}: {bar.signs + [str(j) for j in bar.jumps]}"
@@ -119,6 +122,7 @@ def homr_problems(src: pathlib.Path, orchestra: Orchestra, work: pathlib.Path) -
 
     Returns:
         The failures and a note on how far homr agrees.
+
     """
     command = gate.homr_command()
     if command is None:
@@ -147,6 +151,7 @@ def problems(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path, info: Son
 
     Returns:
         The failures and the notes the checks made.
+
     """
     failures: list[str] = []
     notes: list[str] = []

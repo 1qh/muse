@@ -1093,8 +1093,10 @@ def test_a_launch_the_window_server_refuses_stops_as_the_machines_fault(monkeypa
     coreml = [
         "sh",
         "-c",
-        "echo 'Status Message: Error executing model: "
-        "Unable to compute the prediction using a neural network model.' >&2; exit 1",
+        (
+            "echo 'Status Message: Error executing model: "
+            "Unable to compute the prediction using a neural network model.' >&2; exit 1"
+        ),
     ]
     with pytest.raises(launch.MachineUnavailable, match=launch.UNAVAILABLE):
         launch.heavy(coreml, 10.0)
