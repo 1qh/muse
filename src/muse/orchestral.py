@@ -15,8 +15,6 @@ import operator
 from fractions import Fraction
 from typing import TYPE_CHECKING, Any
 
-import pymupdf
-
 from muse import pdftext, symbolfont
 from muse.model import LETTERS, Bar, Clef, Event, Head, Orchestra, Part, Text, Transposition, UnknownGlyphError
 from muse.smufl import beam_y
@@ -37,6 +35,8 @@ from muse.symbolfont import (
 if TYPE_CHECKING:
     import pathlib
     from collections.abc import Callable, Iterator
+
+    import pymupdf
 
 FOLDER = "Orchestral"
 
@@ -296,7 +296,7 @@ def _spans(page: pdftext.RawPage) -> Iterator[pdftext.Span]:
             yield from line["spans"]
 
 
-def roles(doc: pymupdf.Document) -> dict[str, str]:
+def roles(doc: pdftext.Document) -> dict[str, str]:
     """Find each embedded font's role.
 
     The music font holds the noteheads, the 3rd font the brackets, the text font the symbols; any other font prints words.
@@ -310,7 +310,7 @@ def roles(doc: pymupdf.Document) -> dict[str, str]:
     """
     music = symbolfont.font_map(doc)
     found: dict[str, str] = {}
-    for page in (pdftext.Page(doc.load_page(number)) for number in range(doc.page_count)):
+    for page in doc:
         for span in _spans(page):
             codes = {ord(c["c"]) for c in span["chars"]}
             if span["font"] in music:
@@ -1017,11 +1017,10 @@ class _SystemFrame:
 
 
 def decode(path: str | pathlib.Path) -> Orchestra:
-    doc = pymupdf.open(path)
+    doc = pdftext.read(path)
     role = roles(doc)
     reading = Reading()
-    for page_no in range(doc.page_count):
-        page = pdftext.Page(doc.load_page(page_no))
+    for page_no, page in enumerate(doc):
         sheet = read(page, role)
         found = staves(sheet.lines)
         if not found:

@@ -11,12 +11,26 @@ import pathlib
 import subprocess
 import tempfile
 import threading
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, NotRequired, TypedDict
 
 from muse import launch
+from muse.port import TransposeOptions
 
 if TYPE_CHECKING:
     from collections.abc import Generator
+
+
+RenderEntry = TypedDict(
+    "RenderEntry",
+    {"in": str, "out": list[str], "transpose": NotRequired[TransposeOptions]},
+)
+
+
+class RenderItem(TypedDict):
+    ticket: int
+    entry: RenderEntry
+    outputs: list[pathlib.Path]
+
 
 JOB_SECONDS = 900
 
@@ -34,7 +48,7 @@ class Batcher:
         self.working = 0
         self.waiting = 0
         self.flushing = False
-        self.pending: list[dict[str, Any]] = []
+        self.pending: list[RenderItem] = []
         self.done: dict[int, str | None] = {}
         self.ticket = 0
         self.jobs = 0
@@ -51,7 +65,7 @@ class Batcher:
                 self.working -= 1
                 self.lock.notify_all()
 
-    def render(self, score: pathlib.Path, outputs: list[pathlib.Path], transpose: dict[str, Any] | None = None) -> None:
+    def render(self, score: pathlib.Path, outputs: list[pathlib.Path], transpose: TransposeOptions | None = None) -> None:
         """Write every output of 1 score, waiting for the job that carries it.
 
         Raises:
@@ -60,8 +74,8 @@ class Batcher:
         """
         for out in outputs:
             out.unlink(missing_ok=True)
-        entry: dict[str, Any] = {"in": str(score), "out": [str(out) for out in outputs]}
-        if transpose is not None and transpose:
+        entry: RenderEntry = {"in": str(score), "out": [str(out) for out in outputs]}
+        if transpose is not None:
             entry["transpose"] = transpose
         with self.lock:
             self.ticket += 1
@@ -91,7 +105,7 @@ class Batcher:
         if failure is not None and failure:
             raise RenderFailedError(failure)
 
-    def run(self, batch: list[dict[str, Any]]) -> dict[int, str | None]:
+    def run(self, batch: list[RenderItem]) -> dict[int, str | None]:
         """1 MuseScore job for the batch; each render's verdict is whether its outputs exist.
 
         Returns:

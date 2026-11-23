@@ -6,10 +6,10 @@ import dataclasses
 import itertools
 import re
 from fractions import Fraction
-from typing import Any
 
 import pymupdf
 
+from muse import pdftext
 from muse.model import LETTERS, Bar, Chord, Event, Head, Issue, Score, Text, UnknownGlyphError, bar_at
 
 HEADS = {
@@ -248,9 +248,9 @@ class _PageContext:
     spans: list[Span]
     glyphs: list[G]
     beams: list[pymupdf.Rect]
-    curves: list[Any]
-    lines: list[Any]
-    boxes: list[Any]
+    curves: list[pymupdf.Rect]
+    lines: list[tuple[float, float, float, float]]
+    boxes: list[pymupdf.Rect]
     size: float
     systems: list[list[float]]
 
@@ -266,7 +266,7 @@ class _Staff:
     step: float
 
 
-def font_map(doc: pymupdf.Document) -> dict[str, str]:
+def font_map(doc: pdftext.Document) -> dict[str, str]:
     """Recover each font's role from its glyph usage, since printed PDFs lose font names.
 
     Returns:
@@ -275,16 +275,17 @@ def font_map(doc: pymupdf.Document) -> dict[str, str]:
     """
     counts: dict[str, dict[str, int]] = {}
     for page in doc:
-        for block in page.get_text("dict")["blocks"]:
+        for block in page.get_text("rawdict")["blocks"]:
             for line in block.get("lines", []):
                 for s in line["spans"]:
                     d = counts.setdefault(s["font"], {"pua": 0, "n": 0})
-                    d["n"] += len(s["text"])
-                    d["pua"] += sum(ord(c) >= PUA_START for c in s["text"])
+                    text = "".join(c["c"] for c in s["chars"])
+                    d["n"] += len(text)
+                    d["pua"] += sum(ord(c) >= PUA_START for c in text)
     return {f: "music" for f, d in counts.items() if d["pua"] > MUSIC_FONT_MIN_PUA}
 
 
-def _music_glyphs(s: dict[str, Any]) -> list[G]:
+def _music_glyphs(s: pdftext.Span) -> list[G]:
     glyphs: list[G] = []
     for ch in s["chars"]:
         if ord(ch["c"]) not in LEAD_SHEET_GLYPHS:
@@ -294,7 +295,7 @@ def _music_glyphs(s: dict[str, Any]) -> list[G]:
     return glyphs
 
 
-def _text_span(s: dict[str, Any]) -> Span | None:
+def _text_span(s: pdftext.Span) -> Span | None:
     text = "".join(c["c"] for c in s["chars"])
     if not text.strip():
         return None
@@ -312,7 +313,7 @@ def _text_span(s: dict[str, Any]) -> Span | None:
     )
 
 
-def load(page: pymupdf.Page, music: dict[str, str]) -> tuple[list[G], list[Span]]:
+def load(page: pdftext.RawPage, music: dict[str, str]) -> tuple[list[G], list[Span]]:
     glyphs: list[G] = []
     spans: list[Span] = []
     for block in page.get_text("rawdict")["blocks"]:
@@ -482,11 +483,13 @@ def _staff_glyphs(glyphs: list[G], bases: list[float], size: float) -> dict[floa
     return staff_glyphs
 
 
-def _drawings(drawings: list[Any]) -> tuple[list[pymupdf.Rect], list[Any], list[Any], list[Any]]:
+def _drawings(
+    drawings: list[pdftext.Drawing],
+) -> tuple[list[pymupdf.Rect], list[pymupdf.Rect], list[tuple[float, float, float, float]], list[pymupdf.Rect]]:
     beams: list[pymupdf.Rect] = []
-    curves: list[Any] = []
-    lines: list[Any] = []
-    boxes: list[Any] = []
+    curves: list[pymupdf.Rect] = []
+    lines: list[tuple[float, float, float, float]] = []
+    boxes: list[pymupdf.Rect] = []
     for d in drawings:
         r = d["rect"]
         kinds = [i[0] for i in d["items"]]
@@ -497,13 +500,13 @@ def _drawings(drawings: list[Any]) -> tuple[list[pymupdf.Rect], list[Any], list[
             and 1.0 <= r.height < BEAM_MAX_HEIGHT
         ):
             if set(kinds) == {"re"}:
-                beams.extend(pymupdf.Rect(i[1]) for i in d["items"])
+                beams.extend(pymupdf.Rect(i[1]) for i in d["items"] if i[0] == "re")
             else:
                 beams.append(r)
         elif kinds == ["c"]:
             curves.append(r)
         elif kinds == ["l"]:
-            it = d["items"][0]
+            it = next(item for item in d["items"] if item[0] == "l")
             lines.append((it[1].x, it[1].y, it[2].x, it[2].y))
         elif kinds == ["re"]:
             boxes.append(r)
@@ -860,7 +863,7 @@ def _attach(target: list[Text], t: Text, first: Span, runs: list[tuple[str, bool
 class Decoder:
     def __init__(self, path: str, key_hint: int | None = None) -> None:
         del key_hint
-        self.doc = pymupdf.open(path)
+        self.doc = pdftext.read(path)
         self.music = font_map(self.doc)
         self.bars: list[Bar] = []
         self.corrections: list[Issue] = []
@@ -875,7 +878,7 @@ class Decoder:
         self.printed: list[tuple[int, int]] = []
 
     def run(self) -> Score:
-        for page_no, page in enumerate(self.doc.pages()):
+        for page_no, page in enumerate(self.doc):
             self._page(page_no, page)
         self._finish_voltas()
         for ours, theirs in self.printed:
@@ -892,7 +895,7 @@ class Decoder:
                         j += 1
                 self.bars[j].volta_stop = bar.volta
 
-    def _page(self, page_no: int, page: pymupdf.Page) -> None:
+    def _page(self, page_no: int, page: pdftext.RawPage) -> None:
         glyphs, spans = load(page, self.music)
         self.threes = [(g.x, g.y) for g in glyphs if g.code == DIGIT_THREE and g.size < TUPLET_GLYPH_MAX_SIZE]
         self.threes += [(s.x, s.y) for s in spans if s.text.strip() == "3" and s.size > TUPLET_TEXT_MIN_SIZE]
@@ -1222,7 +1225,7 @@ class Decoder:
             out += self._fill(bar.length - t, other[-1].x + 1, t)
         return [full, out] if a is full else [out, full]
 
-    def _curves(self, bars: list[Bar], sys: list[float], curves: list[Any]) -> None:
+    def _curves(self, bars: list[Bar], sys: list[float], curves: list[pymupdf.Rect]) -> None:
         seen: list[tuple[float, float, float]] = []
         all_ev = [
             (ev, bar)
@@ -1434,7 +1437,7 @@ class Decoder:
                     bars[-1].to_coda = True
 
     @staticmethod
-    def _wedges(bars: list[Bar], lines: list[Any], y_lo: float, y_hi: float) -> None:
+    def _wedges(bars: list[Bar], lines: list[tuple[float, float, float, float]], y_lo: float, y_hi: float) -> None:
         if not bars:
             return
         cand = [seg for seg in lines if y_lo < seg[1] < y_hi and abs(seg[2] - seg[0]) > WEDGE_MIN_LENGTH]

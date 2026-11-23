@@ -4,6 +4,7 @@ import os
 import pathlib
 import types
 import zipfile
+from dataclasses import dataclass
 from fractions import Fraction
 from typing import TypeGuard, override
 
@@ -172,8 +173,26 @@ def test_plan_prefers_the_even_split_of_as_many_lines() -> None:
     assert lines(layout.plan(score, [12.0] * 8, ROOM), 8) == [4, 4]
 
 
-def candidate(size: float, **fields: object) -> dict[str, object]:
-    return {"size": size, "share": 0.0, "fill": 0.9, "good": True, "lone": False, "lines": 10, **fields}
+@dataclass(frozen=True)
+class CandidateOptions:
+    held: bool = False
+    share: float = 0.0
+    fill: float = 0.9
+    good: bool = True
+    lines: int = 10
+    lone: bool = False
+
+
+def candidate(size: float, options: CandidateOptions = CandidateOptions()) -> layout.Candidate:
+    return {
+        "size": size,
+        "held": options.held,
+        "share": options.share,
+        "fill": options.fill,
+        "good": options.good,
+        "lines": options.lines,
+        "lone": options.lone,
+    }
 
 
 @pytest.fixture
@@ -189,22 +208,22 @@ def strict_choice(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.mark.usefixtures("strict_choice")
 def test_choose_takes_the_largest_size_that_fills_its_pages_first() -> None:
-    found = [candidate(2.0, fill=0.5), candidate(1.8, fill=0.9), candidate(1.6, fill=0.95)]
+    found = [candidate(2.0, CandidateOptions(fill=0.5)), candidate(1.8), candidate(1.6, CandidateOptions(fill=0.95))]
     assert layout.choose(found, port.ORIGINAL)[:2] == [1.8, 1.6]
 
 
 @pytest.mark.usefixtures("strict_choice")
 def test_choose_takes_the_wider_short_line_share_only_when_no_size_holds_the_base_share() -> None:
-    found = [candidate(2.0, share=0.25), candidate(1.6, share=0.10)]
+    found = [candidate(2.0, CandidateOptions(share=0.25)), candidate(1.6, CandidateOptions(share=0.10))]
     assert layout.choose(found, port.ORIGINAL)[0] == pytest.approx(1.6)
-    found = [candidate(2.0, share=0.25), candidate(1.6, share=0.28)]
+    found = [candidate(2.0, CandidateOptions(share=0.25)), candidate(1.6, CandidateOptions(share=0.28))]
     assert layout.choose(found, port.ORIGINAL)[0] == pytest.approx(2.0)
-    assert layout.choose([candidate(2.0, share=0.4)], port.ORIGINAL) == []
+    assert layout.choose([candidate(2.0, CandidateOptions(share=0.4))], port.ORIGINAL) == []
 
 
 def test_choose_refuses_a_size_whose_lines_did_not_hold_or_leave_a_lone_piano_bar() -> None:
-    assert layout.choose([candidate(2.0, good=False), candidate(1.5)], port.ORIGINAL) == [1.5]
-    assert layout.choose([candidate(2.0, lone=True), candidate(1.5)], port.PIANO) == [1.5]
+    assert layout.choose([candidate(2.0, CandidateOptions(good=False)), candidate(1.5)], port.ORIGINAL) == [1.5]
+    assert layout.choose([candidate(2.0, CandidateOptions(lone=True)), candidate(1.5)], port.PIANO) == [1.5]
 
 
 def test_plan_lets_a_short_line_take_a_bar_from_the_line_above() -> None:
@@ -227,9 +246,14 @@ def test_space_points_reads_the_scores_own_staff_space(tmp_path: pathlib.Path) -
 
 @pytest.mark.usefixtures("strict_choice")
 def test_choose_packs_a_piano_sheet_into_the_fewest_lines_then_the_largest_notes() -> None:
-    found = [candidate(2.0, lines=30), candidate(1.6, lines=22), candidate(1.5, lines=20), candidate(1.4, lines=20)]
+    found = [
+        candidate(2.0, CandidateOptions(lines=30)),
+        candidate(1.6, CandidateOptions(lines=22)),
+        candidate(1.5, CandidateOptions(lines=20)),
+        candidate(1.4, CandidateOptions(lines=20)),
+    ]
     assert layout.choose(found, port.PIANO)[0] == pytest.approx(1.5)
-    found = [candidate(1.5, lines=20, share=0.4), candidate(1.8, lines=24)]
+    found = [candidate(1.5, CandidateOptions(lines=20, share=0.4)), candidate(1.8, CandidateOptions(lines=24))]
     assert layout.choose(found, port.PIANO)[0] == pytest.approx(1.8)
 
 
@@ -479,14 +503,14 @@ def test_balancing_replaces_every_earlier_page_break(monkeypatch: pytest.MonkeyP
 
 
 def test_every_sheet_takes_the_size_giving_the_fewest_lines() -> None:
-    fit = [
-        {"size": 1.8, "lines": 24, "fill": 0.9},
-        {"size": 1.3, "lines": 17, "fill": 0.7},
-        {"size": 1.25, "lines": 17, "fill": 0.9},
-        {"size": 1.2, "lines": 17, "fill": 0.9},
+    fit: list[layout.Candidate] = [
+        candidate(1.8, CandidateOptions(lines=24)),
+        candidate(1.3, CandidateOptions(lines=17, fill=0.7)),
+        candidate(1.25, CandidateOptions(lines=17)),
+        candidate(1.2, CandidateOptions(lines=17)),
     ]
     assert layout.ranked(fit) == [1.25, 1.2, 1.3, 1.8]
-    assert layout.ranked([*fit, {"size": 1.15, "lines": 15, "fill": 0.9}])[-1] == pytest.approx(1.15)
+    assert layout.ranked([*fit, candidate(1.15, CandidateOptions(lines=15))])[-1] == pytest.approx(1.15)
 
 
 def test_a_score_written_after_its_render_is_rendered_again(tmp_path: pathlib.Path) -> None:

@@ -11,7 +11,7 @@ import re
 import shutil
 import threading
 import zipfile
-from typing import TYPE_CHECKING, Any, NamedTuple
+from typing import TYPE_CHECKING, NamedTuple, TypedDict
 
 from muse import buildcache, chordnames, chordseat, jumps, launch, mode, musicxml, pdfcheck, pdftext, piano
 
@@ -417,6 +417,16 @@ class Sizing(NamedTuple):
     distance: float
 
 
+class TransposeOptions(TypedDict):
+    mode: str
+    direction: str
+    targetKey: int
+    transposeKeySignatures: bool
+    transposeChordNames: bool
+    useDoubleSharpsFlats: bool
+    transposeInterval: int
+
+
 def styled(
     work: pathlib.Path,
     name: str,
@@ -520,7 +530,7 @@ def big_signs(mscz: pathlib.Path) -> None:
             z.writestr(key, data)
 
 
-def transpose_options(song: Song) -> dict[str, Any] | None:
+def transpose_options(song: Song) -> TransposeOptions | None:
     if not song.direction:
         return None
     return {

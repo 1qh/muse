@@ -17,11 +17,22 @@ import threading
 import xml.etree.ElementTree as ET
 import zipfile
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Literal, TypedDict
 
 from muse import chordseat, launch, mode, pdfcheck, pdftext, piano, port
 from muse.render import BATCHER
 from muse.song import decode, song_of
+
+
+class Candidate(TypedDict):
+    size: float
+    held: bool
+    share: float
+    fill: float
+    good: bool
+    lines: int
+    lone: bool
+
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -156,7 +167,7 @@ class Sheet:
     distance: float = port.BASE_DISTANCE
     score: Score = field(init=False)
     title: str = field(init=False)
-    options: dict[str, Any] | None = field(init=False)
+    options: port.TransposeOptions | None = field(init=False)
     style: pathlib.Path = field(init=False)
     import_style: pathlib.Path = field(init=False)
     name: str = field(init=False)
@@ -434,7 +445,7 @@ def render(sheet: Sheet, label: str, *, seated: bool = False) -> tuple[pathlib.P
     return score_path, probe
 
 
-def candidate(src: pathlib.Path, work: pathlib.Path, variant: str, size: float) -> dict[str, Any]:
+def candidate(src: pathlib.Path, work: pathlib.Path, variant: str, size: float) -> Candidate:
     """1 size planned and rendered once: whether its lines held, how full its pages are, and its short-line share.
 
     Returns:
@@ -461,7 +472,7 @@ def candidate(src: pathlib.Path, work: pathlib.Path, variant: str, size: float) 
         }
 
 
-def ranked(fit: list[dict[str, Any]]) -> list[float]:
+def ranked(fit: list[Candidate]) -> list[float]:
     """Every sheet's sizes by fewest lines, then those filling their pages, then largest.
 
     A dense sheet reads more of the song per glance.
@@ -479,7 +490,7 @@ def ranked(fit: list[dict[str, Any]]) -> list[float]:
     ]
 
 
-def choose(found: list[dict[str, Any]], variant: str) -> list[float]:
+def choose(found: list[Candidate], variant: str) -> list[float]:
     """Sizes to finish, best first, within the base short-line share, then the wider one.
 
     Each tier ranks by fewest lines, then filling their pages, then largest.

@@ -6,7 +6,6 @@ import subprocess
 import types
 from collections.abc import Callable
 from types import SimpleNamespace
-from typing import Any
 
 import pytest
 
@@ -15,7 +14,7 @@ from muse import build, buildcache, launch, mode, preflight
 
 def setup(
     tmp_path: pathlib.Path,
-) -> tuple[pathlib.Path, pathlib.Path, pathlib.Path, pathlib.Path, str, dict[str, Any]]:
+) -> tuple[pathlib.Path, pathlib.Path, pathlib.Path, pathlib.Path, str, buildcache.CacheRecord]:
     source, style, code, out = (tmp_path / n for n in ("s.pdf", "s.mss", "c.py", "o.pdf"))
     for path in (source, style, code, out):
         path.write_text("a")

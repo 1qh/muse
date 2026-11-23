@@ -14,7 +14,7 @@ import xml.etree.ElementTree as ET
 import zipfile
 from collections import Counter
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, NotRequired, TypedDict
 
 import pymupdf
 
@@ -62,6 +62,23 @@ CHORD_SIZE_MATCH = 0.1
 STAFF_LINE_COUNT = 5
 BARLINE_MAX_WIDTH = 3
 MIN_EMPTY_BARS = 2
+
+
+class LineRecord(TypedDict, total=False):
+    """Measured data for one printed line carrying chords."""
+
+    chords: list[float]
+    bars: list[float]
+    openings: list[float]
+    signed: list[float]
+    crossings: list[float]
+    start: float
+    opening: float
+    space: float
+    rights: list[float]
+    lefts: list[float]
+    size: float
+    crossed: NotRequired[list[tuple[int, float]]]
 
 
 def score_text(mscz: pathlib.Path) -> tuple[str, str]:
@@ -522,7 +539,7 @@ def _staff_line(
     above: float,
     line_index: int,
     readings: list[tuple[int, int, str, float, float, bool]],
-) -> dict[str, Any] | None:
+) -> LineRecord | None:
     mine = [w for w in marks.chords if above + marks.space * 4 < w[3] <= staff_top + 1]
     if not mine:
         return None
@@ -548,7 +565,7 @@ def _staff_line(
 
 
 def _apply_bearings(
-    lines: list[dict[str, Any]],
+    lines: list[LineRecord],
     readings: list[tuple[int, int, str, float, float, bool]],
 ) -> None:
     bearings = clean_bearings(lines, readings)
@@ -557,7 +574,7 @@ def _apply_bearings(
             lines[line]["chords"][place] = left + bearings[letter, round(size, 1)] * size
 
 
-def page_lines(pdf: pathlib.Path) -> list[dict[str, Any]]:
+def page_lines(pdf: pathlib.Path) -> list[LineRecord]:
     """Every staff carrying chords, in print order.
 
     Each carries its chord left edges, its barlines, where its signatures end, and its staff space.
@@ -566,7 +583,7 @@ def page_lines(pdf: pathlib.Path) -> list[dict[str, Any]]:
         Every staff carrying chords, in print order.
 
     """
-    lines: list[dict[str, Any]] = []
+    lines: list[LineRecord] = []
     readings: list[tuple[int, int, str, float, float, bool]] = []
     measures = measure_boxes(pdf.with_suffix(".mpos"))
     for page in pdftext.read(pdf):
@@ -583,7 +600,7 @@ def page_lines(pdf: pathlib.Path) -> list[dict[str, Any]]:
 
 
 def clean_bearings(
-    lines: list[dict[str, Any]],
+    lines: list[LineRecord],
     readings: list[tuple[int, int, str, float, float, bool]],
 ) -> dict[tuple[str, float], float]:
     """Per first letter and size, the median ink offset past the text box, in sizes.
@@ -665,7 +682,7 @@ def target_bars(text: str) -> set[int]:
     }
 
 
-def matched(text: str, pdf: pathlib.Path) -> list[dict[str, Any]]:
+def matched(text: str, pdf: pathlib.Path) -> list[LineRecord]:
     """Match the PDF's chord lines to the score, each bar opening past a sign only where the score holds a target there.
 
     Returns:
@@ -698,7 +715,7 @@ def is_signature(code: int) -> bool:
     return CLEF_FIRST <= code <= CLEF_LAST or code in TIME_SIGNATURES or ACCIDENTAL_FIRST <= code <= ACCIDENTAL_LAST
 
 
-def missing(rows: list[list[tuple[int, bool]]], lines: list[dict[str, Any]]) -> list[str]:
+def missing(rows: list[list[tuple[int, bool]]], lines: list[LineRecord]) -> list[str]:
     """Chords the score holds and the print lacks, per line: a chord pushed off the page prints nothing.
 
     Returns:
@@ -716,7 +733,7 @@ def missing(rows: list[list[tuple[int, bool]]], lines: list[dict[str, Any]]) -> 
     ]
 
 
-def gaps(rows: list[list[tuple[int, bool]]], lines: list[dict[str, Any]]) -> list[float | None]:
+def gaps(rows: list[list[tuple[int, bool]]], lines: list[LineRecord]) -> list[float | None]:
     """Each chord's gap after its bar's left edge; None for a chord past beat 1, which its own beat places.
 
     Returns:
@@ -766,7 +783,7 @@ def space_points(score_path: pathlib.Path) -> float:
     return values[0] * 72 / 25.4
 
 
-def ink_widths(rows: list[list[tuple[int, bool]]], lines: list[dict[str, Any]]) -> list[float]:
+def ink_widths(rows: list[list[tuple[int, bool]]], lines: list[LineRecord]) -> list[float]:
     """Each chord's printed width in points, box left to box right as the gap check judges it, in score order.
 
     A superscript can reach past the text box the score program reports.
@@ -785,7 +802,7 @@ def ink_widths(rows: list[list[tuple[int, bool]]], lines: list[dict[str, Any]]) 
     return [right - left for line in lines for left, right in zip(line["lefts"], line["rights"], strict=True)]
 
 
-def spaces_of(rows: list[list[tuple[int, bool]]], lines: list[dict[str, Any]]) -> list[float]:
+def spaces_of(rows: list[list[tuple[int, bool]]], lines: list[LineRecord]) -> list[float]:
     return [line["space"] for row, line in zip([r for r in rows if r], lines, strict=True) for _ in row]
 
 
@@ -837,7 +854,7 @@ def bar_rows(text: str) -> list[list[int]]:
     return rows
 
 
-def widths_of(line: dict[str, Any]) -> list[float]:
+def widths_of(line: LineRecord) -> list[float]:
     """Laid-out bar widths of a line.
 
     Its first bar starts after the clef and signatures, never after a sign, which is chord room only.
@@ -869,7 +886,7 @@ def signed_bars(text: str) -> set[int]:
     }
 
 
-def empty_lines(text: str, lines: list[dict[str, Any]], noted: set[int]) -> list[list[tuple[int, float]]]:
+def empty_lines(text: str, lines: list[LineRecord], noted: set[int]) -> list[list[tuple[int, float]]]:
     """Per line whose barlines match the score, (bar, width) of each bar with no notes and no sign.
 
     Only where the line holds 2 or more.
@@ -891,7 +908,7 @@ def empty_lines(text: str, lines: list[dict[str, Any]], noted: set[int]) -> list
     return found
 
 
-def empty_widths(text: str, lines: list[dict[str, Any]], noted: set[int]) -> list[tuple[int, float, float]]:
+def empty_widths(text: str, lines: list[LineRecord], noted: set[int]) -> list[tuple[int, float, float]]:
     """(bar, width, the line's mean empty width) for each bar with no notes and no sign.
 
     Evening and judgement share this 1 definition.

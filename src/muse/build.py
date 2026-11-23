@@ -12,7 +12,7 @@ import signal
 import subprocess
 import sys
 import time
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from muse import buildcache, chordnames, fullscore, gate, launch, layout, mode, piano, port, publish
 from muse.song import decode, song_of
@@ -20,6 +20,12 @@ from muse.song import sources as song_sources
 
 if TYPE_CHECKING:
     from muse.model import Score
+
+
+Decision = buildcache.Decision
+
+
+Sheet = tuple[str, dict[str, buildcache.CacheRecord], dict[str, object], list[str]]
 
 
 def variant_key(src: pathlib.Path, variant: str) -> str:
@@ -33,7 +39,7 @@ def variant_key(src: pathlib.Path, variant: str) -> str:
     return buildcache.key_of(src, repr(song_of(src)), buildcache.sheet_code(), mode.label())
 
 
-def decision(found: tuple[Score, pathlib.Path, float, float, int]) -> dict[str, Any]:
+def decision(found: tuple[Score, pathlib.Path, float, float, int]) -> Decision:
     """Record what a sheet's layout settled, kept in its build record.
 
     Returns:
@@ -54,7 +60,7 @@ def _orchestral(
     src: pathlib.Path,
     out_dir: pathlib.Path,
     work: pathlib.Path,
-    sheet: tuple[str, dict[str, Any], dict[str, object], list[str]],
+    sheet: Sheet,
 ) -> None:
     _, state, report, built = sheet
     info = song_of(src)
@@ -71,13 +77,18 @@ def _orchestral(
         built.append(port.ORIGINAL)
 
 
-def _current(src: pathlib.Path, state: dict[str, Any], variant: str, outputs: list[pathlib.Path]) -> tuple[str, bool]:
+def _current(
+    src: pathlib.Path,
+    state: dict[str, buildcache.CacheRecord],
+    variant: str,
+    outputs: list[pathlib.Path],
+) -> tuple[str, bool]:
     key = variant_key(src, variant)
     return key, buildcache.fresh(state.get(variant), key, outputs)
 
 
 def _keep(
-    sheet: tuple[str, dict[str, Any], dict[str, object], list[str]],
+    sheet: Sheet,
     variant: str,
     key: str,
     outputs: list[pathlib.Path],
@@ -99,7 +110,7 @@ def _original(
     src: pathlib.Path,
     out_dir: pathlib.Path,
     work: pathlib.Path,
-    sheet: tuple[str, dict[str, Any], dict[str, object], list[str]],
+    sheet: Sheet,
 ) -> None:
     info = song_of(src)
     outputs = [
@@ -121,7 +132,7 @@ def _tone(
     src: pathlib.Path,
     out_dir: pathlib.Path,
     work: pathlib.Path,
-    sheet: tuple[str, dict[str, Any], dict[str, object], list[str]],
+    sheet: Sheet,
 ) -> None:
     info = song_of(src)
     tone_score = work / f"{info.name}-{port.TONE}.mscz"
@@ -143,7 +154,7 @@ def _piano(
     src: pathlib.Path,
     out_dir: pathlib.Path,
     work: pathlib.Path,
-    sheet: tuple[str, dict[str, Any], dict[str, object], list[str]],
+    sheet: Sheet,
 ) -> None:
     info = song_of(src)
     final = work / f"{info.name}-piano-final.mscz"

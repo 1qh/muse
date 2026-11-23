@@ -8,7 +8,22 @@ import json
 import os
 import pathlib
 import shutil
-from typing import Any
+from typing import NotRequired, TypedDict
+
+
+class Decision(TypedDict):
+    spatium: float
+    distance: float
+    pages: NotRequired[int]
+    lines: NotRequired[list[int]]
+
+
+class CacheRecord(TypedDict):
+    key: str
+    outputs: dict[str, str]
+    decision: NotRequired[Decision]
+    notes: NotRequired[list[str]]
+
 
 ROOT = pathlib.Path(__file__).parent
 STYLE = ROOT / "style.mss"
@@ -129,12 +144,89 @@ def state_path(song: str) -> pathlib.Path:
     return pathlib.Path(os.environ["MUSE_PRIVATE"]) / STATE_DIR / f"{song}.json"
 
 
-def load(song: str) -> dict[str, dict[str, Any]]:
+def load(song: str) -> dict[str, CacheRecord]:
     path = state_path(song)
-    return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    if not path.exists():
+        return {}
+    loaded = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(loaded, dict):
+        msg = f"{path}: cache is not an object"
+        raise TypeError(msg)
+    state: dict[str, CacheRecord] = {}
+    for variant, raw in loaded.items():
+        if not isinstance(variant, str):
+            msg_0 = f"{path}: cache record has the wrong shape"
+            raise TypeError(msg_0)
+        state[variant] = _load_record(path, raw)
+    return state
 
 
-def save(song: str, state: dict[str, dict[str, Any]]) -> None:
+def _load_record(path: pathlib.Path, raw: object) -> CacheRecord:
+    if not isinstance(raw, dict):
+        msg = f"{path}: cache record has the wrong shape"
+        raise TypeError(msg)
+    if "key" not in raw or "outputs" not in raw:
+        msg = f"{path}: cache record is missing key or outputs"
+        raise KeyError(msg)
+    key, outputs = raw["key"], raw["outputs"]
+    if not isinstance(key, str) or not isinstance(outputs, dict):
+        msg = f"{path}: cache record has the wrong shape"
+        raise TypeError(msg)
+    if any(not isinstance(name, str) or not isinstance(digest, str) for name, digest in outputs.items()):
+        msg = f"{path}: cache outputs have the wrong shape"
+        raise TypeError(msg)
+    entry: CacheRecord = {"key": key, "outputs": outputs}
+    if "decision" in raw:
+        entry["decision"] = _load_decision(path, raw["decision"])
+    if "notes" in raw:
+        entry["notes"] = _load_notes(path, raw["notes"])
+    return entry
+
+
+def _load_decision(path: pathlib.Path, raw: object) -> Decision:
+    if not isinstance(raw, dict):
+        msg = f"{path}: cache decision has the wrong shape"
+        raise TypeError(msg)
+    if "spatium" not in raw or "distance" not in raw:
+        msg = f"{path}: cache decision is missing spatium or distance"
+        raise KeyError(msg)
+    if not isinstance(raw["spatium"], (int, float)) or not isinstance(raw["distance"], (int, float)):
+        msg = f"{path}: cache decision has the wrong shape"
+        raise TypeError(msg)
+    decision: Decision = {"spatium": raw["spatium"], "distance": raw["distance"]}
+    if "pages" in raw:
+        if not isinstance(raw["pages"], int):
+            msg = f"{path}: cache decision has the wrong shape"
+            raise TypeError(msg)
+        decision["pages"] = raw["pages"]
+    if "lines" in raw:
+        if not isinstance(raw["lines"], list):
+            msg = f"{path}: cache decision has the wrong shape"
+            raise TypeError(msg)
+        lines: list[int] = []
+        for line in raw["lines"]:
+            if not isinstance(line, int):
+                msg = f"{path}: cache decision has the wrong shape"
+                raise TypeError(msg)
+            lines.append(line)
+        decision["lines"] = lines
+    return decision
+
+
+def _load_notes(path: pathlib.Path, raw: object) -> list[str]:
+    if not isinstance(raw, list):
+        msg = f"{path}: cache notes have the wrong shape"
+        raise TypeError(msg)
+    notes: list[str] = []
+    for note in raw:
+        if not isinstance(note, str):
+            msg = f"{path}: cache notes have the wrong shape"
+            raise TypeError(msg)
+        notes.append(note)
+    return notes
+
+
+def save(song: str, state: dict[str, CacheRecord]) -> None:
     path = state_path(song)
     path.parent.mkdir(parents=True, exist_ok=True)
     fresh = path.with_suffix(".tmp")
@@ -142,21 +234,31 @@ def save(song: str, state: dict[str, dict[str, Any]]) -> None:
     fresh.replace(path)
 
 
-def fresh(entry: dict[str, Any] | None, key: str, outputs: list[pathlib.Path]) -> bool:
+def fresh(entry: CacheRecord | None, key: str, outputs: list[pathlib.Path]) -> bool:
     """Report true only when the inputs match and every output still holds the bytes that were built.
 
     Returns:
         Whether the recorded outputs are still fresh.
 
     """
-    entry = entry if entry is not None else {}
-    if not entry or entry.get("key") != key:
+    if entry is None or entry["key"] != key:
         return False
-    recorded = entry.get("outputs", {})
+    recorded = entry["outputs"]
     if set(recorded) != {str(path) for path in outputs}:
         return False
     return all(path.exists() and file_digest(path) == recorded[str(path)] for path in outputs)
 
 
-def record(key: str, outputs: list[pathlib.Path], **rest: object) -> dict[str, Any]:
-    return {"key": key, "outputs": {str(path): file_digest(path) for path in outputs}, **rest}
+def record(
+    key: str,
+    outputs: list[pathlib.Path],
+    *,
+    decision: Decision | None = None,
+    notes: list[str] | None = None,
+) -> CacheRecord:
+    entry: CacheRecord = {"key": key, "outputs": {str(path): file_digest(path) for path in outputs}}
+    if decision is not None:
+        entry["decision"] = decision
+    if notes is not None:
+        entry["notes"] = notes
+    return entry

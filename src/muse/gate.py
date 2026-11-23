@@ -355,7 +355,8 @@ def chord_bound_bars(score_path: pathlib.Path, pdf: pathlib.Path) -> set[int]:
     text = chordseat.score_text(score_path)[1]
     rows = [row for row, chords in zip(chordseat.bar_rows(text), chordseat.rows_of(text), strict=True) if chords]
     found = set()
-    for row, line in zip(rows, chordseat.matched(text, pdf), strict=False):
+    lines: list[chordseat.LineRecord] = chordseat.matched(text, pdf)
+    for row, line in zip(rows, lines, strict=False):
         edges = [line["opening"], *line["bars"]]
         if len(edges) - 1 != len(row):
             continue

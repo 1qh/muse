@@ -30,8 +30,8 @@ def main() -> None:
         state = buildcache.load(info.name)
         verdicts = []
         for variant, entry in sorted(state.items()):
-            decision = entry.get("decision") or {}
-            recorded = entry.get("outputs", {})
+            decision = entry.get("decision")
+            recorded = entry["outputs"]
             delivered = {path: digest for path, digest in recorded.items() if pathlib.Path(path).parent.name == info.name}
             pushed = bool(delivered) and all(
                 (data := blob(out, "/".join(pathlib.Path(path).parts[-2:]))) is not None
@@ -40,7 +40,7 @@ def main() -> None:
             )
             wanted = gate.gate_key(src) if variant == "gate" else build.variant_key(src, variant)
             ok = entry.get("key") == wanted and pushed
-            size = f":{decision['spatium']}x{decision['pages']}p" if "spatium" in decision and "pages" in decision else ""
+            size = f":{decision['spatium']}x{decision['pages']}p" if decision is not None and "pages" in decision else ""
             verdicts.append(f"{variant}:{'current' if ok else 'stale'}{size}")
             current += ok
             stale += not ok

@@ -15,7 +15,16 @@ from typing import Any
 import pymupdf
 import pytest
 
-from muse import fullcheck, fullscore, launch, leland, orchestral, song, symbolfont
+from muse import (
+    fullcheck,
+    fullscore,
+    launch,
+    leland,
+    orchestral,
+    pdftext,
+    song,
+    symbolfont,
+)
 from muse.leland import is_lyric
 from muse.model import Score
 from muse.song import decode, encoding, song_of
@@ -556,7 +565,7 @@ def test_full_score_adds_up_on_every_staff_bar_the_spike_reader_adds_up_on(path:
     spike = spike_staff_bars(path, spike_reader(pin))
     assert len(spike) == pin["spike_whole"]
     doc = pymupdf.open(path)
-    role = orchestral.roles(doc)
+    role = orchestral.roles(pdftext.read(path))
     ours = {}
     for page_number in range(len(doc)):
         page = doc[page_number]

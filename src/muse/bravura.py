@@ -7,14 +7,15 @@ import itertools
 import operator
 import re
 from fractions import Fraction
-from typing import Any
+from typing import TYPE_CHECKING
 
-import pymupdf
-
-from muse import leland
+from muse import leland, pdftext
 from muse.model import LETTERS, Bar, Chord, Event, Head, Issue, Score, Text, UnknownGlyphError, bar_at, mark_bar
 from muse.smufl import BAR_REST, RESTS, TIME_DIGITS
 from muse.symbolfont import parse_chord
+
+if TYPE_CHECKING:
+    import pymupdf
 
 CREDIT_ROW = 14.0
 BLACK, HALF = 0xF4BE, 0xF4BD
@@ -135,7 +136,7 @@ def decode(path: str) -> Score:
 
 
 def _load_sheet(path: str) -> tuple[_Sheet, list[float], list[pymupdf.Rect]]:
-    page = pymupdf.open(path)[0]
+    page = pdftext.read(path)[0]
     chars, spans = _read_text(page)
     title = max(spans, key=operator.itemgetter(4))
     credit_spans = {t for t in spans if t == title or (abs(t[2] - title[2]) < CREDIT_ROW and t[1] > title[3])}
@@ -153,7 +154,7 @@ def _read_systems(sheet: _Sheet, bases: list[float]) -> None:
         _read_system(sheet, base, above)
 
 
-def _read_text(page: pymupdf.Page) -> tuple[list[_Glyph], list[_Span]]:
+def _read_text(page: pdftext.RawPage) -> tuple[list[_Glyph], list[_Span]]:
     chars: list[_Glyph] = []
     spans: list[_Span] = []
     for block in page.get_text("rawdict")["blocks"]:
@@ -166,7 +167,7 @@ def _read_text(page: pymupdf.Page) -> tuple[list[_Glyph], list[_Span]]:
     return chars, spans
 
 
-def _read_glyphs(s: dict[str, Any], chars: list[_Glyph]) -> None:
+def _read_glyphs(s: pdftext.Span, chars: list[_Glyph]) -> None:
     for ch in s["chars"]:
         if ord(ch["c"]) not in KNOWN_GLYPHS and not ch["c"].isspace():
             msg = f"music glyph {ord(ch['c']):#x} is not decoded"
@@ -174,7 +175,7 @@ def _read_glyphs(s: dict[str, Any], chars: list[_Glyph]) -> None:
         chars.append((ord(ch["c"]), ch["origin"][0], ch["origin"][1], s["size"]))
 
 
-def _read_span(s: dict[str, Any], spans: list[_Span]) -> None:
+def _read_span(s: pdftext.Span, spans: list[_Span]) -> None:
     text = "".join(c["c"] for c in s["chars"])
     if text.strip():
         spans.append((
@@ -188,7 +189,7 @@ def _read_span(s: dict[str, Any], spans: list[_Span]) -> None:
 
 
 def _read_drawings(
-    page: pymupdf.Page,
+    page: pdftext.RawPage,
 ) -> tuple[
     list[tuple[float, float, float]],
     list[tuple[float, float, float]],
@@ -205,7 +206,7 @@ def _read_drawings(
         kinds = "".join(i[0] for i in d["items"])
         r = d["rect"]
         if kinds == "l":
-            _read_line(d, r, h_lines, v_thin, v_bar)
+            _read_line(_LineRead(next(item for item in d["items"] if item[0] == "l"), r, d, h_lines, v_thin, v_bar))
         elif (kinds == "llll" and d["type"] == "f") or kinds == "lllll":
             fills.append(r)
         elif kinds == "clcl":
@@ -213,24 +214,32 @@ def _read_drawings(
     return h_lines, v_thin, v_bar, fills, ties
 
 
-def _read_line(
-    d: dict[str, Any],
-    r: pymupdf.Rect,
-    h_lines: list[tuple[float, float, float]],
-    v_thin: list[tuple[float, float, float]],
-    v_bar: list[tuple[float, float, float]],
-) -> None:
-    a, b = d["items"][0][1], d["items"][0][2]
+@dataclasses.dataclass
+class _LineRead:
+    line: pdftext.LineItem
+    rect: pymupdf.Rect
+    drawing: pdftext.Drawing
+    horizontal: list[tuple[float, float, float]]
+    vertical_thin: list[tuple[float, float, float]]
+    vertical_bar: list[tuple[float, float, float]]
+
+
+def _read_line(read: _LineRead) -> None:
+    _, a, b = read.line
+    width = read.drawing["width"]
+    if width is None:
+        msg = "line drawing has no width"
+        raise ValueError(msg)
     if abs(a.y - b.y) < STRAIGHT_TOLERANCE:
-        h_lines.append((a.y, min(a.x, b.x), max(a.x, b.x)))
+        read.horizontal.append((a.y, min(a.x, b.x), max(a.x, b.x)))
     elif (
         abs(a.x - b.x) < STRAIGHT_TOLERANCE
-        and d["width"] > BARLINE_MIN_WIDTH
-        and BARLINE_MIN_HEIGHT < r.height < BARLINE_MAX_HEIGHT
+        and width > BARLINE_MIN_WIDTH
+        and BARLINE_MIN_HEIGHT < read.rect.height < BARLINE_MAX_HEIGHT
     ):
-        v_bar.append((a.x, r.y0, r.y1))
+        read.vertical_bar.append((a.x, read.rect.y0, read.rect.y1))
     elif abs(a.x - b.x) < STRAIGHT_TOLERANCE:
-        v_thin.append((a.x, r.y0, r.y1))
+        read.vertical_thin.append((a.x, read.rect.y0, read.rect.y1))
 
 
 def _read_system(sheet: _Sheet, base: float, above: float | None) -> None:

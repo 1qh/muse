@@ -6,13 +6,15 @@ import dataclasses
 import operator
 import re
 from fractions import Fraction
-from typing import Any
+from typing import TYPE_CHECKING
 
-import pymupdf
-
+from muse import pdftext
 from muse.model import LETTERS, Bar, Chord, Event, Head, Issue, Score, Text, UnknownGlyphError, bar_at, mark_bar
 from muse.smufl import BAR_REST, RESTS, TIME_DIGITS, beam_y
 from muse.symbolfont import parse_chord
+
+if TYPE_CHECKING:
+    import pymupdf
 
 WHOLE, HALF, BLACK, CROSS = 0xE0A2, 0xE0A3, 0xE0A4, 0xE0A9
 HEADS = {WHOLE: Fraction(4), HALF: Fraction(2), BLACK: Fraction(1), CROSS: Fraction(1)}
@@ -68,10 +70,10 @@ TIE_END_REACH = 8
 SIGN_PAIR = 2
 STEM_MATCH = 0.3
 
-GlyphSpan = tuple[str, float, float, float, str, float, list[Any]]
+GlyphSpan = tuple[str, float, float, float, str, float, list[pdftext.Char]]
 
 
-def _music_glyphs(span: dict[str, Any], glyphs: list[tuple[int, float, float]]) -> None:
+def _music_glyphs(span: pdftext.Span, glyphs: list[tuple[int, float, float]]) -> None:
     for ch in span["chars"]:
         if not ch["c"].isspace():
             if ord(ch["c"]) not in KNOWN:
@@ -80,7 +82,7 @@ def _music_glyphs(span: dict[str, Any], glyphs: list[tuple[int, float, float]]) 
             glyphs.append((ord(ch["c"]), ch["origin"][0], ch["origin"][1]))
 
 
-def _text_span(span: dict[str, Any], spans: list[GlyphSpan]) -> None:
+def _text_span(span: pdftext.Span, spans: list[GlyphSpan]) -> None:
     text = "".join(c["c"] for c in span["chars"])
     if text.strip():
         spans.append((
@@ -95,8 +97,8 @@ def _text_span(span: dict[str, Any], spans: list[GlyphSpan]) -> None:
 
 
 def glyphs_and_text(
-    page: pymupdf.Page,
-) -> tuple[list[tuple[int, float, float]], list[tuple[str, float, float, float, str, float, list[Any]]]]:
+    page: pdftext.RawPage,
+) -> tuple[list[tuple[int, float, float]], list[GlyphSpan]]:
     glyphs: list[tuple[int, float, float]] = []
     spans: list[GlyphSpan] = []
     for block in page.get_text("rawdict")["blocks"]:
@@ -109,7 +111,7 @@ def glyphs_and_text(
     return glyphs, spans
 
 
-def split_chords(span: tuple[str, float, float, float, str, float, list[Any]]) -> list[tuple[str, float]]:
+def split_chords(span: GlyphSpan) -> list[tuple[str, float]]:
     found: list[tuple[str, float]] = []
     word, at = "", 0.0
     for ch in span[6]:
@@ -504,20 +506,24 @@ class _Page:
     drawn: _Drawn
 
 
-def _line(d: dict[str, Any], drawn: _Drawn) -> None:
+def _line(line: pdftext.LineItem, d: pdftext.Drawing, drawn: _Drawn) -> None:
     r = d["rect"]
-    a, b = d["items"][0][1], d["items"][0][2]
+    _, a, b = line
+    width = d["width"]
+    if width is None:
+        msg = "line drawing has no width"
+        raise ValueError(msg)
     if abs(a.y - b.y) < STRAIGHT:
         drawn.rules.append((a.y, min(a.x, b.x), max(a.x, b.x)))
-    if abs(a.x - b.x) < STRAIGHT and d["width"] > HEAVY_WIDTH:
-        drawn.heavy.append((a.x, r.y0, r.y1, d["width"]))
+    if abs(a.x - b.x) < STRAIGHT and width > HEAVY_WIDTH:
+        drawn.heavy.append((a.x, r.y0, r.y1, width))
     elif abs(a.x - b.x) < STRAIGHT:
         drawn.stems.append((a.x, r.y0, r.y1))
 
 
-def _quad(d: dict[str, Any], page: pymupdf.Page, drawn: _Drawn) -> None:
+def _quad(lines: list[pdftext.LineItem], d: pdftext.Drawing, page: pdftext.RawPage, drawn: _Drawn) -> None:
     r = d["rect"]
-    corners = [p for item in d["items"] for p in (item[1], item[2])]
+    corners = [p for item in lines for p in (item[1], item[2])]
     low, high = min(p.x for p in corners), max(p.x for p in corners)
     ends = [
         sum(p.y for p in corners if abs(p.x - at) < STRAIGHT) / max(1, sum(abs(p.x - at) < STRAIGHT for p in corners))
@@ -531,15 +537,15 @@ def _quad(d: dict[str, Any], page: pymupdf.Page, drawn: _Drawn) -> None:
         drawn.walls.append(r)
 
 
-def _read_drawings(page: pymupdf.Page, page_number: int) -> _Drawn:
+def _read_drawings(page: pdftext.RawPage, page_number: int) -> _Drawn:
     drawn = _Drawn()
     for d in page.get_drawings():
         kinds = "".join(i[0] for i in d["items"])
         r = d["rect"]
         if kinds == "l":
-            _line(d, drawn)
+            _line(next(item for item in d["items"] if item[0] == "l"), d, drawn)
         elif kinds == "llll":
-            _quad(d, page, drawn)
+            _quad([item for item in d["items"] if item[0] == "l"], d, page, drawn)
         elif kinds == "cc":
             drawn.ties.append((page_number, r))
         elif kinds == "qu":
@@ -683,7 +689,7 @@ def _decode_row(page: _Page, at_group: int, group: list[Staff], sheet: _Sheet) -
             sheet.previous = chord
 
 
-def _decode_page(page: pymupdf.Page, page_number: int, sheet: _Sheet, all_ties: list[Any]) -> None:
+def _decode_page(page: pdftext.RawPage, page_number: int, sheet: _Sheet, all_ties: list[tuple[int, pymupdf.Rect]]) -> None:
     glyphs, spans = glyphs_and_text(page)
     drawn = _read_drawings(page, page_number)
     all_ties.extend(drawn.ties)
@@ -702,11 +708,11 @@ def _decode_page(page: pymupdf.Page, page_number: int, sheet: _Sheet, all_ties: 
 
 
 def decode(path: str) -> Score:
-    doc = pymupdf.open(path)
+    doc = pdftext.read(path)
     sheet = _Sheet()
-    all_ties: list[Any] = []
-    for page_number in range(doc.page_count):
-        _decode_page(doc[page_number], page_number, sheet, all_ties)
+    all_ties: list[tuple[int, pymupdf.Rect]] = []
+    for page_number, page in enumerate(doc):
+        _decode_page(page, page_number, sheet, all_ties)
     bars = sheet.bars
     wire(bars, all_ties)
     bars[-1].final = True
@@ -733,7 +739,7 @@ def is_lyric(font: str) -> bool:
     return font.rsplit("+", maxsplit=1)[-1].startswith(LYRIC_FONT)
 
 
-def text_owners(spans: list[Any], groups: list[list[Staff]]) -> list[int | None]:
+def text_owners(spans: list[GlyphSpan], groups: list[list[Staff]]) -> list[int | None]:
     """Find the 1 line each text belongs to.
 
     In the window of 1 line, that line; where 2 windows overlap, a lyric hint to the line it sits under and
@@ -798,7 +804,7 @@ def _add_text(span: GlyphSpan, words: str, base: float, target: Bar, group: list
 
 
 def row_text(
-    spans: list[Any],
+    spans: list[GlyphSpan],
     base: float,
     row: list[Bar],
     group: list[Staff],
@@ -833,7 +839,7 @@ def row_text(
         _add_text(span, words, base, target, group)
 
 
-def wire(bars: list[Bar], ties: list[Any]) -> None:
+def wire(bars: list[Bar], ties: list[tuple[int, pymupdf.Rect]]) -> None:
     for page_number, r in ties:
         events = [e for b in bars if b.page == page_number for v in b.voices for e in v if e.heads]
         left = [
@@ -877,7 +883,7 @@ def volta_ends(bars: list[Bar]) -> None:
             bars[stop].volta_stop = bar.volta
 
 
-def tempo(doc: pymupdf.Document, bars: list[Bar]) -> None:
+def tempo(doc: pdftext.Document, bars: list[Bar]) -> None:
     found = re.search(r"=\s*(\d+)", doc[0].get_text())
     if found:
         bars[0].tempo = ("", float(found[1]))

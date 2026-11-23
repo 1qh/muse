@@ -364,7 +364,7 @@ def test_the_page_check_includes_the_sign_guard(tmp_path: pathlib.Path, monkeypa
 
 def test_beat_1_chords_measure_from_their_own_bar_and_later_chords_do_not_count() -> None:
     rows = [[(0, True), (1, True), (1, False)]]
-    lines = [
+    lines: list[chordseat.LineRecord] = [
         {
             "chords": [50.0, 100.0, 130.0],
             "bars": [100.0, 150.0],
@@ -809,7 +809,7 @@ def test_a_key_signature_opens_a_bar_and_a_note_accidental_does_not() -> None:
 
 def test_a_beat_1_chord_after_a_mid_line_key_change_is_judged_from_the_signature_end() -> None:
     rows = [[(0, True), (1, True)]]
-    line = {"chords": [40.0, 230.0], "bars": [200.0, 400.0], "openings": [230.0], "start": 40.0}
+    line: chordseat.LineRecord = {"chords": [40.0, 230.0], "bars": [200.0, 400.0], "openings": [230.0], "start": 40.0}
     assert chordseat.gaps(rows, [line]) == [0.0, 0.0]
 
 
@@ -954,7 +954,7 @@ def test_every_edited_score_carries_staff_text_where_the_import_made_an_expressi
 
 def test_ink_widths_run_from_each_chords_box_left_never_its_ink_left() -> None:
     rows = [[(0, True), (1, True)]]
-    lines = [{"chords": [52.0, 112.0], "lefts": [50.0, 110.0], "rights": [70.0, 125.0]}]
+    lines: list[chordseat.LineRecord] = [{"chords": [52.0, 112.0], "lefts": [50.0, 110.0], "rights": [70.0, 125.0]}]
     assert chordseat.ink_widths(rows, lines) == [20.0, 15.0]
 
 
@@ -1219,7 +1219,7 @@ def test_a_crowded_chord_takes_its_letters_bearing_from_the_clean_chords() -> No
     assert not crowded(page, 60, 60, 13)
     page.insert_text((57.6, 66), "|", fontsize=13)
     assert crowded(page, 60, 60, 13)
-    lines = [{"chords": [100.8, 300.1]}]
+    lines: list[chordseat.LineRecord] = [{"chords": [100.8, 300.1]}]
     readings = [(0, 0, "C", 13.0, 100.0, False), (0, 1, "C", 13.0, 300.0, True)]
     assert clean_bearings(lines, readings) == {("C", 13.0): pytest.approx(0.8 / 13)}
 

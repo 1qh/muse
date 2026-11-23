@@ -325,7 +325,7 @@ def test_a_sign_bar_leaves_both_the_evening_and_the_judgement_of_empty_bars() ->
         f"<Measure><voice>{harmony}</voice></Measure>",
     ]
     text = f'<museScore><Score><Part></Part><Staff id="1">{"".join(bars)}</Staff></Score></museScore>'
-    line = {"opening": 0.0, "bars": [30.0, 70.0, 100.0]}
+    line: chordseat.LineRecord = {"opening": 0.0, "bars": [30.0, 70.0, 100.0]}
     assert chordseat.empty_widths(text, [line], set()) == [(1, 30.0, 30.0), (3, 30.0, 30.0)]
 
 
@@ -351,7 +351,7 @@ def test_a_bar_whose_chord_crowds_the_next_is_chord_bound_and_a_roomy_bar_is_not
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: pathlib.Path,
 ) -> None:
-    line = {
+    line: chordseat.LineRecord = {
         "opening": 0.0,
         "bars": [36.0, 72.0, 113.6, 149.6],
         "size": 16.0,
