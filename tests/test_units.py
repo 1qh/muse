@@ -1101,3 +1101,23 @@ def test_a_mark_lost_between_2_score_files_is_reported(tmp_path):
     above = score_with("<Articulation><subtype>stringsHarmonicAbove</subtype></Articulation>")
     assert scorefile.difference(marked, plain) == ["bar 1 staff 1: marks differ ['stringsHarmonic'] []"]
     assert scorefile.difference(marked, above) == []  # where it prints is layout
+
+
+DISTINCT_FACTS = {  # a name 2 modules define for different facts: each font's own codes, or a module re-exporting its owner's value
+    "ACCIDENTALS", "BAR_REST", "CHORD", "CHORD_GAP", "CREDIT_ROW", "DYNAMICS", "FLAGS", "GRACE", "HEADS",
+    "JUMP_WORDS", "KNOWN_GLYPHS", "MUSIC_FONTS", "RESTS", "STAFF_REACH", "STYLE",
+}
+
+
+def test_no_fact_has_2_homes():
+    """A constant written twice drifts: the sign's extent once disagreed between the seating and the touch check."""
+    import collections
+    import re
+
+    defined = collections.defaultdict(set)
+    for path in pathlib.Path(port.__file__).parent.glob("*.py"):
+        for line in path.read_text(encoding="utf-8").splitlines():
+            found = re.match(r"^([A-Z][A-Z0-9_]{2,})\s*(?::[^=]+)?=", line)
+            if found:
+                defined[found[1]].add(path.name)
+    assert {name for name, homes in defined.items() if len(homes) > 1} <= DISTINCT_FACTS

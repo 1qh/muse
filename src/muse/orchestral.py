@@ -16,6 +16,7 @@ import pymupdf
 
 from muse import symbolfont
 from muse.model import LETTERS, Bar, Clef, Event, Head, Orchestra, Part, Text, Transposition, UnknownGlyph
+from muse.smufl import beam_y
 from muse.symbolfont import (
     ACCENT_BELOW,
     ALTO_CLEF,
@@ -277,10 +278,6 @@ def staves(lines: list[tuple[float, float, float]]) -> list[Staff]:
         else:
             at += 1
     return out
-
-
-def beam_y(b: tuple[float, float, float, float], x: float) -> float:
-    return b[2] if b[1] - b[0] < 0.01 else b[2] + (b[3] - b[2]) * (min(max(x, b[0]), b[1]) - b[0]) / (b[1] - b[0])
 
 
 def dot_count(heads: list[Glyph], dots: list[Glyph], step: float) -> int:

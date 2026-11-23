@@ -8,12 +8,11 @@ from typing import Any
 import pymupdf
 
 from muse.model import LETTERS, Bar, Chord, Event, Head, Issue, Score, Text, UnknownGlyph, bar_at, mark_bar
+from muse.smufl import BAR_REST, RESTS, beam_y
 from muse.symbolfont import parse_chord
 
 WHOLE, HALF, BLACK, CROSS = 0xE0A2, 0xE0A3, 0xE0A4, 0xE0A9
 HEADS = {WHOLE: F(4), HALF: F(2), BLACK: F(1), CROSS: F(1)}
-RESTS = {0xE4E4: F(2), 0xE4E5: F(1), 0xE4E6: F(1, 2), 0xE4E7: F(1, 4)}
-BAR_REST = 0xE4E3
 FLAGS = {0xE240: 1, 0xE241: 1, 0xE242: 2, 0xE243: 2}
 ACCIDENTALS = {0xE260: -1, 0xE261: 0, 0xE262: 1}
 DOT = 0xE1E7
@@ -167,12 +166,6 @@ def read_events(bar: Bar, content: list[tuple[int, float, float]], base: float, 
         return [[Event(bar.left, [], bar.length, bar_rest=True)]]
     set_tuplets(bar, merged, marks or [], flags)
     return split_voices(bar, merged, flags)
-
-
-def beam_y(beam: tuple[float, float, float, float], x: float) -> float:
-    """The middle of a slanted beam at x."""
-    x0, x1, y0, y1 = beam
-    return y0 if x1 - x0 < 0.01 else y0 + (y1 - y0) * (min(max(x, x0), x1) - x0) / (x1 - x0)
 
 
 def timed(voice: list[Event], length: F) -> bool:

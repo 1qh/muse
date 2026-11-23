@@ -43,7 +43,7 @@ BASE_DISTANCE = 11.0
 ORIGINAL = "original"
 TONE = "tone"
 PIANO = "piano"
-STYLE = pathlib.Path(__file__).with_name("style.mss")
+STYLE = buildcache.STYLE  # the style file, 1 home
 SF_PRO_FILES = tuple(f"SF-Pro-Display-{face}.otf" for face in ("Regular", "RegularItalic", "Bold", "BoldItalic"))
 FONT_DIRS = (pathlib.Path.home() / "Library" / "Fonts", pathlib.Path("/Library/Fonts"))
 

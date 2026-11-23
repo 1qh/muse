@@ -13,6 +13,7 @@ from typing import Any
 import pymupdf
 
 from muse import mode, pdftext
+from muse.smufl import HEAD_CODES
 
 GAP = 0.0  # a beat-1 chord's ink starts exactly at the barline's right edge, or after a line's clef and signatures
 TOLERANCE = mode.pick(0.4, 2.0)  # points a beat-1 chord may sit off its barline
@@ -27,7 +28,6 @@ LEDGER_REACH = 6.0  # staff spaces above and below a staff its notes can reach o
 OPENING_REPEAT_REACH = 14.0
 INK_STROKE_SHARE = 0.1
 STEM_REACH = 1.0
-HEAD_CODES = (0xE0A0, 0xE0FF)
 INK_REACH = 0.8  # points a letter's ink can start left of its text box; further left is a neighbour
 SIGN_INK_WIDTH = 0.75  # the printed part of a segno or coda, in sign font sizes
 SIGN_CLEAR = 1.5  # points between a sign's room and the ink of the chord after it, past the seating tolerance: enough that the chord letter's side bearing stays clear too

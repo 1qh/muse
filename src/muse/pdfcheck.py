@@ -8,6 +8,7 @@ import sys
 import pymupdf
 
 from muse import chordseat, pdftext
+from muse.smufl import HEAD_CODES
 
 CHORD = re.compile(r"(?:[A-G][#b♯♭]?)?(?:maj|min|dim|sus|add|aug|m|\d|[#b♯♭()/ Δø°]|[A-G][#b♯♭]?)*")
 MIN_CHORD_GAP = chordseat.CHORD_GAP  # clear space between 2 chords, in chord font sizes
@@ -25,7 +26,6 @@ SIGN_OVER_CHORD = 1.6
 MAX_CHORD_SPACES = 2.5  # chord baseline above the staff top, on a line with no notes
 SIGN_BASELINE_SHARE = 0.3  # a sign higher than this share of the chord size clears the letters
 CLEFS = {0xE050, 0xE052, 0xE053}
-HEAD_CODES = (0xE0A0, 0xE0FF)
 MIN_CLEF_SIZE = 8.0
 BAR_NUMBER_X = 70.0
 STAFF_REACH = 40.0
@@ -326,7 +326,7 @@ def idle_staves(clefs: list[float], heads: list[float], starts: list[float], cho
     return idle
 
 
-SIGN_TEXT_OVERLAP = 0.5  # points of overlap past which a sign's box covers a word
+SIGN_WORD_OVERLAP = 0.5  # points of overlap past which a sign's box covers a word
 
 
 DYNAMICS = (0xE520, 0xE54F)  # SMuFL dynamics: p, mf, sfz and their kin
@@ -359,7 +359,7 @@ def words_over(number: int, words: list[tuple[str, pymupdf.Rect]], boxes: list[p
     for word, box in words:
         for frame in boxes:
             common = frame & box
-            if not common.is_empty and common.width > SIGN_TEXT_OVERLAP and common.height > SIGN_TEXT_OVERLAP:
+            if not common.is_empty and common.width > SIGN_WORD_OVERLAP and common.height > SIGN_WORD_OVERLAP:
                 found.append(f"text on text: p{number}: {what} over {word!r}")  # a box reaching the line above clears as text does, by a wider line gap
                 break
     return found
@@ -373,7 +373,7 @@ def sign_word_overlaps(path: pathlib.Path) -> list[float]:
         for _, box in ink_words(page) if frames else []:
             for frame in frames:
                 common = frame & box
-                if not common.is_empty and common.width > SIGN_TEXT_OVERLAP and common.height > SIGN_TEXT_OVERLAP:
+                if not common.is_empty and common.width > SIGN_WORD_OVERLAP and common.height > SIGN_WORD_OVERLAP:
                     found.append(common.width)
     return found
 
