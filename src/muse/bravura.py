@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 
 from muse import leland, pdftext
 from muse.model import LETTERS, Bar, Chord, Event, Head, Issue, Score, Text, UnknownGlyphError, bar_at, mark_bar
-from muse.smufl import BAR_REST, RESTS, TIME_DIGITS
+from muse.smufl import BAR_REST, FERMATAS, RESTS, TIME_DIGITS
 from muse.symbolfont import parse_chord
 
 if TYPE_CHECKING:
@@ -400,12 +400,13 @@ def read_bar(bar: Bar, content: list[_Glyph], staff: _Staff) -> list[list[Event]
         if code in {BLACK, HALF}:
             events.append(_read_note(glyph, content, staff, state))
         elif code in RESTS:
-            events.append(Event(x, [], RESTS[code]))
+            held = any(f[0] in FERMATAS and abs(f[1] - x) < FERMATA_REACH for f in content)
+            events.append(Event(x, [], RESTS[code], fermata=held))
         elif code == BAR_REST:
             pass
     merged = _merge_chords(events)
     if not merged:
-        return [[Event(bar.left, [], bar.length, bar_rest=True)]]
+        return [[Event(bar.left, [], bar.length, bar_rest=True, fermata=any(f[0] in FERMATAS for f in content))]]
     real = [e for e in merged if not e.grace]
     for _, tx, _, _ in [c for c in content if c[0] == TRIPLET]:
         if not _mark_triplet(real, tx):
@@ -447,7 +448,7 @@ def _read_note(
         alter=state.get((step_name, octave), 1 if step_name == "F" else 0),
     )
     ev = Event(x, [head], Fraction(1, 2) if grace else nominal, 0, stem, beam=beam, grace=grace)
-    ev.fermata = any(f[0] in {0xE4C0, 0xE4C1} and abs(f[1] - x) < FERMATA_REACH for f in content)
+    ev.fermata = any(f[0] in FERMATAS and abs(f[1] - x) < FERMATA_REACH for f in content)
     ev.accent = any(f[0] in {0xE4A0, 0xE4A1} and abs(f[1] - x) < ACCENT_REACH for f in content)
     return ev
 

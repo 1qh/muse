@@ -717,7 +717,7 @@ def _rest_event(g: G, near: list[G]) -> Event:
     dots = int(any(d.code == DOT and 1 < d.x - g.x < DOT_MAX_DX and abs(d.y - g.y) < REST_DOT_DY for d in near))
     if dots:
         length *= Fraction(3, 2)
-    return Event(g.x, [], length, dots)
+    return Event(g.x, [], length, dots, fermata=any(t.code == FERMATA and abs(t.x - g.x) < ARTICULATION_X for t in near))
 
 
 def _merge_chords(events: list[Event]) -> list[Event]:
@@ -1021,7 +1021,12 @@ class Decoder:
                 t = Text(g.x, g.y, [("//", True, False)], above=True, size=10)
                 (bar.texts if staff.base == self.top_base else bar.texts2).append(t)
         events.sort(key=lambda e: e.x)
-        return self.voices(bar, events)
+        found = self.voices(bar, events)
+        for voice in found:
+            for event in voice:
+                if event.bar_rest:
+                    event.fermata = any(g.code == FERMATA for g in staff.near)
+        return found
 
     def voices(self, bar: Bar, events: list[Event]) -> list[list[Event]]:
         chords = _merge_chords(events)

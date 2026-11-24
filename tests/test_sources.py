@@ -22,6 +22,7 @@ from muse import (
     leland,
     orchestral,
     pdftext,
+    smufl,
     song,
     symbolfont,
 )
@@ -741,3 +742,24 @@ def test_no_song_title_reaches_the_public_code() -> None:
         if title in (root / path).read_text(encoding="utf-8", errors="ignore")
     })
     assert found == []
+
+
+FERMATA_GLYPHS = {*smufl.FERMATAS, symbolfont.FERMATA}
+
+
+@pytest.mark.parametrize("name", names())
+def test_every_printed_fermata_is_read(name: str) -> None:
+    """A fermata the source prints over a note, a rest or a whole-bar rest reaches exactly 1 event."""
+    path = source(name)
+    printed = sum(
+        1
+        for page in pdftext.read(path)
+        for block in page.get_text("rawdict")["blocks"]
+        for line in block.get("lines", [])
+        for span in line["spans"]
+        for char in span.get("chars", [])
+        if ord(char["c"]) in FERMATA_GLYPHS
+    )
+    score = decode(path)
+    read = sum(1 for bar in score.bars for voice in [*bar.voices, *bar.voices2] for event in voice if event.fermata)
+    assert read == printed

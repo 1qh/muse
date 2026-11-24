@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 
 from muse import pdftext
 from muse.model import LETTERS, Bar, Chord, Event, Head, Issue, Score, Text, UnknownGlyphError, bar_at, mark_bar
-from muse.smufl import BAR_REST, RESTS, TIME_DIGITS, beam_y
+from muse.smufl import BAR_REST, FERMATAS, RESTS, TIME_DIGITS, beam_y
 from muse.symbolfont import parse_chord
 
 if TYPE_CHECKING:
@@ -23,7 +23,6 @@ ACCIDENTALS = {0xE260: -1, 0xE261: 0, 0xE262: 1}
 FLAT_SIGN, SHARP_SIGN = 0xE260, 0xE262
 DOT = 0xE1E7
 ACCENTS = (0xE4A0, 0xE4A1)
-FERMATA = (0xE4C0, 0xE4C1)
 REPEAT_DOT, CLEF, SEGNO, CODA, WIGGLE, TEMPO_NOTE = 0xE044, 0xE050, 0xE047, 0xE048, 0xEAA9, 0xECA5
 KNOWN = {
     *HEADS,
@@ -33,7 +32,7 @@ KNOWN = {
     *ACCIDENTALS,
     DOT,
     *ACCENTS,
-    *FERMATA,
+    *FERMATAS,
     *TIME_DIGITS,
     REPEAT_DOT,
     CLEF,
@@ -285,7 +284,7 @@ def _head_event(reading: Reading, code: int, x: float, y: float) -> Event:
     if stem_x is not None:
         reading.stem_at[id(event)] = stem_x
     event.accent = any(f[0] in ACCENTS and abs(f[1] - x) < ARTICULATION_REACH for f in content)
-    event.fermata = any(f[0] in FERMATA and abs(f[1] - x) < ARTICULATION_REACH for f in content)
+    event.fermata = any(f[0] in FERMATAS and abs(f[1] - x) < ARTICULATION_REACH for f in content)
     return event
 
 
@@ -293,7 +292,13 @@ def _rest_event(reading: Reading, code: int, x: float, y: float) -> Event:
     dotted = any(
         d[0] == DOT and 0 < d[1] - x < REST_DOT_REACH and abs(d[2] - y) < reading.step * 3 for d in reading.content
     )
-    return Event(x, [], RESTS[code] * (Fraction(3, 2) if dotted else 1), 1 if dotted else 0)
+    return Event(
+        x,
+        [],
+        RESTS[code] * (Fraction(3, 2) if dotted else 1),
+        1 if dotted else 0,
+        fermata=any(f[0] in FERMATAS and abs(f[1] - x) < ARTICULATION_REACH for f in reading.content),
+    )
 
 
 def _merge_chords(events: list[Event], stem_at: dict[int, float]) -> list[Event]:
@@ -324,7 +329,7 @@ def read_events(
             events.append(_rest_event(reading, code, x, y))
     merged = _merge_chords(events, reading.stem_at)
     if not merged:
-        return [[Event(bar.left, [], bar.length, bar_rest=True)]]
+        return [[Event(bar.left, [], bar.length, bar_rest=True, fermata=any(f[0] in FERMATAS for f in content))]]
     set_tuplets(bar, merged, marks or [], flags)
     return split_voices(bar, merged, flags)
 

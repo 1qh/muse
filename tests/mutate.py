@@ -58,6 +58,18 @@ MUTATIONS = [
         "raising build stops the run",
     ),
     ("port.py", "SPREAD_SHARE_OF_BAND = 2 / 3", "SPREAD_SHARE_OF_BAND = 1.5", "spread opens a blank band"),
+    (
+        "leland.py",
+        "        fermata=any(f[0] in FERMATAS and abs(f[1] - x) < ARTICULATION_REACH for f in reading.content),\n",
+        "",
+        "fermata on a rest lost",
+    ),
+    (
+        "symbolfont.py",
+        "                    event.fermata = any(g.code == FERMATA for g in staff.near)\n",
+        "                    event.fermata = False\n",
+        "fermata on a whole-bar rest lost",
+    ),
     ("chordseat.py", "    lost = missing(rows, lines)\n    if lost:\n        return lost\n", "", "missing chord crashes"),
     (
         "layout.py",
