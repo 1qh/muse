@@ -1418,3 +1418,12 @@ def test_spread_lines_never_open_a_blank_band() -> None:
     height_mm = float(re.findall(r"<pageHeight>([^<]*)</pageHeight>", text)[0]) * port.MM_PER_INCH
     for spatium in (1.15, 1.5, 2.0):
         assert port.spread_cap(spatium) * spatium < pdfcheck.BLANK_BAND * height_mm
+
+
+def test_chord_ink_is_found_where_it_is_drawn_at_any_window_start() -> None:
+    """The ink reader maps each pixel to its true page position, whatever fraction of a pixel the window starts at."""
+    for step in range(40):
+        left = 50 + step * 0.137
+        page = pymupdf.open().new_page(width=200, height=100)
+        page.draw_rect(pymupdf.Rect(left + 2.0, 40, left + 2.4, 62), color=None, fill=(0, 0, 0), width=0)
+        assert chordseat.ink_left(page, left, 60, 13) == pytest.approx(left + 2.0, abs=0.1)

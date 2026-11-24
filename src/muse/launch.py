@@ -43,14 +43,26 @@ FREE_CORE_WAIT = 3600.0
 IDLE_WINDOW = 1.0
 
 
+IDLE_LOCK = threading.Lock()
+psutil.cpu_percent(interval=None)
+IDLE_READING = {"at": time.monotonic(), "idle": 0.0}
+
+
 def idle_percent() -> float:
-    """Measure the share of all CPU time idle over the last second.
+    """Measure the share of all CPU time idle since the last reading, at most once per window.
+
+    A reading younger than the window is shared, so no launch blocks to take its own.
 
     Returns:
         The idle share, measured, never the load average, which counts waiting threads.
 
     """
-    return 100.0 - float(psutil.cpu_percent(interval=IDLE_WINDOW))
+    with IDLE_LOCK:
+        now = time.monotonic()
+        if now - IDLE_READING["at"] >= IDLE_WINDOW:
+            IDLE_READING["idle"] = 100.0 - float(psutil.cpu_percent(interval=None))
+            IDLE_READING["at"] = now
+        return IDLE_READING["idle"]
 
 
 def free_core(
@@ -61,7 +73,7 @@ def free_core(
     """Wait until a whole core sits idle.
 
     The cores are shared with other work, and a run started on a saturated machine starves past its deadline;
-    each reading itself takes the measuring second.
+    a saturated machine is read again once per window.
 
     Raises:
         TimeoutError: no whole core sat idle before the deadline.
@@ -73,6 +85,7 @@ def free_core(
         if time.monotonic() > give_up:
             msg = f"no free core for {deadline:.0f} s: {free:.2f} of {total} cores idle"
             raise TimeoutError(msg)
+        time.sleep(IDLE_WINDOW)
 
 
 UNAVAILABLE = "the locked Mac refuses the tools a build needs: unlock it"

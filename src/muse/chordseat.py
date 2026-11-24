@@ -5,11 +5,15 @@ Measured on the rendered PDF, written as MuseScore's own per-chord offset.
 
 from __future__ import annotations
 
+import bisect
 import itertools
+import math
 import operator
 import re
 import statistics
 import string
+import threading
+import weakref
 import xml.etree.ElementTree as ET
 import zipfile
 from collections import Counter
@@ -28,6 +32,7 @@ if TYPE_CHECKING:
 GAP = 0.0
 TOLERANCE = mode.pick(0.4, 2.0)
 INK_DPI = 720
+POINTS_PER_INCH = 72
 MPOS_UNITS = 200.0
 DEFAULT_SPACE = 3.4
 SIGNATURE_GAP = 2.0
@@ -186,16 +191,64 @@ def char_boxes(
     """
     own: list[pymupdf.Rect] = []
     foreign: list[pymupdf.Rect] = []
-    for block in page.get_text("rawdict")["blocks"]:
-        for line in block.get("lines", []):
-            for span in line["spans"]:
-                for c in span["chars"]:
-                    box = pymupdf.Rect(c["bbox"])
-                    if box.intersects(clip):
-                        (foreign if abs(c["origin"][1] - base) > BASE_MATCH or ord(c["c"]) in PRIVATE_USE else own).append(
-                            box,
-                        )
+    characters, tops, tallest = _characters(page)
+    first = bisect.bisect_left(tops, clip.y0 - tallest)
+    last = bisect.bisect_right(tops, clip.y1)
+    for box, origin_y, code in characters[first:last]:
+        if box.intersects(clip):
+            (foreign if abs(origin_y - base) > BASE_MATCH or code in PRIVATE_USE else own).append(box)
     return own, foreign
+
+
+Characters = tuple[list[tuple[pymupdf.Rect, float, int]], list[float], float]
+CHARACTERS: weakref.WeakKeyDictionary[pdftext.Page, Characters] = weakref.WeakKeyDictionary()
+STRIPS: weakref.WeakKeyDictionary[pdftext.Page, dict[tuple[float, float], pymupdf.Pixmap]] = weakref.WeakKeyDictionary()
+STRIP_LOCK = threading.Lock()
+
+
+def _characters(page: pymupdf.Page | pdftext.Page) -> Characters:
+    """List every character's box, baseline and code by top; shared only for a page of 1 fixed version of a file.
+
+    Returns:
+        The page's characters by top, their tops, and the tallest box, so a band's characters are found by bisection.
+
+    """
+    if not isinstance(page, pdftext.Page):
+        return _read_characters(page)
+    with STRIP_LOCK:
+        if page not in CHARACTERS:
+            CHARACTERS[page] = _read_characters(page)
+        return CHARACTERS[page]
+
+
+def _read_characters(page: pymupdf.Page | pdftext.Page) -> Characters:
+    found: list[tuple[pymupdf.Rect, float, int]] = sorted(
+        (
+            (pymupdf.Rect(c["bbox"]), float(c["origin"][1]), ord(c["c"]))
+            for block in page.get_text("rawdict")["blocks"]
+            for line in block.get("lines", [])
+            for span in line["spans"]
+            for c in span["chars"]
+        ),
+        key=lambda character: character[0].y0,
+    )
+    tops: list[float] = [float(box.y0) for box, _, _ in found]
+    return found, tops, max((float(box.height) for box, _, _ in found), default=0.0)
+
+
+def _strip(page: pymupdf.Page | pdftext.Page, top: float, bottom: float) -> pymupdf.Pixmap:
+    """Render the page's ink across its whole width between 2 heights, once for every chord on that band.
+
+    Returns:
+        The rendered band.
+
+    """
+    area = pymupdf.Rect(page.rect.x0, top, page.rect.x1, bottom)
+    with STRIP_LOCK:
+        bands = STRIPS.setdefault(page, {}) if isinstance(page, pdftext.Page) else {}
+        if (top, bottom) not in bands:
+            bands[top, bottom] = page.get_pixmap(dpi=INK_DPI, clip=area, colorspace=pymupdf.csRGB, alpha=False)
+        return bands[top, bottom]
 
 
 def crowded(page: pymupdf.Page | pdftext.Page, left: float, base: float, size: float) -> bool:
@@ -229,8 +282,10 @@ def ink_left(page: pymupdf.Page | pdftext.Page, left: float, base: float, size: 
 
     """
     clip = ink_window(left, base, size)
-    shot = page.get_pixmap(dpi=INK_DPI, clip=clip, colorspace=pymupdf.csRGB, alpha=False)
+    shot = _strip(page, clip.y0, clip.y1)
     samples, n = shot.samples, shot.n
+    first = math.floor((clip.x0 - page.rect.x0) * INK_DPI / POINTS_PER_INCH)
+    width = min(math.ceil((clip.x1 - page.rect.x0) * INK_DPI / POINTS_PER_INCH), shot.width) - first
     tall = max(2, int(shot.height * INK_STROKE_SHARE))
     own, foreign = char_boxes(page, clip, base)
 
@@ -241,24 +296,22 @@ def ink_left(page: pymupdf.Page | pdftext.Page, left: float, base: float, size: 
             True when the pixel prints black.
 
         """
-        at = row * shot.stride + column * n
+        at = row * shot.stride + (first + column) * n
         return bool(max(samples[at : at + 3]) < INK_DARK)
 
-    def mine(x: float, y: float) -> bool:
-        return any(box.x0 <= x <= box.x1 and box.y0 <= y <= box.y1 for box in own) or not any(
-            box.x0 <= x <= box.x1 and box.y0 <= y <= box.y1 for box in foreign
-        )
-
-    for column in range(shot.width):
-        x = clip.x0 + (column + 0.5) * clip.width / shot.width
-        if (
-            sum(
-                black(row, column) and mine(x, clip.y0 + (row + 0.5) * clip.height / shot.height)
-                for row in range(shot.height)
-            )
-            >= tall
-        ):
-            return float(clip.x0 + column * clip.width / shot.width)
+    heights = [clip.y0 + (row + 0.5) * clip.height / shot.height for row in range(shot.height)]
+    for column in range(max(0, -first), width):
+        x = page.rect.x0 + (first + column + 0.5) * POINTS_PER_INCH / INK_DPI
+        own_here = [(box.y0, box.y1) for box in own if box.x0 <= x <= box.x1]
+        foreign_here = [(box.y0, box.y1) for box in foreign if box.x0 <= x <= box.x1]
+        inked = 0
+        for row, y in enumerate(heights):
+            if not black(row, column):
+                continue
+            if any(y0 <= y <= y1 for y0, y1 in own_here) or not any(y0 <= y <= y1 for y0, y1 in foreign_here):
+                inked += 1
+        if inked >= tall:
+            return float(page.rect.x0 + (first + column) * POINTS_PER_INCH / INK_DPI)
     return left
 
 

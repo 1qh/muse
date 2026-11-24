@@ -88,6 +88,9 @@ def _current(
     return key, buildcache.fresh(state.get(variant), key, outputs)
 
 
+KEEP_LOCK = threading.Lock()
+
+
 def _keep(
     sheet: Sheet,
     variant: str,
@@ -96,10 +99,11 @@ def _keep(
     found: tuple[Score, pathlib.Path, float, float, int],
 ) -> None:
     name, state, report, built = sheet
-    state[variant] = buildcache.record(key, outputs, decision=decision(found))
-    buildcache.save(name, state)
-    report[variant] = (found[2], found[3], found[4])
-    built.append(variant)
+    with KEEP_LOCK:
+        state[variant] = buildcache.record(key, outputs, decision=decision(found))
+        buildcache.save(name, state)
+        report[variant] = (found[2], found[3], found[4])
+        built.append(variant)
 
 
 def _laid_pdf(found: tuple[Score, pathlib.Path, float, float, int], pdf: pathlib.Path, pair: pathlib.Path) -> None:
@@ -193,10 +197,10 @@ def song(src: pathlib.Path, out_dir: pathlib.Path, work: pathlib.Path) -> dict[s
         _finish(report, built, began, work, info.name)
         return report
     sheet = (info.name, state, report, built)
-    _original(src, out_dir, work, sheet)
-    if info.direction:
-        _tone(src, out_dir, work, sheet)
-    _piano(src, out_dir, work, sheet)
+    builders = [_original, *([_tone] if info.direction else []), _piano]
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(builders)) as sheets:
+        for done in [sheets.submit(builder, src, out_dir, work, sheet) for builder in builders]:
+            done.result()
     found_parts = piano.parts(decode(src))
     probe_score = decode(src)
     report["parts"] = [
