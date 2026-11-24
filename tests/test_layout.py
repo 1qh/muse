@@ -394,7 +394,7 @@ def test_the_seating_rounds_count_gaps_in_the_scores_own_staff_space(
         "matched",
         lambda *_, **__: [{"chords": [50.0], "lefts": [50.0], "rights": [60.0], "space": 5.0}],
     )
-    monkeypatch.setattr(chordseat, "gaps", lambda *_, **__: [0.9])
+    monkeypatch.setattr(chordseat, "gaps", lambda *_, **__: [3.0])
     monkeypatch.setattr(chordseat, "space_points", lambda *_, **__: 4.5)
     monkeypatch.setattr(layout.pdfcheck, "chord_collisions", lambda *_, **__: [])
     monkeypatch.setattr(layout.pdfcheck, "sign_word_overlaps", lambda *_, **__: [])
@@ -403,7 +403,7 @@ def test_the_seating_rounds_count_gaps_in_the_scores_own_staff_space(
     (tmp_path / "s.pdf").write_text("render")
     layout.seat_inked(tmp_path / "s.mscz", lambda: tmp_path / "s.pdf", lambda *_, **__: True)
     second = next(values for values in tags[1:] if "museInkBias" in values)
-    assert second["museInkBias"] == f"{0.9 / 4.5:.4f}"
+    assert second["museInkBias"] == f"{3.0 / 4.5:.4f}"
 
 
 def test_a_line_of_1_bar_breaks_the_line_rules_on_any_sheet() -> None:
@@ -509,7 +509,9 @@ def test_every_sheet_takes_the_size_giving_the_fewest_lines() -> None:
         candidate(1.25, CandidateOptions(lines=17)),
         candidate(1.2, CandidateOptions(lines=17)),
     ]
-    assert layout.ranked(fit) == [1.25, 1.2, 1.3, 1.8]
+    under_the_floor = [1.25, 1.2, 1.3, 1.8]
+    without_a_floor = [1.3, 1.25, 1.2, 1.8]
+    assert layout.ranked(fit) == (under_the_floor if port.PAGE_FILL > 0.7 else without_a_floor)
     assert layout.ranked([*fit, candidate(1.15, CandidateOptions(lines=15))])[-1] == pytest.approx(1.15)
 
 
