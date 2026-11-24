@@ -57,6 +57,7 @@ MUTATIONS = [
         "        if (error := job.exception()) is not None and not error:\n",
         "raising build stops the run",
     ),
+    ("port.py", "SPREAD_SHARE_OF_BAND = 2 / 3", "SPREAD_SHARE_OF_BAND = 1.5", "spread opens a blank band"),
     ("chordseat.py", "    lost = missing(rows, lines)\n    if lost:\n        return lost\n", "", "missing chord crashes"),
     (
         "layout.py",
@@ -426,7 +427,7 @@ MUTATIONS = [
     ),
     ("pdfcheck.py", "        if spaces > MAX_CHORD_SPACES", "        if False", "chord too high"),
     ("piano.py", "if stop - first == 1]", "if False]", "lone bar found"),
-    ("buildcache.py", 'if not entry or entry.get("key") != key:', "if not entry:", "stale key"),
+    ("buildcache.py", 'if entry is None or entry["key"] != key:', "if entry is None:", "stale key"),
     (
         "buildcache.py",
         "return all(path.exists() and file_digest(path) == recorded[str(path)] for path in outputs)",

@@ -10,9 +10,12 @@
     <pageEvenBottomMargin>0.2</pageEvenBottomMargin>
     <pageOddTopMargin>0.25</pageOddTopMargin>
     <pageOddBottomMargin>0.2</pageOddBottomMargin>
-    <enableVerticalSpread>0</enableVerticalSpread>
+    <enableVerticalSpread>1</enableVerticalSpread>
     <minSystemDistance>11</minSystemDistance>
     <maxSystemDistance>11</maxSystemDistance>
+    <minSystemSpread>11</minSystemSpread>
+    <maxSystemSpread>1000</maxSystemSpread>
+    <maxPageFillSpread>1000</maxPageFillSpread>
     <minStaffDistance>5</minStaffDistance>
     <staffUpperBorder>9</staffUpperBorder>
     <staffLowerBorder>2</staffLowerBorder>

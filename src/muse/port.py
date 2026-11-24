@@ -39,6 +39,30 @@ ORIGINAL = "original"
 TONE = "tone"
 PIANO = "piano"
 STYLE = buildcache.STYLE
+LINE_GAP_TAGS = ("minSystemDistance", "maxSystemDistance", "minSystemSpread")
+MM_PER_INCH = 25.4
+SPREAD_SHARE_OF_BAND = 2 / 3
+
+
+def spread_cap(spatium: float) -> float:
+    """Bound the staff spaces vertical justification may put between 2 lines.
+
+    Two thirds of the blank band the checks refuse, so a page spread over few lines never opens a band.
+
+    Returns:
+        The largest line distance in staff spaces.
+
+    Raises:
+        RuntimeError: The style states no single page height.
+
+    """
+    heights = re.findall(r"<pageHeight>([^<]*)</pageHeight>", STYLE.read_text(encoding="utf-8"))
+    if len(heights) != 1:
+        msg = "style has no single pageHeight"
+        raise RuntimeError(msg)
+    return round(pdfcheck.BLANK_BAND * SPREAD_SHARE_OF_BAND * float(heights[0]) * MM_PER_INCH / spatium, 1)
+
+
 SF_PRO_FILES = tuple(f"SF-Pro-Display-{face}.otf" for face in ("Regular", "RegularItalic", "Bold", "BoldItalic"))
 FONT_DIRS = (pathlib.Path.home() / "Library" / "Fonts", pathlib.Path("/Library/Fonts"))
 NUMBER_MARGIN = 60
@@ -449,8 +473,8 @@ def styled(
     text = STYLE.read_text(encoding="utf-8")
     for tag, value in (
         ("Spatium", spatium),
-        ("minSystemDistance", distance),
-        ("maxSystemDistance", distance),
+        *((tag, distance) for tag in LINE_GAP_TAGS),
+        ("maxSystemSpread", max(distance, spread_cap(spatium))),
         ("oddHeaderR", title),
         ("evenHeaderR", title),
     ):
@@ -615,8 +639,10 @@ def edited(source: pathlib.Path, target: pathlib.Path, spatium: float, distance:
             continue
         text = data.decode("utf-8")
         text = re.sub(r"<([Ss])patium>[^<]*</[Ss]patium>", lambda m: f"<{m[1]}patium>{spatium}</{m[1]}patium>", text)
-        for tag in ("minSystemDistance", "maxSystemDistance"):
+        for tag in LINE_GAP_TAGS:
             text = re.sub(rf"<{tag}>[^<]*</{tag}>", f"<{tag}>{distance}</{tag}>", text)
+        cap = max(distance, spread_cap(spatium))
+        text = re.sub(r"<maxSystemSpread>[^<]*</maxSystemSpread>", f"<maxSystemSpread>{cap}</maxSystemSpread>", text)
         if name.endswith(".mscx"):
             text = staff_texts(text)
             text = re.sub(r"<LayoutBreak>.*?</LayoutBreak>\s*", "", text, flags=re.DOTALL)

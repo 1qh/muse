@@ -1409,3 +1409,12 @@ def test_finding_empty_bars_leaves_the_callers_noted_bars_alone(monkeypatch: pyt
     noted = {3}
     chordseat.empty_lines("", [], noted)
     assert noted == {3}
+
+
+def test_spread_lines_never_open_a_blank_band() -> None:
+    """The most room vertical justification may put between 2 lines stays under the blank band the checks refuse."""
+    text = port.STYLE.read_text(encoding="utf-8")
+    assert "<enableVerticalSpread>1</enableVerticalSpread>" in text
+    height_mm = float(re.findall(r"<pageHeight>([^<]*)</pageHeight>", text)[0]) * port.MM_PER_INCH
+    for spatium in (1.15, 1.5, 2.0):
+        assert port.spread_cap(spatium) * spatium < pdfcheck.BLANK_BAND * height_mm
