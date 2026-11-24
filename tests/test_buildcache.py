@@ -135,6 +135,20 @@ def test_a_print_mode_build_is_never_reused_as_strict(tmp_path: pathlib.Path, mo
     assert build.variant_key(source, "original") != strict
 
 
+class FinishedChild:
+    """A song worker that has already exited with a given code."""
+
+    def __init__(self, code: int) -> None:
+        self.code = code
+        self.pid = 0
+
+    def wait(self) -> int:
+        return self.code
+
+    def poll(self) -> int:
+        return self.code
+
+
 def test_a_song_child_hands_back_its_report_or_its_refusal(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: pathlib.Path,
@@ -145,20 +159,20 @@ def test_a_song_child_hands_back_its_report_or_its_refusal(
         code: int,
         report: dict[str, str] | None,
         reason: str | None,
-    ) -> Callable[..., subprocess.CompletedProcess[str]]:
-        def run(argv: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+    ) -> Callable[..., FinishedChild]:
+        def start(argv: list[str], **_: object) -> FinishedChild:
             assert argv[3] == build.CHILD_FLAG
             if report is not None:
                 (tmp_path / "Song-report.json").write_text(json.dumps(report), encoding="utf-8")
             if reason is not None:
                 (tmp_path / "Song-refusal.txt").write_text(reason, encoding="utf-8")
-            return subprocess.CompletedProcess(argv, code)
+            return FinishedChild(code)
 
-        return run
+        return start
 
-    monkeypatch.setattr(build.subprocess, "run", finished(0, {"song": "Song"}, None))
+    monkeypatch.setattr(build.subprocess, "Popen", finished(0, {"song": "Song"}, None))
     assert build.child(tmp_path / "Song-Em.pdf", tmp_path, tmp_path) == ({"song": "Song"}, "")
-    monkeypatch.setattr(build.subprocess, "run", finished(2, None, "no size fits"))
+    monkeypatch.setattr(build.subprocess, "Popen", finished(2, None, "no size fits"))
     assert build.child(tmp_path / "Song-Em.pdf", tmp_path, tmp_path) == (None, "no size fits")
-    monkeypatch.setattr(build.subprocess, "run", finished(-9, None, None))
+    monkeypatch.setattr(build.subprocess, "Popen", finished(-9, None, None))
     assert build.child(tmp_path / "Song-Em.pdf", tmp_path, tmp_path) == (None, "child exited -9 with no reason")
