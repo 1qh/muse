@@ -362,8 +362,8 @@ class Server:
 
 
 STDERR_KEPT = 40
-SERVERS: queue.Queue[Server] = queue.Queue()
-STARTED = {"count": 0}
+SERVERS: dict[str, queue.Queue[Server]] = {}
+STARTED: dict[str, int] = {}
 SERVERS_LOCK = threading.Lock()
 
 
@@ -388,18 +388,20 @@ def served(job: pathlib.Path, timeout: float, extension: str | None = None, comm
         Empty when the job succeeded, else MuseScore's reason.
 
     """
+    program = command or mscore_command()
     with SERVERS_LOCK:
-        if SERVERS.empty() and STARTED["count"] < slots():
-            SERVERS.put(Server(command or mscore_command()))
-            STARTED["count"] += 1
-    server = SERVERS.get()
+        pool = SERVERS.setdefault(program, queue.Queue())
+        if pool.empty() and STARTED.get(program, 0) < slots():
+            pool.put(Server(program))
+            STARTED[program] = STARTED.get(program, 0) + 1
+    server = pool.get()
     LAUNCHES["count"] += 1
     try:
         answer = server.run(job, extension, timeout)
     except BaseException:
         server.stop()
         with SERVERS_LOCK:
-            STARTED["count"] -= 1
+            STARTED[program] -= 1
         raise
-    SERVERS.put(server)
+    pool.put(server)
     return answer
