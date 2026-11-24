@@ -41,7 +41,7 @@ if TYPE_CHECKING:
 
 LINE_SHARE = 0.93
 WIDE_PAGE = 200.0
-REPLAN_ROUNDS = 16
+STALL_ROUNDS = 6
 BALANCE_ROUNDS = 3
 IMPORT_SIZE = 1.5
 OVERFLOW_BREAKS = 1000
@@ -855,6 +855,16 @@ def _final_problems(sheet: Sheet, score_path: pathlib.Path, probe: pathlib.Path)
     return problems
 
 
+def progress(best: int, stalled: int, count: int) -> tuple[int, int]:
+    """Track a replanning search by its fewest overflowing bars, and how many plans since it last fell.
+
+    Returns:
+        The fewest overflowing bars so far and the plans made since that number last fell.
+
+    """
+    return (count, 0) if count < best else (best, stalled + 1)
+
+
 def finish_at(
     src: pathlib.Path,
     work: pathlib.Path,
@@ -880,7 +890,8 @@ def finish_at(
         widths = learned[-1]
     score_path = sheet.path("final")
     tried: set[frozenset[int]] = set()
-    for _ in range(REPLAN_ROUNDS):
+    best, stalled = sys.maxsize, 0
+    while True:
         sheet.set_lines(plan(sheet.score, widths, room, sheet.variant))
         tried.add(frozenset(sheet.starts()))
         bad, probe = _fitted(sheet, score_path)
@@ -891,6 +902,12 @@ def finish_at(
             sys.stdout.flush()
         if not bad:
             break
+        best, stalled = progress(best, stalled, len(bad))
+        if stalled >= STALL_ROUNDS:
+            msg = (
+                f"{sheet.name} at {size}: lines still overflow, {best} bars at best, with no fewer in {STALL_ROUNDS} plans"
+            )
+            raise port.DoesNotFitError(msg)
         grown = _grown(sheet, widths, room, bad, tried)
         if grown is None:
             msg = (
@@ -903,9 +920,6 @@ def finish_at(
         widths = grown
         if learned is not None:
             learned.append(widths)
-    else:
-        msg = f"{sheet.name} at {size}: lines still overflow after {REPLAN_ROUNDS} plans"
-        raise port.DoesNotFitError(msg)
     probe = current_render(score_path, probe, lambda: render(sheet, "final", seated=True)[1])
     problems = _final_problems(sheet, score_path, probe)
     if problems:

@@ -59,6 +59,12 @@ MUTATIONS = [
     ),
     ("port.py", "SPREAD_SHARE_OF_BAND = 2 / 3", "SPREAD_SHARE_OF_BAND = 1.5", "spread opens a blank band"),
     (
+        "layout.py",
+        "    return (count, 0) if count < best else (best, stalled + 1)\n",
+        "    return (min(best, count), stalled + 1)\n",
+        "replanning cut off by a count",
+    ),
+    (
         "build.py",
         "            os.killpg(process.pid, signal.SIGKILL)\n",
         "            process.kill()\n",

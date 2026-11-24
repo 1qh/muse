@@ -2,6 +2,7 @@
 
 import os
 import pathlib
+import sys
 import types
 import zipfile
 from dataclasses import dataclass
@@ -563,3 +564,16 @@ def test_a_finished_sheet_past_the_widest_short_line_share_is_refused() -> None:
     full = [[1, 2, 3, 4], [5, 6, 7, 8], [9, 10, 11, 12], [13, 14]]
     assert port.short_line_problems(sparse) != []
     assert port.short_line_problems(full) == []
+
+
+def test_replanning_goes_on_while_it_gains_and_stops_when_it_stalls() -> None:
+    """A search that still sheds overflowing bars is never cut off by a count, and one that stops shedding them ends."""
+    gaining = [30, 23, 23, 15, 14, 18, 11, 8, 8, 11, 7, 4, 3, 3, 3, 2, 1]
+    best, stalled = sys.maxsize, 0
+    for count in gaining:
+        best, stalled = layout.progress(best, stalled, count)
+        assert stalled < layout.STALL_ROUNDS
+    assert best == 1
+    for _ in range(layout.STALL_ROUNDS):
+        best, stalled = layout.progress(best, stalled, 1)
+    assert stalled == layout.STALL_ROUNDS
