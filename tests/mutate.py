@@ -59,6 +59,12 @@ MUTATIONS = [
     ),
     ("port.py", "SPREAD_SHARE_OF_BAND = 2 / 3", "SPREAD_SHARE_OF_BAND = 1.5", "spread opens a blank band"),
     (
+        "build.py",
+        "            os.killpg(process.pid, signal.SIGKILL)\n",
+        "            process.kill()\n",
+        "stopped run leaves workers running",
+    ),
+    (
         "leland.py",
         "        fermata=any(f[0] in FERMATAS and abs(f[1] - x) < ARTICULATION_REACH for f in reading.content),\n",
         "",

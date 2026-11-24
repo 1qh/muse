@@ -11,6 +11,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import threading
 import time
 from typing import TYPE_CHECKING
 
@@ -250,6 +251,17 @@ def publish_song(src_dir: pathlib.Path, out_dir: pathlib.Path, work: pathlib.Pat
 
 
 CHILD_FLAG = "--song"
+RUNNING: set[subprocess.Popen[bytes]] = set()
+RUNNING_LOCK = threading.Lock()
+
+
+def stop_children() -> None:
+    """Kill every song worker still running, each with the MuseScore runs it started."""
+    with RUNNING_LOCK:
+        running = list(RUNNING)
+    for process in running:
+        if process.poll() is None:
+            os.killpg(process.pid, signal.SIGKILL)
 
 
 def child(src: pathlib.Path, stage: pathlib.Path, work: pathlib.Path) -> tuple[dict[str, object] | None, str]:
@@ -265,12 +277,19 @@ def child(src: pathlib.Path, stage: pathlib.Path, work: pathlib.Path) -> tuple[d
     name = song_of(src).name
     refusal = work / f"{name}-refusal.txt"
     refusal.unlink(missing_ok=True)
-    done = subprocess.run(
+    process = subprocess.Popen(
         [sys.executable, "-m", "muse.build", CHILD_FLAG, str(src), str(stage), str(work)],
         stdin=subprocess.DEVNULL,
-        check=False,
+        start_new_session=True,
     )
-    if done.returncode == 0:
+    with RUNNING_LOCK:
+        RUNNING.add(process)
+    try:
+        code = process.wait()
+    finally:
+        with RUNNING_LOCK:
+            RUNNING.discard(process)
+    if code == 0:
         loaded = json.loads((work / f"{name}-report.json").read_text(encoding="utf-8"))
         if not isinstance(loaded, dict):
             msg = f"{name}: the build report is not a JSON object"
@@ -278,7 +297,7 @@ def child(src: pathlib.Path, stage: pathlib.Path, work: pathlib.Path) -> tuple[d
         return {str(field): value for field, value in loaded.items()}, ""
     return None, refusal.read_text(
         encoding="utf-8",
-    ) if refusal.exists() else f"child exited {done.returncode} with no reason"
+    ) if refusal.exists() else f"child exited {code} with no reason"
 
 
 def child_main(src: pathlib.Path, stage: pathlib.Path, work: pathlib.Path) -> None:
@@ -354,6 +373,25 @@ def _record(work: pathlib.Path, reports: list[dict[str, object]], began: float) 
     sys.stdout.write(f"songs {len(reports)} launches {launches} seconds {time.monotonic() - began:.1f}" + "\n")
 
 
+def _run(
+    sources: list[pathlib.Path],
+    workers: int,
+    places: tuple[pathlib.Path, pathlib.Path, pathlib.Path, pathlib.Path, bool],
+    tallies: tuple[list[dict[str, object]], list[str], list[str]],
+) -> None:
+    _src_dir, _out_dir, work, stage, _publishing = places
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=workers)
+    try:
+        jobs = {pool.submit(child, src, stage, work): src for src in sources}
+        _collect(pool, jobs, places, tallies)
+    except BaseException as error:
+        _say(f"stopped: {error!r}")
+        stop_children()
+        raise
+    finally:
+        pool.shutdown(wait=True, cancel_futures=True)
+
+
 def main() -> None:
     faulthandler.register(signal.SIGUSR1, all_threads=True)
     if sys.argv[1:2] == [CHILD_FLAG]:
@@ -373,9 +411,7 @@ def main() -> None:
     blocked: list[str] = []
     workers = free_workers(len(sources))
     os.environ[launch.SLOTS_VARIABLE] = str(max(1, (os.cpu_count() or 1) // workers))
-    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
-        jobs = {pool.submit(child, src, stage, work): src for src in sources}
-        _collect(pool, jobs, (src_dir, out_dir, work, stage, publishing), (reports, refused, blocked))
+    _run(sources, workers, (src_dir, out_dir, work, stage, publishing), (reports, refused, blocked))
     _record(work, reports, began)
     if refused or blocked:
         msg = f"refused: {refused} blocked: {blocked}"

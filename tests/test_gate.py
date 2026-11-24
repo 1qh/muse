@@ -1,9 +1,11 @@
 """Song derivation, refusals, the gate's own checks and the publishing guard."""
 
 import concurrent.futures
+import os
 import pathlib
 import shutil
 import subprocess
+import time
 from fractions import Fraction
 from typing import Never
 
@@ -464,3 +466,40 @@ def test_a_song_whose_build_raises_is_refused_and_the_run_goes_on(tmp_path: path
         build._collect(pool, jobs, (tmp_path, tmp_path, tmp_path, tmp_path, False), (reports, refused, blocked))
     assert refused == ["First"]
     assert reports == [{"song": "Second"}]
+
+
+SHELL = shutil.which("sh")
+GROUP_REAP_SECONDS = 10.0
+REAP_POLL_SECONDS = 0.05
+
+
+def group_gone(group: int, within: float) -> bool:
+    deadline = time.monotonic() + within
+    while time.monotonic() < deadline:
+        try:
+            os.killpg(group, 0)
+        except ProcessLookupError:
+            return True
+        time.sleep(REAP_POLL_SECONDS)
+    return False
+
+
+def test_a_stopped_run_kills_its_song_workers_and_what_they_started() -> None:
+    """Stopping the run ends every running worker's whole process group at once, never after it finishes."""
+    assert SHELL is not None
+    process = subprocess.Popen(
+        [SHELL, "-c", "sleep 60 & echo started; wait"],
+        start_new_session=True,
+        stdout=subprocess.PIPE,
+    )
+    assert process.stdout is not None
+    assert process.stdout.readline() == b"started\n"
+    with build.RUNNING_LOCK:
+        build.RUNNING.add(process)
+    try:
+        build.stop_children()
+        assert process.wait(timeout=10) < 0
+        assert group_gone(process.pid, GROUP_REAP_SECONDS)
+    finally:
+        with build.RUNNING_LOCK:
+            build.RUNNING.discard(process)
