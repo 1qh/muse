@@ -7,8 +7,9 @@ import hashlib
 import json
 import os
 import pathlib
-import shutil
 from typing import NotRequired, TypedDict
+
+from muse import launch
 
 
 class Decision(TypedDict):
@@ -104,13 +105,9 @@ def tool_identity() -> str:
         The identity of every MuseScore found, joined by bars.
 
     """
-    parts = []
-    for name in ("mscore",):
-        found = shutil.which(name)
-        if found is not None:
-            stat = pathlib.Path(found).resolve().stat()
-            parts.append(f"{found}:{stat.st_size}:{int(stat.st_mtime)}")
-    return "|".join(parts)
+    found = launch.mscore_command()
+    stat = pathlib.Path(found).resolve().stat()
+    return f"{found}:{stat.st_size}:{int(stat.st_mtime)}"
 
 
 def key_of(

@@ -5,8 +5,10 @@ So 1 build process never runs more at once than its share of the cores.
 
 from __future__ import annotations
 
+import json
 import os
 import pathlib
+import queue
 import re
 import shutil
 import subprocess
@@ -21,6 +23,26 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 SLOTS_VARIABLE = "MUSE_LAUNCH_SLOTS"
+MSCORE_VARIABLE = "MUSE_MSCORE"
+
+
+def mscore_command() -> str:
+    """Name the MuseScore every run uses: the fork's build, named by MUSE_MSCORE.
+
+    Returns:
+        The MuseScore executable.
+
+    Raises:
+        RuntimeError: MUSE_MSCORE is unset or names no executable.
+
+    """
+    given = os.environ.get(MSCORE_VARIABLE, "")
+    if not given or not os.access(given, os.X_OK):
+        msg = f"{MSCORE_VARIABLE} must name the fork's mscore executable (1qh/MuseScore); got {given!r}"
+        raise RuntimeError(msg)
+    return given
+
+
 LAUNCHES = {"count": 0}
 LAUNCH_SECONDS = 240
 
@@ -179,7 +201,7 @@ CONVERSION = re.compile(r"ConverterController::convertFile \| in: (.+?), out: ")
 def mscore(
     args: list[str],
     timeout: float,
-    command: str = "mscore",
+    command: str | None = None,
     *,
     check: bool = False,
 ) -> subprocess.CompletedProcess[str]:
@@ -191,7 +213,7 @@ def mscore(
     """
     began = time.time()
     try:
-        return heavy([command, *args], timeout, check=check)
+        return heavy([command or mscore_command(), *args], timeout, check=check)
     finally:
         drop_own_logs(roots_of(args), began - 1, time.time() + 1)
 
@@ -239,3 +261,145 @@ def drop_own_logs(roots: list[pathlib.Path], start: float, end: float, logs: pat
             log.unlink(missing_ok=True)
             dropped += 1
     return dropped
+
+
+SERVE_FLAG = "--serve"
+
+
+class ServerDiedError(RuntimeError):
+    """A served MuseScore exited while a request was in flight."""
+
+
+class Server:
+    """1 running `mscore --serve`, answering 1 job per request line."""
+
+    def __init__(self, command: str) -> None:
+        self.process = subprocess.Popen(
+            [command, SERVE_FLAG],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        self.answers: queue.Queue[str | None] = queue.Queue()
+        self.errors: list[str] = []
+        self.number = 0
+        threading.Thread(target=self._read_answers, daemon=True).start()
+        threading.Thread(target=self._read_errors, daemon=True).start()
+
+    def _read_answers(self) -> None:
+        stream = self.process.stdout
+        if stream is not None:
+            for line in stream:
+                self.answers.put(line.rstrip("\n"))
+        self.answers.put(None)
+
+    def _read_errors(self) -> None:
+        stream = self.process.stderr
+        if stream is not None:
+            for line in stream:
+                self.errors.append(line)
+                del self.errors[:-STDERR_KEPT]
+
+    def run(self, job: pathlib.Path, extension: str | None, timeout: float) -> str:
+        """Send 1 job and wait for its answer.
+
+        Returns:
+            Empty when the job succeeded, else MuseScore's reason.
+
+        Raises:
+            TimeoutExpired: the job outlived its timeout; the server was sampled and stopped.
+            ServerDiedError: the server exited before answering; a locked machine reports MachineUnavailableError.
+
+        """
+        self.number += 1
+        ident = str(self.number)
+        request: dict[str, str] = {"id": ident, "job": str(job)}
+        if extension is not None:
+            request["extension"] = extension
+        stdin = self.process.stdin
+        if stdin is None:
+            msg = "served MuseScore has no input"
+            raise ServerDiedError(msg)
+        try:
+            stdin.write(json.dumps(request) + "\n")
+            stdin.flush()
+        except BrokenPipeError as error:
+            raise self._died() from error
+        deadline = time.monotonic() + timeout
+        while True:
+            left = deadline - time.monotonic()
+            try:
+                line = self.answers.get(timeout=max(0.0, left))
+            except queue.Empty as error:
+                where = sample(self.process.pid)
+                self.stop()
+                raise subprocess.TimeoutExpired(
+                    [SERVE_FLAG, str(job)],
+                    timeout,
+                    output=f"stack sampled to {where}",
+                ) from error
+            if line is None:
+                raise self._died()
+            if line.startswith(ident + " "):
+                answer = line[len(ident) + 1 :]
+                return "" if answer == "ok" else answer.removeprefix("failed ")
+
+    def _died(self) -> Exception:
+        self.process.wait(timeout=10)
+        note = "".join(self.errors).strip()[-300:]
+        if any(sign in note for sign in REFUSED_BY_LOCK):
+            return MachineUnavailableError(f"{UNAVAILABLE} (mscore failed: {note})")
+        return ServerDiedError(f"served MuseScore exited {self.process.returncode}: {note}")
+
+    def alive(self) -> bool:
+        return self.process.poll() is None
+
+    def stop(self) -> None:
+        if self.alive():
+            self.process.kill()
+        self.process.wait(timeout=10)
+
+
+STDERR_KEPT = 40
+SERVERS: queue.Queue[Server] = queue.Queue()
+STARTED = {"count": 0}
+SERVERS_LOCK = threading.Lock()
+
+
+def require_serve(command: str | None = None) -> None:
+    """Refuse a MuseScore without the fork's serve mode.
+
+    Raises:
+        RuntimeError: the MuseScore on the path cannot serve.
+
+    """
+    found = command or mscore_command()
+    shown = subprocess.run([found, "--help"], capture_output=True, text=True, stdin=subprocess.DEVNULL, check=False)
+    if SERVE_FLAG not in shown.stdout:
+        msg = f"{found} has no {SERVE_FLAG}: install the fork's MuseScore (1qh/MuseScore)"
+        raise RuntimeError(msg)
+
+
+def served(job: pathlib.Path, timeout: float, extension: str | None = None, command: str | None = None) -> str:
+    """Run 1 job on a pooled served MuseScore, starting one while fewer run than the slots allow.
+
+    Returns:
+        Empty when the job succeeded, else MuseScore's reason.
+
+    """
+    with SERVERS_LOCK:
+        if SERVERS.empty() and STARTED["count"] < slots():
+            SERVERS.put(Server(command or mscore_command()))
+            STARTED["count"] += 1
+    server = SERVERS.get()
+    LAUNCHES["count"] += 1
+    try:
+        answer = server.run(job, extension, timeout)
+    except BaseException:
+        server.stop()
+        with SERVERS_LOCK:
+            STARTED["count"] -= 1
+        raise
+    SERVERS.put(server)
+    return answer

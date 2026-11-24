@@ -42,7 +42,7 @@ class RenderFailedError(RuntimeError):
 class Batcher:
     """Each thread asks for a render and waits; once every working thread is waiting, 1 MuseScore job serves them all."""
 
-    def __init__(self, command: str = "mscore") -> None:
+    def __init__(self, command: str | None = None) -> None:
         self.command = command
         self.lock = threading.Condition()
         self.working = 0
@@ -116,8 +116,7 @@ class Batcher:
             json.dump([item["entry"] for item in batch], handle)
             job = pathlib.Path(handle.name)
         try:
-            done = launch.mscore(["-j", str(job)], JOB_SECONDS, self.command)
-            note = done.stderr[-300:]
+            note = launch.served(job, JOB_SECONDS, command=self.command)
         except subprocess.TimeoutExpired:
             note = f"job of {len(batch)} renders passed {JOB_SECONDS} seconds"
         finally:

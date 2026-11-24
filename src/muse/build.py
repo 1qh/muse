@@ -402,6 +402,7 @@ def main() -> None:
         child_main(*map(pathlib.Path, sys.argv[2:5]))
         return
     port.require_font()
+    launch.require_serve()
     args = [arg for arg in sys.argv[1:] if arg != "--publish"]
     publishing = "--publish" in sys.argv[1:]
     _require_tools(publishing=publishing)

@@ -1427,3 +1427,25 @@ def test_chord_ink_is_found_where_it_is_drawn_at_any_window_start() -> None:
         page = pymupdf.open().new_page(width=200, height=100)
         page.draw_rect(pymupdf.Rect(left + 2.0, 40, left + 2.4, 62), color=None, fill=(0, 0, 0), width=0)
         assert chordseat.ink_left(page, left, 60, 13) == pytest.approx(left + 2.0, abs=0.1)
+
+
+def test_a_served_musescore_that_dies_is_reported_and_replaced(tmp_path: pathlib.Path) -> None:
+    """A served process that exits mid-request fails that request, and the next request gets a fresh process."""
+    fake = tmp_path / "mscore"
+    fake.write_text(
+        "#!/bin/sh\n"
+        "while read -r line; do\n"
+        '  case "$line" in *die*) exit 3 ;; esac\n'
+        '  id=$(printf "%s" "$line" | sed \'s/.*"id": "\\([^"]*\\)".*/\\1/\')\n'
+        '  echo "$id ok"\n'
+        "done\n",
+        encoding="utf-8",
+    )
+    fake.chmod(0o755)
+    good, bad = tmp_path / "good.json", tmp_path / "die.json"
+    good.write_text("[]", encoding="utf-8")
+    bad.write_text("[]", encoding="utf-8")
+    assert not launch.served(good, 10, command=str(fake))
+    with pytest.raises(launch.ServerDiedError):
+        launch.served(bad, 10, command=str(fake))
+    assert not launch.served(good, 10, command=str(fake))

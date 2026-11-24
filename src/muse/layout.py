@@ -13,6 +13,7 @@ import pathlib
 import re
 import shutil
 import sys
+import tempfile
 import threading
 import xml.etree.ElementTree as ET
 import zipfile
@@ -114,9 +115,18 @@ def run_extension(source: pathlib.Path, target: pathlib.Path) -> None:
 
     """
     uri = install_extension()
-    done = launch.mscore(["--extension", uri, "-o", str(target), str(source)], EXTENSION_SECONDS)
-    if done.returncode or not target.exists():
-        msg = f"{source.name}: the seating extension failed: {done.stderr[-300:]}"
+    if target != source:
+        target.unlink(missing_ok=True)
+    written = target.stat().st_mtime_ns if target.exists() else None
+    with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".json", delete=False) as handle:
+        json.dump([{"in": str(source), "out": str(target)}], handle)
+        job = pathlib.Path(handle.name)
+    try:
+        note = launch.served(job, EXTENSION_SECONDS, extension=uri)
+    finally:
+        job.unlink(missing_ok=True)
+    if note or not target.exists() or target.stat().st_mtime_ns == written:
+        msg = f"{source.name}: the seating extension failed: {note[-300:]}"
         raise port.DoesNotFitError(msg)
 
 

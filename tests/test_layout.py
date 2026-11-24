@@ -1,5 +1,6 @@
 """The calculated layout's own contracts."""
 
+import json
 import os
 import pathlib
 import sys
@@ -577,3 +578,21 @@ def test_replanning_goes_on_while_it_gains_and_stops_when_it_stalls() -> None:
     for _ in range(layout.STALL_ROUNDS):
         best, stalled = layout.progress(best, stalled, 1)
     assert stalled == layout.STALL_ROUNDS
+
+
+def test_an_extension_run_in_place_keeps_its_input(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
+    """Seating a score into itself hands MuseScore the score, never a deleted file."""
+    score = tmp_path / "s.mscz"
+    score.write_text("score")
+    seen: list[bool] = []
+
+    def served(job: pathlib.Path, *_: object, **__: object) -> str:
+        entry = json.loads(job.read_text(encoding="utf-8"))[0]
+        seen.append(pathlib.Path(entry["in"]).exists())
+        os.utime(entry["out"], ns=(10**18, 10**18))
+        return ""
+
+    monkeypatch.setattr(layout, "install_extension", lambda: "extension://x")
+    monkeypatch.setattr(layout.launch, "served", served)
+    layout.run_extension(score, score)
+    assert seen == [True]
