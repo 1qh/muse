@@ -255,10 +255,10 @@ def sign_row_problems(path: pathlib.Path) -> list[str]:
                     text = "".join(c["c"] for c in span["chars"]).strip()
                     if any(c in SIGNS for c in text):
                         signs += [c["bbox"][3] for c in span["chars"] if c["c"] in SIGNS]
-                    elif text and text[0] in "ABCDEFG" and span["size"] >= CHORD_FLOOR:
+                    elif chordseat.CHORD_SHAPE.match(text) and span["size"] >= CHORD_FLOOR:
                         chords.append(span["origin"][1])
         for y in signs:
-            below = [s for s in staves if s[0] >= y]
+            below = [s for s in staves if s[1] >= y]
             if not below:
                 continue
             above = [s for s in staves if s[1] < below[0][0]]

@@ -176,3 +176,22 @@ def test_a_sign_over_a_chord_marks_its_line_for_a_wider_plan(
     monkeypatch.setattr(pdfcheck, "past_margin", lambda _: [])
     monkeypatch.setattr(pdfcheck, "sign_chord_hits", lambda _: [(1, 100.0, "sign covers a chord")])
     assert port.crowded_rows(pdf, [1]) == {1}
+
+
+def test_a_jump_sign_dipping_into_its_own_staff_belongs_to_that_line(
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A sign whose box reaches past its staff's top line is that line's sign, never the next line's."""
+    monkeypatch.setattr(pdfcheck, "SIGNS", "S")
+    doc = pymupdf.open()
+    page = doc.new_page()
+    for top in (100.0, 200.0, 300.0):
+        for k in range(5):
+            page.draw_line((40, top + 2 * k), (500, top + 2 * k))
+    page.insert_text((60, 185), "Am7", fontsize=11)
+    page.insert_text((60, 285), "Dm7", fontsize=11)
+    page.insert_text((450, 198), "S", fontsize=14)
+    path = tmp_path / "dip.pdf"
+    doc.save(path)
+    assert pdfcheck.sign_row_problems(path) == []
