@@ -1494,3 +1494,13 @@ def test_the_launch_count_is_written_only_under_its_lock() -> None:
     }
     assert writers == {"count_launch"}
     assert "with LAUNCHES_LOCK" in inspect.getsource(launch.count_launch)
+
+
+def test_a_cue_span_belongs_only_to_a_cue_holding_its_words_as_words() -> None:
+    letter, opening, upper, shared = (pymupdf.Rect(x, 0, x + 1, 1) for x in range(4))
+    spans = [("A", letter), ("(After", opening), ("BASS IN", upper), ("IN", shared)]
+    mine, theirs = chordseat.cue_spans(spans, ["BASS IN /Steel-Gtr"], ["(After Sin - BAND IN )"])
+    assert mine == [upper]
+    assert [words for words, _ in theirs] == ["(After"]
+    assert not chordseat.in_cue("A", "BASS IN /Steel-Gtr")
+    assert chordseat.in_cue("BAND IN", "(After Sin - BAND IN )")

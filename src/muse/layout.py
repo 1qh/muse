@@ -798,6 +798,10 @@ def finish(
             if "text on text" not in str(error):
                 raise
             refusal = error
+            sys.stdout.write(
+                f"gap step {src.stem} {variant} {size} {port.BASE_DISTANCE + step * GAP_STEP}: {error}" + "\n",
+            )
+            sys.stdout.flush()
     if refusal is None:
         msg = f"{src.stem} at {size}: no line gap was tried"
         raise port.DoesNotFitError(msg)
@@ -981,11 +985,17 @@ def best_finished(
                 size = running.pop(future)
                 if isinstance(error := future.exception(), port.DoesNotFitError):
                     refusals.append(str(error))
-                    sys.stdout.write(f"refused after {time.monotonic() - began[size]:.0f} s: {error}" + "\n")
+                    sys.stdout.write(
+                        f"refused after {time.monotonic() - began[size]:.0f} s, planned {planned.get(size)} lines: {error}"
+                        "\n",
+                    )
                     sys.stdout.flush()
                     continue
                 done[size] = future.result()
-                sys.stdout.write(f"finished {size} after {time.monotonic() - began[size]:.0f} s" + "\n")
+                sys.stdout.write(
+                    f"finished {size} after {time.monotonic() - began[size]:.0f} s: "
+                    f"planned {planned.get(size)} lines, finished {len(port.rows(done[size][0]))}" + "\n",
+                )
                 sys.stdout.flush()
     if not done:
         return None, refusals

@@ -1131,6 +1131,40 @@ def line_texts(text: str) -> list[tuple[list[str], list[str]]]:
     return found
 
 
+def in_cue(words: str, cue: str) -> bool:
+    """Whether a printed span's words are whole, consecutive words of a cue.
+
+    A substring test lets 1 letter of a span match any cue that happens to contain it.
+
+    Returns:
+        Whether the cue holds the span's words as words.
+
+    """
+    span, cue_words = words.split(), cue.split()
+    return any(cue_words[at : at + len(span)] == span for at in range(len(cue_words) - len(span) + 1))
+
+
+def cue_spans(
+    spans: list[tuple[str, pymupdf.Rect]],
+    below: list[str],
+    above: list[str],
+) -> tuple[list[pymupdf.Rect], list[tuple[str, pymupdf.Rect]]]:
+    """Split the spans between 2 lines into the upper line's cues below it and the lower line's cues above it.
+
+    A span whose words fit a cue of both lines is left out of both, since its text cannot say whose it is.
+
+    Returns:
+        The upper line's cue spans, and the lower line's cue spans with their words.
+
+    """
+    mine = [(words, box) for words, box in spans if any(in_cue(words, cue) for cue in below)]
+    theirs = [(words, box) for words, box in spans if any(in_cue(words, cue) for cue in above)]
+    shared = {id(box) for _, box in mine} & {id(box) for _, box in theirs}
+    return [box for _, box in mine if id(box) not in shared], [
+        (words, box) for words, box in theirs if id(box) not in shared
+    ]
+
+
 def crowded_line_texts(score_path: pathlib.Path, pdf: pathlib.Path) -> list[str]:
     """Text on text between 2 lines.
 
@@ -1154,8 +1188,7 @@ def crowded_line_texts(score_path: pathlib.Path, pdf: pathlib.Path) -> list[str]
         if page_no != next_page:
             continue
         spans = _spans_between(pages[page_no], upper + space * 4, lower)
-        mine = [box for words, box in spans if any(words in cue for cue in owners[at][1])]
-        theirs = [(words, box) for words, box in spans if any(words in cue for cue in owners[at + 1][0])]
+        mine, theirs = cue_spans(spans, owners[at][1], owners[at + 1][0])
         for words, box in theirs:
             if any(
                 other != box
