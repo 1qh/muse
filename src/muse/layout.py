@@ -526,12 +526,20 @@ def overflowing(sheet: Sheet, probe: pathlib.Path, *, seated: bool) -> set[int]:
     extra = set(got) - set(wanted)
     crowded = port.crowded_rows(probe, wanted) | merged_rows(sheet.score, probe) if seated and not extra else set()
     bad: set[int] = set()
+    wrapped: list[int] = []
     for row in port.rows(sheet.score):
         if any(row[0] < bar <= row[-1] for bar in extra):
+            wrapped.append(row[0])
             bad |= {bar - 1 for bar in row}
         elif row[0] in crowded:
             bound = {bar - 1 for bar in row if bar - 1 < len(sheet.shares) and sheet.shares[bar - 1] > 1}
             bad |= bound or {bar - 1 for bar in row}
+    if _tracing() and bad:
+        sys.stdout.write(
+            f"{sheet.name} {sheet.size}: wrapped lines {wrapped}, crowded lines {sorted(crowded)}, seated {seated}, "
+            f"why {port.crowded_reasons(probe)[:6]}\n",
+        )
+        sys.stdout.flush()
     return bad
 
 
