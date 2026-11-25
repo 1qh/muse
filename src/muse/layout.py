@@ -534,6 +534,11 @@ def overflowing(sheet: Sheet, probe: pathlib.Path, *, seated: bool) -> set[int]:
         elif row[0] in crowded:
             bound = {bar - 1 for bar in row if bar - 1 < len(sheet.shares) and sheet.shares[bar - 1] > 1}
             bad |= bound or {bar - 1 for bar in row}
+    if _tracing() and crowded:
+        kept = f"{probe.stem}-crowded-{time.monotonic_ns()}"
+        shutil.copyfile(probe, probe.with_name(kept + ".pdf"))
+        if probe.with_suffix(".mpos").exists():
+            shutil.copyfile(probe.with_suffix(".mpos"), probe.with_name(kept + ".mpos"))
     if _tracing() and bad:
         sys.stdout.write(
             f"{sheet.name} {sheet.size}: wrapped lines {wrapped}, crowded lines {sorted(crowded)}, seated {seated}, "
