@@ -6,6 +6,8 @@ Measured on the rendered PDF, written as MuseScore's own per-chord offset.
 from __future__ import annotations
 
 import bisect
+import collections
+import copy
 import itertools
 import math
 import operator
@@ -627,15 +629,35 @@ def _apply_bearings(
             lines[line]["chords"][place] = left + bearings[letter, round(size, 1)] * size
 
 
+LINES_KEPT = 64
+LINES: collections.OrderedDict[tuple[str, int, int, int, int], list[LineRecord]] = collections.OrderedDict()
+LINES_LOCK = threading.Lock()
+
+
 def page_lines(pdf: pathlib.Path) -> list[LineRecord]:
-    """Every staff carrying chords, in print order.
+    """Every staff carrying chords, in print order, read once per version of the render and its positions.
 
     Each carries its chord left edges, its barlines, where its signatures end, and its staff space.
 
     Returns:
-        Every staff carrying chords, in print order.
+        Every staff carrying chords, in print order, as the caller's own copy.
 
     """
+    drawn, placed = pdf.stat(), pdf.with_suffix(".mpos").stat()
+    key = (str(pdf), drawn.st_size, drawn.st_mtime_ns, placed.st_size, placed.st_mtime_ns)
+    with LINES_LOCK:
+        if key in LINES:
+            LINES.move_to_end(key)
+            return copy.deepcopy(LINES[key])
+    found = _read_page_lines(pdf)
+    with LINES_LOCK:
+        LINES[key] = found
+        while len(LINES) > LINES_KEPT:
+            LINES.popitem(last=False)
+    return copy.deepcopy(found)
+
+
+def _read_page_lines(pdf: pathlib.Path) -> list[LineRecord]:
     lines: list[LineRecord] = []
     readings: list[tuple[int, int, str, float, float, bool]] = []
     measures = measure_boxes(pdf.with_suffix(".mpos"))

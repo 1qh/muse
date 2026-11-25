@@ -596,3 +596,22 @@ def test_an_extension_run_in_place_keeps_its_input(monkeypatch: pytest.MonkeyPat
     monkeypatch.setattr(layout.launch, "served", served)
     layout.run_extension(score, score)
     assert seen == [True]
+
+
+def test_finishing_sizes_at_once_picks_what_finishing_them_in_order_picks() -> None:
+    """Fewest finished lines wins, a tie goes to the earlier size, and a refused size never counts."""
+    finished_lines = {1.5: None, 1.45: 20, 1.4: 18, 1.35: 18, 1.3: 22}
+    planned = {1.5: 15, 1.45: 16, 1.4: 16, 1.35: 16, 1.3: 22}
+
+    def finished(size: float) -> tuple[Score, pathlib.Path, float, float, int]:
+        lines = finished_lines[size]
+        if lines is None:
+            msg = f"{size} overflows"
+            raise port.DoesNotFitError(msg)
+        bars = [Bar(n, 0, 0.0, 100.0, Fraction(4), voices=[], new_system=True) for n in range(1, lines + 1)]
+        return Score(bars, [], []), pathlib.Path(), size, 11.0, 1
+
+    best, refusals = layout.best_finished([1.5, 1.45, 1.4, 1.35, 1.3], planned, finished)
+    assert best is not None
+    assert best[2] == pytest.approx(1.4)
+    assert len(refusals) == 1

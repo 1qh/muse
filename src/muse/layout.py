@@ -938,6 +938,57 @@ def finish_at(
     return sheet.score, score_path, size, sheet.distance, len(pdftext.read(probe))
 
 
+FINISHED_AT_ONCE = 3
+
+
+def best_finished(
+    order: list[float],
+    planned: dict[float, int],
+    finished: Callable[[float], tuple[Score, pathlib.Path, float, float, int]],
+) -> tuple[tuple[Score, pathlib.Path, float, float, int] | None, list[str]]:
+    """Finish sizes several at a time in their order, and keep the one with the fewest finished lines.
+
+    A size not yet started is skipped once its planned lines cannot beat the best finished, since finishing only adds
+    lines; ties go to the size earlier in the order, so the choice is the one finishing them 1 by 1 would make.
+
+    Returns:
+        The best finished sheet, or none, and every refusal.
+
+    """
+    done: dict[float, tuple[Score, pathlib.Path, float, float, int]] = {}
+    refusals: list[str] = []
+
+    def fewest() -> int | None:
+        return min((len(port.rows(sheet[0])) for sheet in done.values()), default=None)
+
+    waiting = list(order)
+    running: dict[concurrent.futures.Future[tuple[Score, pathlib.Path, float, float, int]], float] = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=FINISHED_AT_ONCE) as pool:
+        while waiting or running:
+            while waiting and len(running) < FINISHED_AT_ONCE:
+                size = waiting.pop(0)
+                best = fewest()
+                if best is not None and planned.get(size, 0) >= best:
+                    continue
+                running[pool.submit(finished, size)] = size
+            if not running:
+                break
+            ready, _ = concurrent.futures.wait(running, return_when=concurrent.futures.FIRST_COMPLETED)
+            for future in ready:
+                size = running.pop(future)
+                if isinstance(error := future.exception(), port.DoesNotFitError):
+                    refusals.append(str(error))
+                    sys.stdout.write(f"refused {error}" + "\n")
+                    sys.stdout.flush()
+                    continue
+                done[size] = future.result()
+    if not done:
+        return None, refusals
+    rank = {size: at for at, size in enumerate(order)}
+    winner = min(done, key=lambda size: (len(port.rows(done[size][0])), rank[size]))
+    return done[winner], refusals
+
+
 def lay(src: pathlib.Path, work: pathlib.Path, variant: str) -> tuple[Score, pathlib.Path, float, float, int]:
     """Every candidate size planned side by side in shared jobs; the best is finished, the next only if it cannot be.
 
@@ -951,21 +1002,8 @@ def lay(src: pathlib.Path, work: pathlib.Path, variant: str) -> tuple[Score, pat
     sizes = port.sizes_between(port.SIZE_FLOORS[-1], port.SIZE_CAP)
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(sizes)) as pool:
         found = list(pool.map(lambda size: candidate(src, work, variant, size), sizes))
-    refusals = []
     planned = {c["size"]: c["lines"] for c in found}
-    best: tuple[Score, pathlib.Path, float, float, int] | None = None
-    for size in choose(found, variant):
-        if best is not None and planned.get(size, 0) >= len(port.rows(best[0])):
-            continue
-        try:
-            done = finish(src, work, variant, size)
-        except port.DoesNotFitError as error:
-            refusals.append(str(error))
-            sys.stdout.write(f"refused {error}" + "\n")
-            sys.stdout.flush()
-            continue
-        if best is None or len(port.rows(done[0])) < len(port.rows(best[0])):
-            best = done
+    best, refusals = best_finished(choose(found, variant), planned, lambda size: finish(src, work, variant, size))
     if best is not None:
         return best
     summary = [
