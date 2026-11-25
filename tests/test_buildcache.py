@@ -220,3 +220,14 @@ def test_a_publishing_build_purges_once_after_its_last_song(
     purged.clear()
     build._run([tmp_path / "a.pdf"], 1, (*places[:4], False), ([], [], []))
     assert purged == []
+
+
+def test_a_run_naming_its_own_build_state_never_writes_the_published_records(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: pathlib.Path,
+) -> None:
+    monkeypatch.setenv("MUSE_PRIVATE", str(tmp_path / "private"))
+    monkeypatch.delenv("MUSE_BUILD_STATE", raising=False)
+    assert buildcache.state_path("Song") == tmp_path / "private" / "build-state" / "Song.json"
+    monkeypatch.setenv("MUSE_BUILD_STATE", str(tmp_path / "trial"))
+    assert buildcache.state_path("Song") == tmp_path / "trial" / "Song.json"

@@ -138,7 +138,17 @@ def key_of(
 
 
 def state_path(song: str) -> pathlib.Path:
-    return pathlib.Path(os.environ["MUSE_PRIVATE"]) / STATE_DIR / f"{song}.json"
+    """Locate 1 song's build record: in `MUSE_BUILD_STATE` when a run names its own, else beside the private inputs.
+
+    A trial build into a scratch sheets repo names its own folder, so the records of the published sheets stay theirs.
+
+    Returns:
+        The record's path.
+
+    """
+    own = os.environ.get("MUSE_BUILD_STATE", "")
+    folder = pathlib.Path(own) if own else pathlib.Path(os.environ["MUSE_PRIVATE"]) / STATE_DIR
+    return folder / f"{song}.json"
 
 
 def load(song: str) -> dict[str, CacheRecord]:
