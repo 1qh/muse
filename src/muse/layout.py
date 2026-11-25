@@ -15,6 +15,7 @@ import shutil
 import sys
 import tempfile
 import threading
+import time
 import xml.etree.ElementTree as ET
 import zipfile
 from dataclasses import dataclass, field
@@ -963,6 +964,7 @@ def best_finished(
 
     waiting = list(order)
     running: dict[concurrent.futures.Future[tuple[Score, pathlib.Path, float, float, int]], float] = {}
+    began: dict[float, float] = {}
     with concurrent.futures.ThreadPoolExecutor(max_workers=FINISHED_AT_ONCE) as pool:
         while waiting or running:
             while waiting and len(running) < FINISHED_AT_ONCE:
@@ -971,6 +973,7 @@ def best_finished(
                 if best is not None and planned.get(size, 0) >= best:
                     continue
                 running[pool.submit(finished, size)] = size
+                began[size] = time.monotonic()
             if not running:
                 break
             ready, _ = concurrent.futures.wait(running, return_when=concurrent.futures.FIRST_COMPLETED)
@@ -978,10 +981,12 @@ def best_finished(
                 size = running.pop(future)
                 if isinstance(error := future.exception(), port.DoesNotFitError):
                     refusals.append(str(error))
-                    sys.stdout.write(f"refused {error}" + "\n")
+                    sys.stdout.write(f"refused after {time.monotonic() - began[size]:.0f} s: {error}" + "\n")
                     sys.stdout.flush()
                     continue
                 done[size] = future.result()
+                sys.stdout.write(f"finished {size} after {time.monotonic() - began[size]:.0f} s" + "\n")
+                sys.stdout.flush()
     if not done:
         return None, refusals
     rank = {size: at for at, size in enumerate(order)}
