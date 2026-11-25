@@ -1471,3 +1471,26 @@ def test_a_render_rasters_1_chord_per_letter_and_size(monkeypatch: pytest.Monkey
     assert [round(edge - x, 3) for edge, (_, x, _, _, _) in zip(joined, words, strict=True)] == [
         round(real(page, x, 60, 13) - x, 3) for _, x, _, _, _ in words
     ]
+
+
+def test_a_render_whose_output_is_its_input_is_refused_and_keeps_the_input(tmp_path: pathlib.Path) -> None:
+    score = tmp_path / "song.pdf"
+    score.write_bytes(b"input")
+    with pytest.raises(ValueError, match="its own input"):
+        render.Batcher().render(score, [tmp_path / "other.pdf", tmp_path / "." / "song.pdf"])
+    assert score.read_bytes() == b"input"
+
+
+def test_the_launch_count_is_written_only_under_its_lock() -> None:
+    tree = ast.parse(inspect.getsource(launch))
+    writers = {
+        function.name
+        for function in ast.walk(tree)
+        if isinstance(function, ast.FunctionDef)
+        for node in ast.walk(function)
+        if isinstance(node, ast.AugAssign)
+        and isinstance(node.target, ast.Subscript)
+        and ast.unparse(node.target.value) == "LAUNCHES"
+    }
+    assert writers == {"count_launch"}
+    assert "with LAUNCHES_LOCK" in inspect.getsource(launch.count_launch)

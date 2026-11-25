@@ -44,7 +44,14 @@ def mscore_command() -> str:
 
 
 LAUNCHES = {"count": 0}
+LAUNCHES_LOCK = threading.Lock()
 LAUNCH_SECONDS = 240
+
+
+def count_launch() -> None:
+    """Count 1 MuseScore run, safe from any thread."""
+    with LAUNCHES_LOCK:
+        LAUNCHES["count"] += 1
 
 
 def slots() -> int:
@@ -144,7 +151,7 @@ def heavy(
     """
     with GATE:
         free_core()
-        LAUNCHES["count"] += 1
+        count_launch()
         with subprocess.Popen(
             argv,
             stdout=subprocess.PIPE,
@@ -395,7 +402,7 @@ def served(job: pathlib.Path, timeout: float, extension: str | None = None, comm
             pool.put(Server(program))
             STARTED[program] = STARTED.get(program, 0) + 1
     server = pool.get()
-    LAUNCHES["count"] += 1
+    count_launch()
     try:
         answer = server.run(job, extension, timeout)
     except BaseException:

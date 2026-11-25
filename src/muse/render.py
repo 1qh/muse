@@ -70,8 +70,12 @@ class Batcher:
 
         Raises:
             RenderFailedError: MuseScore wrote no output for this score.
+            ValueError: an output is the score itself, which the render would delete before reading.
 
         """
+        if score.resolve() in {out.resolve() for out in outputs}:
+            msg = f"render output {score} is its own input"
+            raise ValueError(msg)
         for out in outputs:
             out.unlink(missing_ok=True)
         entry: RenderEntry = {"in": str(score), "out": [str(out) for out in outputs]}
