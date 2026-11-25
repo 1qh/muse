@@ -971,7 +971,7 @@ def finish_at(
     return sheet.score, score_path, size, sheet.distance, len(pdftext.read(probe))
 
 
-FINISHED_AT_ONCE = 3
+FINISHED_AT_ONCE = 1
 
 
 def _collect(
@@ -1009,7 +1009,7 @@ def best_finished(
     planned: dict[float, int],
     finished: Callable[[float, Callable[[int], bool]], tuple[Score, pathlib.Path, float, float, int]],
 ) -> tuple[tuple[Score, pathlib.Path, float, float, int] | None, list[str]]:
-    """Finish sizes several at a time in their order, and keep the one with the fewest finished lines.
+    """Finish sizes `FINISHED_AT_ONCE` at a time in their order, and keep the one with the fewest finished lines.
 
     A size not yet started is skipped, and a running size is stopped at its next plan, once its lines cannot beat the
     best finished, since finishing only adds lines; ties go to the size earlier in the order, so the choice is the one

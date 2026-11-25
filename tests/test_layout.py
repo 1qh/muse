@@ -620,8 +620,9 @@ def test_finishing_sizes_at_once_picks_what_finishing_them_in_order_picks() -> N
     assert len(refusals) == 1
 
 
-def test_a_running_size_stops_once_a_finished_size_beats_its_plan() -> None:
+def test_a_running_size_stops_once_a_finished_size_beats_its_plan(monkeypatch: pytest.MonkeyPatch) -> None:
     """A size whose plan already has more lines than a finished size, or as many and later in order, stops there."""
+    monkeypatch.setattr(layout, "FINISHED_AT_ONCE", 3)
     first_done = threading.Event()
     asked: dict[float, list[bool]] = {1.45: [], 1.4: []}
 
@@ -690,3 +691,16 @@ def test_a_plan_a_finished_size_beats_stops_its_size_before_any_render(monkeypat
     with pytest.raises(layout.BeatenError):
         layout.finish_at(pathlib.Path("s.json"), pathlib.Path(), "original", port.Sizing(1.3, 11.0), carried)
     assert asked == [4]
+
+
+def test_finishing_1_size_at_a_time_never_starts_a_size_the_best_finished_already_beats() -> None:
+    started: list[float] = []
+
+    def finished(size: float, _beaten: Callable[[int], bool]) -> tuple[Score, pathlib.Path, float, float, int]:
+        started.append(size)
+        bars = [Bar(n, 0, 0.0, 100.0, Fraction(4), voices=[], new_system=True) for n in range(1, 13)]
+        return Score(bars, [], []), pathlib.Path(), size, 11.0, 1
+
+    best, _ = layout.best_finished([1.5, 1.45, 1.4], {1.5: 12, 1.45: 12, 1.4: 13}, finished)
+    assert best is not None
+    assert started == [1.5]
