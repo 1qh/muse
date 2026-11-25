@@ -690,3 +690,48 @@ def test_a_plan_a_finished_size_beats_stops_its_size_before_any_render(monkeypat
     with pytest.raises(layout.BeatenError):
         layout.finish_at(pathlib.Path("s.json"), pathlib.Path(), "original", port.Sizing(1.3, 11.0), carried)
     assert asked == [4]
+
+
+def test_growth_keeps_the_largest_factor_and_widens_only_from_the_measured_width() -> None:
+    growth = layout.Growth()
+    growth.learn([10.0, 20.0, 0.0], [15.0, 20.0, 5.0])
+    growth.learn([5.0, 10.0, 0.0], [6.0, 10.0, 5.0])
+    assert growth.apply([4.0, 8.0, 3.0], [4.0, 8.0, 3.0]) == [6.0, 8.0, 3.0]
+    assert growth.apply([4.0, 8.0, 3.0], [7.0, 9.0, 3.0]) == [7.0, 9.0, 3.0]
+
+
+def test_a_size_plans_first_from_the_growth_another_size_learned(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A bar another size had to widen starts wide in this size's first plan."""
+    planned_with: list[list[float]] = []
+
+    class FakeSheet:
+        name = "song"
+        score = None
+        variant = "original"
+
+        def __init__(self, *_: object) -> None:
+            self.lines: list[int] = []
+
+        @staticmethod
+        def path(_stage: str) -> pathlib.Path:
+            return pathlib.Path("final.mscz")
+
+        def set_lines(self, lines: list[int]) -> None:
+            self.lines = lines
+
+        def starts(self) -> list[int]:
+            return self.lines
+
+    def plan(_score: object, widths: list[float], *_: object) -> list[int]:
+        planned_with.append(list(widths))
+        return [1]
+
+    monkeypatch.setattr(layout, "Sheet", FakeSheet)
+    monkeypatch.setattr(layout, "measure", lambda _sheet: ([10.0, 10.0], 100.0))
+    monkeypatch.setattr(layout, "plan", plan)
+    growth = layout.Growth()
+    growth.learn([20.0, 20.0], [30.0, 20.0])
+    carried = layout.Carried(beaten=lambda _lines: True, growth=growth)
+    with pytest.raises(layout.BeatenError):
+        layout.finish_at(pathlib.Path("s.json"), pathlib.Path(), "original", port.Sizing(1.3, 11.0), carried)
+    assert planned_with == [[15.0, 10.0]]

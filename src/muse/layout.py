@@ -771,12 +771,42 @@ def seat(sheet: Sheet, score_path: pathlib.Path) -> pathlib.Path:
     )
 
 
+class Growth:
+    """How far each bar's width estimate had to grow over its measured width, shared by every size of 1 sheet."""
+
+    def __init__(self) -> None:
+        """Start with no bar grown."""
+        self._factors: dict[int, float] = {}
+        self._lock = threading.Lock()
+
+    def apply(self, measured: list[float], base: list[float]) -> list[float]:
+        """Widen each bar of `base` to its measured width times the largest growth any size has learned for it.
+
+        Returns:
+            The widened widths.
+
+        """
+        with self._lock:
+            return [
+                max(width, own * self._factors.get(at, 1.0))
+                for at, (own, width) in enumerate(zip(measured, base, strict=True))
+            ]
+
+    def learn(self, measured: list[float], grown: list[float]) -> None:
+        """Record each bar's growth over its measured width, keeping the largest seen."""
+        with self._lock:
+            for at, (own, width) in enumerate(zip(measured, grown, strict=True)):
+                if own > 0 and width > own:
+                    self._factors[at] = max(self._factors.get(at, 1.0), width / own)
+
+
 @dataclass
 class Carried:
-    """What 1 size carries between line gaps: the widths its plans learned, and whether a finished size beats it."""
+    """What 1 size carries between line gaps: its learned widths, whether a finished size beats it, shared growth."""
 
     learned: list[list[float]] = field(default_factory=list)
     beaten: Callable[[int], bool] = lambda _lines: False
+    growth: Growth = field(default_factory=Growth)
 
 
 def finish(
@@ -784,7 +814,7 @@ def finish(
     work: pathlib.Path,
     variant: str,
     size: float,
-    beaten: Callable[[int], bool] = lambda _lines: False,
+    carried: Carried | None = None,
 ) -> tuple[Score, pathlib.Path, float, float, int]:
     """1 size finished at the base line gap, then at wider gaps while text below 1 line meets the next line's chords.
 
@@ -798,7 +828,7 @@ def finish(
 
     """
     refusal: port.DoesNotFitError | None = None
-    carried = Carried(beaten=beaten)
+    carried = carried or Carried()
     for step in range(int(GAP_REACH / GAP_STEP) + 1):
         try:
             return finish_at(src, work, variant, port.Sizing(size, port.BASE_DISTANCE + step * GAP_STEP), carried)
@@ -910,12 +940,11 @@ def finish_at(
         BeatenError: when a plan has no fewer lines than a finished size that comes first.
 
     """
-    size, distance = sizing
-    sheet = Sheet(src, work, variant, size, distance)
-    widths, room = measure(sheet)
+    size = sizing.spatium
+    sheet = Sheet(src, work, variant, *sizing)
+    measured, room = measure(sheet)
     carried = carried or Carried()
-    if carried.learned:
-        widths = carried.learned[-1]
+    widths = carried.growth.apply(measured, carried.learned[-1] if carried.learned else measured)
     score_path = sheet.path("final")
     tried: set[frozenset[int]] = set()
     best, stalled = sys.maxsize, 0
@@ -948,7 +977,8 @@ def finish_at(
             raise port.DoesNotFitError(
                 msg,
             )
-        widths = grown
+        carried.growth.learn(measured, grown)
+        widths = carried.growth.apply(measured, grown)
         carried.learned.append(widths)
     probe = current_render(score_path, probe, lambda: render(sheet, "final", seated=True)[1])
     problems = _final_problems(sheet, score_path, probe)
@@ -1058,10 +1088,11 @@ def lay(src: pathlib.Path, work: pathlib.Path, variant: str) -> tuple[Score, pat
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(sizes)) as pool:
         found = list(pool.map(lambda size: candidate(src, work, variant, size), sizes))
     planned = {c["size"]: c["lines"] for c in found}
+    growth = Growth()
     best, refusals = best_finished(
         choose(found, variant),
         planned,
-        lambda size, beaten: finish(src, work, variant, size, beaten),
+        lambda size, beaten: finish(src, work, variant, size, Carried(beaten=beaten, growth=growth)),
     )
     if best is not None:
         return best
