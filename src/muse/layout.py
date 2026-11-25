@@ -70,11 +70,7 @@ def extensions_root() -> pathlib.Path:
 
     """
     given = os.environ.get("MUSE_EXTENSIONS")
-    return (
-        pathlib.Path(given)
-        if given is not None and len(given) > 0
-        else pathlib.Path.home() / "Library" / "Application Support" / "MuseScore" / "MuseScore4" / "extensions"
-    )
+    return pathlib.Path(given) if given is not None and len(given) > 0 else launch.APP_DATA / "extensions"
 
 
 def install_extension() -> str:

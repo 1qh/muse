@@ -1500,7 +1500,7 @@ def test_a_cue_span_belongs_only_to_a_cue_holding_its_words_as_words() -> None:
     letter, opening, upper, shared = (pymupdf.Rect(x, 0, x + 1, 1) for x in range(4))
     spans = [("A", letter), ("(After", opening), ("BASS IN", upper), ("IN", shared)]
     mine, theirs = chordseat.cue_spans(spans, ["BASS IN /Steel-Gtr"], ["(After Sin - BAND IN )"])
-    assert mine == [upper]
-    assert [words for words, _ in theirs] == ["(After"]
+    assert mine == [upper, shared]
+    assert [words for words, _ in theirs] == ["(After", "IN"]
     assert not chordseat.in_cue("A", "BASS IN /Steel-Gtr")
     assert chordseat.in_cue("BAND IN", "(After Sin - BAND IN )")

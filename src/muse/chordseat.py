@@ -1151,18 +1151,16 @@ def cue_spans(
 ) -> tuple[list[pymupdf.Rect], list[tuple[str, pymupdf.Rect]]]:
     """Split the spans between 2 lines into the upper line's cues below it and the lower line's cues above it.
 
-    A span whose words fit a cue of both lines is left out of both, since its text cannot say whose it is.
+    A span whose words fit a cue of both lines stays in both, so a cue printed on both lines is still found close to
+    its twin; the check never compares a span with itself.
 
     Returns:
         The upper line's cue spans, and the lower line's cue spans with their words.
 
     """
-    mine = [(words, box) for words, box in spans if any(in_cue(words, cue) for cue in below)]
+    mine = [box for words, box in spans if any(in_cue(words, cue) for cue in below)]
     theirs = [(words, box) for words, box in spans if any(in_cue(words, cue) for cue in above)]
-    shared = {id(box) for _, box in mine} & {id(box) for _, box in theirs}
-    return [box for _, box in mine if id(box) not in shared], [
-        (words, box) for words, box in theirs if id(box) not in shared
-    ]
+    return mine, theirs
 
 
 def crowded_line_texts(score_path: pathlib.Path, pdf: pathlib.Path) -> list[str]:

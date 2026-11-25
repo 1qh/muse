@@ -200,7 +200,8 @@ def sample(pid: int) -> pathlib.Path | None:
     return target
 
 
-LOGS = pathlib.Path.home() / "Library" / "Application Support" / "MuseScore" / "MuseScore4" / "logs"
+APP_DATA = pathlib.Path.home() / "mslite" / "app"
+LOGS = APP_DATA / "logs"
 LOG_NAME = re.compile(r"MuseScore_(\d{6}_\d{6})\.log")
 CONVERSION = re.compile(r"ConverterController::convertFile \| in: (.+?), out: ")
 
