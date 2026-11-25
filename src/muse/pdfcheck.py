@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import itertools
+import os
 import pathlib
 import re
 import sys
@@ -137,6 +138,11 @@ def chord_collisions(path: pathlib.Path) -> list[tuple[int, float, str]]:
             is_root = after[4] in "ABCDEFG" and before[4] != "/"
             if abs(before[1] - after[1]) < 1 and is_root and after[2] - before[3] < top * MIN_CHORD_GAP:
                 found.append((number - 1, after[1] - top, after[4]))
+                if os.environ.get("MUSE_LAYOUT_TRACE", ""):
+                    sys.stdout.write(
+                        f"collision p{number} y{after[1]:.0f}: '{before[4]}' then '{after[4]}' "
+                        f"gap {after[2] - before[3]:.2f} of {top * MIN_CHORD_GAP:.2f} pt\n",
+                    )
     return found
 
 
