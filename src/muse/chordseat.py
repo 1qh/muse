@@ -20,7 +20,7 @@ import xml.etree.ElementTree as ET
 import zipfile
 from collections import Counter
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, NotRequired, TypedDict
+from typing import TYPE_CHECKING, NamedTuple, NotRequired, TypedDict
 
 import pymupdf
 
@@ -474,11 +474,18 @@ def _page_setup(page: pymupdf.Page | pdftext.Page, measures: list[dict[str, floa
     return _PageMarks(page, glyphs, signs_here, chords, shapes, systems, tops, space, top)
 
 
+class RenderReading(NamedTuple):
+    """What reading 1 render gathers across its lines: every chord reading, and each letter and size's ink offset."""
+
+    readings: list[tuple[int, int, str, float, float, bool]]
+    bearings: dict[tuple[str, float], float]
+
+
 def _chord_edges(
     page: pymupdf.Page | pdftext.Page,
     mine: list[tuple[float, float, float, float, str]],
     line_index: int,
-    readings: list[tuple[int, int, str, float, float, bool]],
+    seen: RenderReading,
 ) -> tuple[list[float], list[float], list[float]]:
     joined: list[float] = []
     rights: list[float] = []
@@ -486,15 +493,15 @@ def _chord_edges(
     texts: list[str] = []
     for word in sorted(mine, key=operator.itemgetter(1)):
         if CHORD_SHAPE.match(word[4]) and not (texts and texts[-1].endswith(("/", "("))):
-            joined.append(ink_left(page, word[1], word[3], word[0]))
-            readings.append((
-                line_index,
-                len(joined) - 1,
-                word[4][0],
-                word[0],
-                word[1],
-                crowded(page, word[1], word[3], word[0]),
-            ))
+            busy = crowded(page, word[1], word[3], word[0])
+            key = (word[4][0], round(word[0], 1))
+            if key in seen.bearings:
+                joined.append(word[1] + seen.bearings[key] * word[0])
+            else:
+                joined.append(ink_left(page, word[1], word[3], word[0]))
+                if not busy:
+                    seen.bearings[key] = (joined[-1] - word[1]) / word[0]
+            seen.readings.append((line_index, len(joined) - 1, word[4][0], word[0], word[1], busy))
             lefts.append(word[1])
             rights.append(word[2])
         elif rights and word[4][0] not in string.ascii_uppercase:
@@ -593,12 +600,12 @@ def _staff_line(
     staff_top: float,
     above: float,
     line_index: int,
-    readings: list[tuple[int, int, str, float, float, bool]],
+    seen: RenderReading,
 ) -> LineRecord | None:
     mine = [w for w in marks.chords if above + marks.space * 4 < w[3] <= staff_top + 1]
     if not mine:
         return None
-    edges = _chord_edges(marks.page, mine, line_index, readings)
+    edges = _chord_edges(marks.page, mine, line_index, seen)
     row = sorted((m for m in marks.systems if m["y"] == staff_top), key=operator.itemgetter("x"))
     bars = [m["x"] + m["w"] for m in row]
     start, opening = _line_start(marks, row, bars, staff_top, above)
@@ -659,7 +666,7 @@ def page_lines(pdf: pathlib.Path) -> list[LineRecord]:
 
 def _read_page_lines(pdf: pathlib.Path) -> list[LineRecord]:
     lines: list[LineRecord] = []
-    readings: list[tuple[int, int, str, float, float, bool]] = []
+    seen = RenderReading([], {})
     measures = measure_boxes(pdf.with_suffix(".mpos"))
     for page in pdftext.read(pdf):
         marks = _page_setup(page, measures)
@@ -667,10 +674,10 @@ def _read_page_lines(pdf: pathlib.Path) -> list[LineRecord]:
             continue
         for at, staff_top in enumerate(marks.tops):
             above = marks.tops[at - 1] if at else -1000.0
-            line = _staff_line(marks, staff_top, above, len(lines), readings)
+            line = _staff_line(marks, staff_top, above, len(lines), seen)
             if line is not None:
                 lines.append(line)
-    _apply_bearings(lines, readings)
+    _apply_bearings(lines, seen.readings)
     return lines
 
 

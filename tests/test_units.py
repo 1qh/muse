@@ -1449,3 +1449,25 @@ def test_a_served_musescore_that_dies_is_reported_and_replaced(tmp_path: pathlib
     with pytest.raises(launch.ServerDiedError):
         launch.served(bad, 10, command=str(fake))
     assert not launch.served(good, 10, command=str(fake))
+
+
+def test_a_render_rasters_1_chord_per_letter_and_size(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Chords sharing a first letter and size share their ink offset, read off the first clean one."""
+    page = pymupdf.open().new_page(width=400, height=100)
+    words = []
+    for x in (40.0, 140.0, 240.0):
+        page.insert_text((x, 60), "C", fontsize=13)
+        words.append((13.0, x, x + 9.0, 60.0, "C"))
+    rastered: list[float] = []
+    real = chordseat.ink_left
+
+    def counted(page: pymupdf.Page | pdftext.Page, left: float, base: float, size: float) -> float:
+        rastered.append(left)
+        return real(page, left, base, size)
+
+    monkeypatch.setattr(chordseat, "ink_left", counted)
+    joined, _, _ = chordseat._chord_edges(page, words, 0, chordseat.RenderReading([], {}))
+    assert rastered == [40.0]
+    assert [round(edge - x, 3) for edge, (_, x, _, _, _) in zip(joined, words, strict=True)] == [
+        round(real(page, x, 60, 13) - x, 3) for _, x, _, _, _ in words
+    ]
