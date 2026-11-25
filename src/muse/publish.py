@@ -138,15 +138,18 @@ def publish(
     run: Runner = sh,
     judge: Judge = gate.verdicts,
     names: tuple[str, ...] = (),
+    *,
+    purging: bool = True,
 ) -> dict[str, list[str]]:
     """Publish every song passing its gate; returns the blocked songs, each keeping its last good folder, with reasons.
+
+    With `purging` false the superseded versions stay in history until `purge` runs, once for a whole build.
 
     Returns:
         The blocked songs mapped to their failure reasons.
 
     Raises:
         SystemExit: The sheets repo holds a file that is neither a PDF nor a MuseScore file.
-        RefusedError: The purge changed the current files, or the local tree differs after it.
 
     """
     src, out, work = places
@@ -166,6 +169,18 @@ def publish(
     elif not run("git", "rev-list", "@{u}..HEAD", cwd=out):
         return blocked
     pushed(run, ("git", "push"), out)
+    if purging:
+        purge(out, run)
+    return blocked
+
+
+def purge(out: pathlib.Path, run: Runner = sh) -> None:
+    """Strip every superseded sheet version from the sheets repo's history, keeping its current files.
+
+    Raises:
+        RefusedError: The purge changed the current files, or the local tree differs after it.
+
+    """
     tree = run("git", "rev-parse", "HEAD:", cwd=out)
     url = run("git", "remote", "get-url", "origin", cwd=out)
     with tempfile.TemporaryDirectory() as tmp:
@@ -192,7 +207,6 @@ def publish(
     if run("git", "rev-parse", "HEAD:", cwd=out) != tree:
         msg = "local tree differs after the purge"
         raise RefusedError(msg)
-    return blocked
 
 
 def main() -> None:

@@ -204,3 +204,19 @@ def test_a_publishing_child_gates_its_staged_song_and_a_plain_build_does_not(
     assert gated == []
     build.child_main(source, tmp_path / "stage", tmp_path / "work", tmp_path / "sources")
     assert gated == [(tmp_path / "stage", ("Song",))]
+
+
+def test_a_publishing_build_purges_once_after_its_last_song(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: pathlib.Path,
+) -> None:
+    purged: list[pathlib.Path] = []
+    monkeypatch.setattr(build, "child", lambda *_: ({"song": "Song"}, ""))
+    monkeypatch.setattr(build, "_collect", lambda _pool, jobs, *_: [job.result() for job in jobs])
+    monkeypatch.setattr(build.publish, "purge", purged.append)
+    places = (tmp_path / "src", tmp_path / "out", tmp_path / "work", tmp_path / "stage", True)
+    build._run([tmp_path / "a.pdf", tmp_path / "b.pdf"], 2, places, ([], [], []))
+    assert purged == [tmp_path / "out"]
+    purged.clear()
+    build._run([tmp_path / "a.pdf"], 1, (*places[:4], False), ([], [], []))
+    assert purged == []

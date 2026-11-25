@@ -519,3 +519,20 @@ def test_the_chord_name_check_runs_once_per_process(monkeypatch: pytest.MonkeyPa
     finally:
         gate.chord_name_problems.cache_clear()
     assert runs == ["play", "transpose"]
+
+
+def test_a_build_publishes_each_song_without_purging_and_purges_once(tmp_path: pathlib.Path) -> None:
+    """Purging rewrites the whole history, so a build pushes every song and purges after the last."""
+    calls: list[tuple[str, ...]] = []
+
+    def run(*args: str, cwd: pathlib.Path | None = None) -> str:
+        _ = cwd
+        calls.append(args)
+        return "abc" if "@{u}..HEAD" in args else ""
+
+    publish.publish(publish.Places(tmp_path, tmp_path, tmp_path), run, lambda *_: {}, purging=False)
+    assert ("git", "push") in calls
+    assert not any("--mirror" in call for call in calls)
+    calls.clear()
+    publish.publish(publish.Places(tmp_path, tmp_path, tmp_path), run, lambda *_: {})
+    assert any("--mirror" in call for call in calls)

@@ -250,7 +250,7 @@ def publish_song(src_dir: pathlib.Path, out_dir: pathlib.Path, work: pathlib.Pat
     publish.resync(out_dir)
     shutil.rmtree(out_dir / name, ignore_errors=True)
     shutil.copytree(stage / name, out_dir / name)
-    blocked = publish.publish(publish.Places(src_dir, out_dir, work), names=(name,))
+    blocked = publish.publish(publish.Places(src_dir, out_dir, work), names=(name,), purging=False)
     return "; ".join(blocked.get(name, [])[:3])
 
 
@@ -393,11 +393,13 @@ def _run(
     places: tuple[pathlib.Path, pathlib.Path, pathlib.Path, pathlib.Path, bool],
     tallies: tuple[list[dict[str, object]], list[str], list[str]],
 ) -> None:
-    src_dir, _out_dir, work, stage, publishing = places
+    src_dir, out_dir, work, stage, publishing = places
     pool = concurrent.futures.ThreadPoolExecutor(max_workers=workers)
     try:
         jobs = {pool.submit(child, src, stage, work, src_dir if publishing else None): src for src in sources}
         _collect(pool, jobs, places, tallies)
+        if publishing:
+            publish.purge(out_dir)
     except BaseException as error:
         _say(f"stopped: {error!r}")
         stop_children()
