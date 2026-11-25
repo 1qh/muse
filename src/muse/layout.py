@@ -6,6 +6,7 @@ The plan is rendered, and only what measurement shows off is corrected.
 from __future__ import annotations
 
 import concurrent.futures
+import functools
 import hashlib
 import json
 import os
@@ -770,13 +771,24 @@ def seat(sheet: Sheet, score_path: pathlib.Path) -> pathlib.Path:
     )
 
 
+@dataclass
+class Carried:
+    """What 1 size carries between line gaps: the widths its plans learned, and whether a finished size beats it."""
+
+    learned: list[list[float]] = field(default_factory=list)
+    beaten: Callable[[int], bool] = lambda _lines: False
+
+
 def finish(
     src: pathlib.Path,
     work: pathlib.Path,
     variant: str,
     size: float,
+    beaten: Callable[[int], bool] = lambda _lines: False,
 ) -> tuple[Score, pathlib.Path, float, float, int]:
     """1 size finished at the base line gap, then at wider gaps while text below 1 line meets the next line's chords.
+
+    Stops with `BeatenError` once a plan's line count shows another finished size already beats this one.
 
     Returns:
         The finished score, its path, size, line gap and page count.
@@ -786,10 +798,10 @@ def finish(
 
     """
     refusal: port.DoesNotFitError | None = None
-    learned: list[list[float]] = []
+    carried = Carried(beaten=beaten)
     for step in range(int(GAP_REACH / GAP_STEP) + 1):
         try:
-            return finish_at(src, work, variant, port.Sizing(size, port.BASE_DISTANCE + step * GAP_STEP), learned)
+            return finish_at(src, work, variant, port.Sizing(size, port.BASE_DISTANCE + step * GAP_STEP), carried)
         except port.DoesNotFitError as error:
             if "text on text" not in str(error):
                 raise
@@ -881,9 +893,12 @@ def finish_at(
     work: pathlib.Path,
     variant: str,
     sizing: port.Sizing,
-    learned: list[list[float]] | None = None,
+    carried: Carried | None = None,
 ) -> tuple[Score, pathlib.Path, float, float, int]:
     """1 size and line gap from plan to a seated sheet that passes every final check.
+
+    Every plan has at least the lines of the plan before it, so a plan another finished size already beats ends the
+    size with `BeatenError`.
 
     A line that will not hold grows its estimate and the whole plan is made again.
 
@@ -892,19 +907,24 @@ def finish_at(
 
     Raises:
         DoesNotFitError: when lines still overflow or a final check fails.
+        BeatenError: when a plan has no fewer lines than a finished size that comes first.
 
     """
     size, distance = sizing
     sheet = Sheet(src, work, variant, size, distance)
     widths, room = measure(sheet)
-    if learned is not None and len(learned) > 0:
-        widths = learned[-1]
+    carried = carried or Carried()
+    if carried.learned:
+        widths = carried.learned[-1]
     score_path = sheet.path("final")
     tried: set[frozenset[int]] = set()
     best, stalled = sys.maxsize, 0
     while True:
         sheet.set_lines(plan(sheet.score, widths, room, sheet.variant))
         tried.add(frozenset(sheet.starts()))
+        if carried.beaten(len(sheet.starts())):
+            msg = f"{sheet.name} at {size}: {len(sheet.starts())} planned lines cannot beat a finished size"
+            raise BeatenError(msg)
         bad, probe = _fitted(sheet, score_path)
         if _tracing():
             sys.stdout.write(
@@ -929,8 +949,7 @@ def finish_at(
                 msg,
             )
         widths = grown
-        if learned is not None:
-            learned.append(widths)
+        carried.learned.append(widths)
     probe = current_render(score_path, probe, lambda: render(sheet, "final", seated=True)[1])
     problems = _final_problems(sheet, score_path, probe)
     if problems:
@@ -942,15 +961,46 @@ def finish_at(
 FINISHED_AT_ONCE = 3
 
 
+def _collect(
+    size: float,
+    future: concurrent.futures.Future[tuple[Score, pathlib.Path, float, float, int]],
+    began: float,
+    planned: int | None,
+    sink: tuple[dict[float, tuple[Score, pathlib.Path, float, float, int]], list[str], threading.Lock],
+) -> str:
+    """Record 1 size's outcome: finished into `done`, refused into `refusals`, stopped as beaten into neither.
+
+    Returns:
+        The line to print.
+
+    """
+    done, refusals, lock = sink
+    took = time.monotonic() - began
+    error = future.exception()
+    if isinstance(error, BeatenError):
+        return f"stopped after {took:.0f} s: {error}"
+    if isinstance(error, port.DoesNotFitError):
+        refusals.append(str(error))
+        return f"refused after {took:.0f} s, planned {planned} lines: {error}"
+    with lock:
+        done[size] = future.result()
+    return f"finished {size} after {took:.0f} s: planned {planned} lines, finished {len(port.rows(done[size][0]))}"
+
+
+class BeatenError(Exception):
+    """A size stopped because another finished size already has fewer lines, or as many and comes first."""
+
+
 def best_finished(
     order: list[float],
     planned: dict[float, int],
-    finished: Callable[[float], tuple[Score, pathlib.Path, float, float, int]],
+    finished: Callable[[float, Callable[[int], bool]], tuple[Score, pathlib.Path, float, float, int]],
 ) -> tuple[tuple[Score, pathlib.Path, float, float, int] | None, list[str]]:
     """Finish sizes several at a time in their order, and keep the one with the fewest finished lines.
 
-    A size not yet started is skipped once its planned lines cannot beat the best finished, since finishing only adds
-    lines; ties go to the size earlier in the order, so the choice is the one finishing them 1 by 1 would make.
+    A size not yet started is skipped, and a running size is stopped at its next plan, once its lines cannot beat the
+    best finished, since finishing only adds lines; ties go to the size earlier in the order, so the choice is the one
+    finishing them 1 by 1 would make.
 
     Returns:
         The best finished sheet, or none, and every refusal.
@@ -958,6 +1008,12 @@ def best_finished(
     """
     done: dict[float, tuple[Score, pathlib.Path, float, float, int]] = {}
     refusals: list[str] = []
+    rank = {size: at for at, size in enumerate(order)}
+    lock = threading.Lock()
+
+    def beaten(size: float, lines: int) -> bool:
+        with lock:
+            return any((len(port.rows(sheet[0])), rank[other]) < (lines, rank[size]) for other, sheet in done.items())
 
     def fewest() -> int | None:
         return min((len(port.rows(sheet[0])) for sheet in done.values()), default=None)
@@ -972,30 +1028,18 @@ def best_finished(
                 best = fewest()
                 if best is not None and planned.get(size, 0) >= best:
                     continue
-                running[pool.submit(finished, size)] = size
+                running[pool.submit(finished, size, functools.partial(beaten, size))] = size
                 began[size] = time.monotonic()
             if not running:
                 break
             ready, _ = concurrent.futures.wait(running, return_when=concurrent.futures.FIRST_COMPLETED)
             for future in ready:
                 size = running.pop(future)
-                if isinstance(error := future.exception(), port.DoesNotFitError):
-                    refusals.append(str(error))
-                    sys.stdout.write(
-                        f"refused after {time.monotonic() - began[size]:.0f} s, planned {planned.get(size)} lines: {error}"
-                        "\n",
-                    )
-                    sys.stdout.flush()
-                    continue
-                done[size] = future.result()
-                sys.stdout.write(
-                    f"finished {size} after {time.monotonic() - began[size]:.0f} s: "
-                    f"planned {planned.get(size)} lines, finished {len(port.rows(done[size][0]))}" + "\n",
-                )
+                note = _collect(size, future, began[size], planned.get(size), (done, refusals, lock))
+                sys.stdout.write(note + "\n")
                 sys.stdout.flush()
     if not done:
         return None, refusals
-    rank = {size: at for at, size in enumerate(order)}
     winner = min(done, key=lambda size: (len(port.rows(done[size][0])), rank[size]))
     return done[winner], refusals
 
@@ -1014,7 +1058,11 @@ def lay(src: pathlib.Path, work: pathlib.Path, variant: str) -> tuple[Score, pat
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(sizes)) as pool:
         found = list(pool.map(lambda size: candidate(src, work, variant, size), sizes))
     planned = {c["size"]: c["lines"] for c in found}
-    best, refusals = best_finished(choose(found, variant), planned, lambda size: finish(src, work, variant, size))
+    best, refusals = best_finished(
+        choose(found, variant),
+        planned,
+        lambda size, beaten: finish(src, work, variant, size, beaten),
+    )
     if best is not None:
         return best
     summary = [

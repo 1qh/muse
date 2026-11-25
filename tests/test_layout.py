@@ -4,8 +4,11 @@ import json
 import os
 import pathlib
 import sys
+import threading
+import time
 import types
 import zipfile
+from collections.abc import Callable
 from dataclasses import dataclass
 from fractions import Fraction
 from typing import TypeGuard, override
@@ -321,11 +324,11 @@ def test_every_line_gap_retry_starts_from_the_widths_the_last_one_learned(
 ) -> None:
     seen: list[object] = []
 
-    def finish_at(*args: *tuple[object, object, object, port.Sizing, list[list[float]] | None]) -> tuple[object, ...]:
-        _src, _work, _variant, (size, distance), learned = args
-        seen.append(learned)
-        assert learned is not None
-        learned.append([float(len(seen))])
+    def finish_at(*args: *tuple[object, object, object, port.Sizing, layout.Carried | None]) -> tuple[object, ...]:
+        _src, _work, _variant, (size, distance), carried = args
+        assert carried is not None
+        seen.append(carried.learned)
+        carried.learned.append([float(len(seen))])
         if len(seen) < 3:
             msg = "s at 2.0: ['text on text: B']"
             raise port.DoesNotFitError(msg)
@@ -555,7 +558,7 @@ def test_the_size_is_chosen_on_finished_sheets(monkeypatch: pytest.MonkeyPatch, 
     monkeypatch.setattr(
         layout,
         "finish",
-        lambda _src, _work, _variant, size: (sheet_of(finished[size]), tmp_path / f"{size}.mscz", size, 1.0, 1),
+        lambda _src, _work, _variant, size, _beaten: (sheet_of(finished[size]), tmp_path / f"{size}.mscz", size, 1.0, 1),
     )
     assert layout.lay(tmp_path / "s.pdf", tmp_path, port.ORIGINAL)[2] == pytest.approx(1.3)
 
@@ -603,7 +606,7 @@ def test_finishing_sizes_at_once_picks_what_finishing_them_in_order_picks() -> N
     finished_lines = {1.5: None, 1.45: 20, 1.4: 18, 1.35: 18, 1.3: 22}
     planned = {1.5: 15, 1.45: 16, 1.4: 16, 1.35: 16, 1.3: 22}
 
-    def finished(size: float) -> tuple[Score, pathlib.Path, float, float, int]:
+    def finished(size: float, _beaten: Callable[[int], bool]) -> tuple[Score, pathlib.Path, float, float, int]:
         lines = finished_lines[size]
         if lines is None:
             msg = f"{size} overflows"
@@ -615,3 +618,75 @@ def test_finishing_sizes_at_once_picks_what_finishing_them_in_order_picks() -> N
     assert best is not None
     assert best[2] == pytest.approx(1.4)
     assert len(refusals) == 1
+
+
+def test_a_running_size_stops_once_a_finished_size_beats_its_plan() -> None:
+    """A size whose plan already has more lines than a finished size, or as many and later in order, stops there."""
+    first_done = threading.Event()
+    asked: dict[float, list[bool]] = {1.45: [], 1.4: []}
+
+    def sheet_of(size: float, lines: int) -> tuple[Score, pathlib.Path, float, float, int]:
+        bars = [Bar(n, 0, 0.0, 100.0, Fraction(4), voices=[], new_system=True) for n in range(1, lines + 1)]
+        return Score(bars, [], []), pathlib.Path(), size, 11.0, 1
+
+    def finished(size: float, beaten: Callable[[int], bool]) -> tuple[Score, pathlib.Path, float, float, int]:
+        if size not in asked:
+            first_done.set()
+            return sheet_of(size, 12)
+        assert first_done.wait(10)
+        deadline = time.monotonic() + 10
+        while not beaten(12) and time.monotonic() < deadline:
+            time.sleep(0.01)
+        lines = {1.45: 13, 1.4: 11}[size]
+        asked[size] = [beaten(12), beaten(lines)]
+        if beaten(lines):
+            msg = f"{size} beaten"
+            raise layout.BeatenError(msg)
+        return sheet_of(size, lines)
+
+    best, refusals = layout.best_finished([1.5, 1.45, 1.4], {1.5: 12, 1.45: 12, 1.4: 11}, finished)
+    assert best is not None
+    assert best[2] == pytest.approx(1.4)
+    assert refusals == []
+    assert asked[1.45] == [True, True]
+    assert asked[1.4] == [True, False]
+
+
+def test_a_plan_a_finished_size_beats_stops_its_size_before_any_render(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`finish_at` asks `beaten` with each plan's line count and stops before fitting a plan that cannot win."""
+    asked: list[int] = []
+
+    class FakeSheet:
+        name = "song"
+        score = None
+        variant = "original"
+
+        def __init__(self, *_: object) -> None:
+            self.lines: list[int] = []
+
+        @staticmethod
+        def path(_stage: str) -> pathlib.Path:
+            return pathlib.Path("final.mscz")
+
+        def set_lines(self, lines: list[int]) -> None:
+            self.lines = lines
+
+        def starts(self) -> list[int]:
+            return self.lines
+
+    def fitted(*_: object) -> tuple[list[int], pathlib.Path]:
+        pytest.fail("a beaten plan was fitted")
+
+    monkeypatch.setattr(layout, "Sheet", FakeSheet)
+    monkeypatch.setattr(layout, "measure", lambda _sheet: ([], []))
+    monkeypatch.setattr(layout, "plan", lambda *_: [1, 5, 9, 13])
+    monkeypatch.setattr(layout, "_fitted", fitted)
+
+    def beaten(lines: int) -> bool:
+        asked.append(lines)
+        return lines >= 4
+
+    carried = layout.Carried(beaten=beaten)
+    with pytest.raises(layout.BeatenError):
+        layout.finish_at(pathlib.Path("s.json"), pathlib.Path(), "original", port.Sizing(1.3, 11.0), carried)
+    assert asked == [4]
