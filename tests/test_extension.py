@@ -13,14 +13,11 @@ from fractions import Fraction
 import pymupdf
 import pytest
 
-from muse import chordseat, layout, pdfcheck, pdftext, port
+from muse import chordseat, gate, launch, layout, pdfcheck, pdftext, port
 from muse.model import Bar, Chord, Event, Head, Score, Text
 from muse.render import BATCHER
 
-pytestmark = [
-    pytest.mark.musescore,
-    pytest.mark.skipif(shutil.which("mscore") is None, reason="MuseScore runs only where it is installed; CI installs it"),
-]
+pytestmark = [pytest.mark.musescore]
 
 
 def chord(root: str, kind: str = "") -> Chord:
@@ -382,10 +379,8 @@ def test_raised_cues_reserve_their_height_so_they_never_reach_the_line_above(tmp
 
 
 def test_a_word_over_a_dynamic_is_text_on_text(tmp_path: pathlib.Path) -> None:
-    launcher = pathlib.Path(shutil.which("mscore") or "").resolve()
-    script = launcher.read_bytes()[:2] == b"#!"
-    binary = pathlib.Path(re.findall(r'exec "([^"]+)"', launcher.read_text())[0]) if script else launcher
-    font = binary.parent.parent / "Resources" / "fonts" / "BravuraText.otf"
+    binary = pathlib.Path(launch.mscore_command()).resolve()
+    font = binary.parent.parent / "Resources" / "fonts" / "Leland.otf"
     assert font.exists(), font
 
     def sheet(*, over: bool) -> pathlib.Path:
@@ -605,3 +600,9 @@ def test_running_the_extension_again_changes_nothing(tmp_path: pathlib.Path) -> 
     for _ in range(3):
         layout.run_extension(score_path, score_path)
     assert score_body(score_path) == once
+
+
+def test_every_short_chord_name_plays_and_transposes_as_proved_through_the_configured_mscore(
+    tmp_path: pathlib.Path,
+) -> None:
+    assert gate.chord_name_problems(tmp_path) == []
