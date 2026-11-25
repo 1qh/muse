@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import difflib
+import functools
 import hashlib
 import itertools
 import os
@@ -404,19 +405,20 @@ def cached_check(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> tu
     )
     key = gate_key(src)
     state = buildcache.load(info.name)
-    if buildcache.fresh(state.get("gate"), key, outputs):
+    if buildcache.fresh(state.get("gate"), key, outputs, root=out):
         return [], list(state["gate"]["notes"]), True
     failures, notes = check_song(src, out, work)
     state = buildcache.load(info.name)
     state.pop("gate", None)
     if not failures:
-        state["gate"] = buildcache.record(key, outputs, notes=notes)
+        state["gate"] = buildcache.record(key, outputs, notes=notes, root=out)
     buildcache.save(info.name, state)
     return failures, notes, False
 
 
+@functools.cache
 def chord_name_problems(work: pathlib.Path) -> list[str]:
-    """Every short spelling plays as proved, and transposes, with the sheets' own style.
+    """Every short spelling plays as proved, and transposes, with the sheets' own style; checked once per process.
 
     Returns:
         Every playback and transposition problem.

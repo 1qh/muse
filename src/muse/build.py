@@ -268,8 +268,15 @@ def stop_children() -> None:
             os.killpg(process.pid, signal.SIGKILL)
 
 
-def child(src: pathlib.Path, stage: pathlib.Path, work: pathlib.Path) -> tuple[dict[str, object] | None, str]:
-    """Build 1 song in its own child process.
+def child(
+    src: pathlib.Path,
+    stage: pathlib.Path,
+    work: pathlib.Path,
+    gated_from: pathlib.Path | None = None,
+) -> tuple[dict[str, object] | None, str]:
+    """Build 1 song in its own child process, and gate its staged folder there when `gated_from` names the sources.
+
+    Gating in the child runs every song's gate at once; publishing then finds the recorded pass for the same bytes.
 
     Returns:
         Its report, or none and the reason the child wrote.
@@ -282,7 +289,8 @@ def child(src: pathlib.Path, stage: pathlib.Path, work: pathlib.Path) -> tuple[d
     refusal = work / f"{name}-refusal.txt"
     refusal.unlink(missing_ok=True)
     process = subprocess.Popen(
-        [sys.executable, "-m", "muse.build", CHILD_FLAG, str(src), str(stage), str(work)],
+        [sys.executable, "-m", "muse.build", CHILD_FLAG, str(src), str(stage), str(work)]
+        + ([str(gated_from)] if gated_from is not None else []),
         stdin=subprocess.DEVNULL,
         start_new_session=True,
     )
@@ -304,7 +312,7 @@ def child(src: pathlib.Path, stage: pathlib.Path, work: pathlib.Path) -> tuple[d
     ) if refusal.exists() else f"child exited {code} with no reason"
 
 
-def child_main(src: pathlib.Path, stage: pathlib.Path, work: pathlib.Path) -> None:
+def child_main(src: pathlib.Path, stage: pathlib.Path, work: pathlib.Path, gated_from: pathlib.Path | None = None) -> None:
     """Build 1 song as the child, its report written by song(); a refusal written to its own file and a non-zero exit.
 
     Raises:
@@ -316,6 +324,8 @@ def child_main(src: pathlib.Path, stage: pathlib.Path, work: pathlib.Path) -> No
     except (port.DoesNotFitError, RuntimeError, OSError, subprocess.SubprocessError, ValueError) as error:
         (work / f"{song_of(src).name}-refusal.txt").write_text(str(error), encoding="utf-8")
         raise SystemExit(2) from error
+    if gated_from is not None:
+        gate.verdicts(gated_from, stage, work, (song_of(src).name,))
 
 
 def _require_tools(*, publishing: bool) -> None:
@@ -383,10 +393,10 @@ def _run(
     places: tuple[pathlib.Path, pathlib.Path, pathlib.Path, pathlib.Path, bool],
     tallies: tuple[list[dict[str, object]], list[str], list[str]],
 ) -> None:
-    _src_dir, _out_dir, work, stage, _publishing = places
+    src_dir, _out_dir, work, stage, publishing = places
     pool = concurrent.futures.ThreadPoolExecutor(max_workers=workers)
     try:
-        jobs = {pool.submit(child, src, stage, work): src for src in sources}
+        jobs = {pool.submit(child, src, stage, work, src_dir if publishing else None): src for src in sources}
         _collect(pool, jobs, places, tallies)
     except BaseException as error:
         _say(f"stopped: {error!r}")
@@ -399,7 +409,7 @@ def _run(
 def main() -> None:
     faulthandler.register(signal.SIGUSR1, all_threads=True)
     if sys.argv[1:2] == [CHILD_FLAG]:
-        child_main(*map(pathlib.Path, sys.argv[2:5]))
+        child_main(*map(pathlib.Path, sys.argv[2:6]))
         return
     port.require_font()
     launch.require_serve()

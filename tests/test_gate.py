@@ -503,3 +503,19 @@ def test_a_stopped_run_kills_its_song_workers_and_what_they_started() -> None:
     finally:
         with build.RUNNING_LOCK:
             build.RUNNING.discard(process)
+
+
+def test_the_chord_name_check_runs_once_per_process(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
+    """The check is the same for every song, so publishing many songs pays its MuseScore runs once."""
+    runs: list[str] = []
+    monkeypatch.setattr(gate.port, "styled", lambda *_: tmp_path / "s.mss")
+    monkeypatch.setattr(gate.launch, "mscore_command", lambda: "mscore")
+    monkeypatch.setattr(gate.chordnames, "playback_problems", lambda *_, **__: runs.append("play") or [])
+    monkeypatch.setattr(gate.chordnames, "transposes", lambda *_: runs.append("transpose") or [])
+    gate.chord_name_problems.cache_clear()
+    try:
+        assert gate.chord_name_problems(tmp_path) == []
+        assert gate.chord_name_problems(tmp_path) == []
+    finally:
+        gate.chord_name_problems.cache_clear()
+    assert runs == ["play", "transpose"]

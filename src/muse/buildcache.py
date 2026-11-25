@@ -231,8 +231,10 @@ def save(song: str, state: dict[str, CacheRecord]) -> None:
     fresh.replace(path)
 
 
-def fresh(entry: CacheRecord | None, key: str, outputs: list[pathlib.Path]) -> bool:
+def fresh(entry: CacheRecord | None, key: str, outputs: list[pathlib.Path], root: pathlib.Path | None = None) -> bool:
     """Report true only when the inputs match and every output still holds the bytes that were built.
+
+    With `root`, an output under it is named relative to it, so the same bytes under another root still match.
 
     Returns:
         Whether the recorded outputs are still fresh.
@@ -241,9 +243,13 @@ def fresh(entry: CacheRecord | None, key: str, outputs: list[pathlib.Path]) -> b
     if entry is None or entry["key"] != key:
         return False
     recorded = entry["outputs"]
-    if set(recorded) != {str(path) for path in outputs}:
+    if set(recorded) != {_label(path, root) for path in outputs}:
         return False
-    return all(path.exists() and file_digest(path) == recorded[str(path)] for path in outputs)
+    return all(path.exists() and file_digest(path) == recorded[_label(path, root)] for path in outputs)
+
+
+def _label(path: pathlib.Path, root: pathlib.Path | None) -> str:
+    return str(path.relative_to(root)) if root is not None and path.is_relative_to(root) else str(path)
 
 
 def record(
@@ -252,8 +258,9 @@ def record(
     *,
     decision: Decision | None = None,
     notes: list[str] | None = None,
+    root: pathlib.Path | None = None,
 ) -> CacheRecord:
-    entry: CacheRecord = {"key": key, "outputs": {str(path): file_digest(path) for path in outputs}}
+    entry: CacheRecord = {"key": key, "outputs": {_label(path, root): file_digest(path) for path in outputs}}
     if decision is not None:
         entry["decision"] = decision
     if notes is not None:

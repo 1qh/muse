@@ -176,3 +176,31 @@ def test_a_song_child_hands_back_its_report_or_its_refusal(
     assert build.child(tmp_path / "Song-Em.pdf", tmp_path, tmp_path) == (None, "no size fits")
     monkeypatch.setattr(build.subprocess, "Popen", finished(-9, None, None))
     assert build.child(tmp_path / "Song-Em.pdf", tmp_path, tmp_path) == (None, "child exited -9 with no reason")
+
+
+def test_a_pass_recorded_under_1_folder_matches_the_same_bytes_under_another(tmp_path: pathlib.Path) -> None:
+    """A song gated in its staging folder keeps its pass once the identical files sit in the sheets repo."""
+    stage, repo = tmp_path / "stage", tmp_path / "repo"
+    for root in (stage, repo):
+        (root / "Song").mkdir(parents=True)
+        (root / "Song" / "Song.pdf").write_bytes(b"pdf")
+    recorded = buildcache.record("k", [stage / "Song" / "Song.pdf"], root=stage)
+    assert buildcache.fresh(recorded, "k", [repo / "Song" / "Song.pdf"], root=repo)
+    (repo / "Song" / "Song.pdf").write_bytes(b"other")
+    assert not buildcache.fresh(recorded, "k", [repo / "Song" / "Song.pdf"], root=repo)
+    assert not buildcache.fresh(recorded, "k", [repo / "Song" / "Song.pdf"])
+
+
+def test_a_publishing_child_gates_its_staged_song_and_a_plain_build_does_not(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: pathlib.Path,
+) -> None:
+    gated: list[tuple[pathlib.Path, tuple[str, ...]]] = []
+    monkeypatch.setattr(build, "song", lambda *_: None)
+    monkeypatch.setattr(build, "song_of", lambda _src: SimpleNamespace(name="Song"))
+    monkeypatch.setattr(build.gate, "verdicts", lambda _src, out, _work, names: gated.append((out, names)) or {})
+    source = tmp_path / "Song-Am.pdf"
+    build.child_main(source, tmp_path / "stage", tmp_path / "work")
+    assert gated == []
+    build.child_main(source, tmp_path / "stage", tmp_path / "work", tmp_path / "sources")
+    assert gated == [(tmp_path / "stage", ("Song",))]
