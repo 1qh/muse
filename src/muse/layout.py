@@ -1027,11 +1027,12 @@ def best_finished(
     planned: dict[float, int],
     finished: Callable[[float, Callable[[int], bool]], tuple[Score, pathlib.Path, float, float, int]],
 ) -> tuple[tuple[Score, pathlib.Path, float, float, int] | None, list[str]]:
-    """Finish sizes `finished_at_once()` at a time in their order, and keep the one with the fewest finished lines.
+    """Finish sizes `finished_at_once()` at a time, fewest planned lines first, and keep the fewest finished lines.
 
-    A size not yet started is skipped, and a running size is stopped at its next plan, once its lines cannot beat the
-    best finished, since finishing only adds lines; ties go to the size earlier in the order, so the choice is the one
-    finishing them 1 by 1 would make.
+    A plan's line count bounds its finished count from below, so the size likeliest to win finishes first and every size
+    it beats stops early: one not yet started is skipped, and a running one is stopped at its next plan, once its lines
+    cannot beat the best finished. Ties go to the size earlier in `order`, so the choice is the one finishing every size
+    1 by 1 in `order` would make.
 
     Returns:
         The best finished sheet, or none, and every refusal.
@@ -1046,10 +1047,7 @@ def best_finished(
         with lock:
             return any((len(port.rows(sheet[0])), rank[other]) < (lines, rank[size]) for other, sheet in done.items())
 
-    def fewest() -> int | None:
-        return min((len(port.rows(sheet[0])) for sheet in done.values()), default=None)
-
-    waiting = list(order)
+    waiting = sorted(order, key=lambda size: (planned.get(size, 0), rank[size]))
     running: dict[concurrent.futures.Future[tuple[Score, pathlib.Path, float, float, int]], float] = {}
     began: dict[float, float] = {}
     at_once = finished_at_once()
@@ -1057,8 +1055,7 @@ def best_finished(
         while waiting or running:
             while waiting and len(running) < at_once:
                 size = waiting.pop(0)
-                best = fewest()
-                if best is not None and planned.get(size, 0) >= best:
+                if beaten(size, planned.get(size, 0)):
                     continue
                 running[pool.submit(finished, size, functools.partial(beaten, size))] = size
                 began[size] = time.monotonic()

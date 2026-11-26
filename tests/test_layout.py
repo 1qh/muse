@@ -709,6 +709,25 @@ def test_finishing_1_size_at_a_time_never_starts_a_size_the_best_finished_alread
     assert started == [1.5]
 
 
+def test_the_size_with_the_fewest_planned_lines_finishes_first_and_stops_the_rest(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A plan bounds its finished lines from below, so finishing it first stops every size it beats unstarted."""
+    monkeypatch.setattr(layout, "finished_at_once", lambda: 1)
+    started: list[float] = []
+    lines_of = {1.5: 11, 1.45: 10, 1.4: 10}
+
+    def finished(size: float, _beaten: Callable[[int], bool]) -> tuple[Score, pathlib.Path, float, float, int]:
+        started.append(size)
+        bars = [Bar(n, 0, 0.0, 100.0, Fraction(4), voices=[], new_system=True) for n in range(1, lines_of[size] + 1)]
+        return Score(bars, [], []), pathlib.Path(), size, 11.0, 1
+
+    best, _ = layout.best_finished([1.5, 1.45, 1.4], dict(lines_of), finished)
+    assert best is not None
+    assert best[2] == pytest.approx(1.45)
+    assert started == [1.45]
+
+
 def test_a_plan_breaking_a_line_rule_is_refused_before_it_is_seated(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: pathlib.Path,
