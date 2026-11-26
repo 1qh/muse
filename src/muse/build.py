@@ -33,6 +33,7 @@ Decision = buildcache.Decision
 
 
 Sheet = tuple[str, dict[str, buildcache.CacheRecord], dict[str, object], list[str]]
+TERMINAL_STOPS = (signal.SIGTTOU, signal.SIGTTIN)
 
 
 def variant_key(src: pathlib.Path, variant: str) -> str:
@@ -546,7 +547,14 @@ def _run(
         pool.shutdown(wait=True, cancel_futures=True)
 
 
+def ignore_terminal_stops() -> None:
+    """Ignore the signals a terminal stops a background job with, for this process and everything it starts."""
+    for stop in TERMINAL_STOPS:
+        signal.signal(stop, signal.SIG_IGN)
+
+
 def main() -> None:
+    ignore_terminal_stops()
     faulthandler.register(signal.SIGUSR1, all_threads=True)
     if sys.argv[1:2] == [CHILD_FLAG]:
         child_main(*map(pathlib.Path, sys.argv[2:6]))

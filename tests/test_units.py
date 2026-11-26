@@ -12,6 +12,7 @@ import re
 import shutil
 import signal
 import subprocess
+import sys
 import threading
 import time
 import zipfile
@@ -1880,3 +1881,20 @@ def test_waiting_for_a_song_checks_stopped_processes_again_after_the_interval(
     assert warning_times == [0.0, interval]
     assert [timeout for timeout, _ in waits] == [interval, interval]
     assert all(return_when == concurrent.futures.FIRST_COMPLETED for _, return_when in waits)
+
+
+def test_a_build_and_every_tool_it_starts_ignore_terminal_stops() -> None:
+    """A build backgrounded in a terminal set to tostop keeps running: its children inherit the ignored stops."""
+    saved = {stop: signal.getsignal(stop) for stop in build.TERMINAL_STOPS}
+    try:
+        build.ignore_terminal_stops()
+        child = subprocess.run(
+            [sys.executable, "-c", "import signal; print(signal.getsignal(signal.SIGTTOU) == signal.SIG_IGN)"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        assert child.stdout.strip() == "True"
+    finally:
+        for stop, handler in saved.items():
+            signal.signal(stop, handler)
