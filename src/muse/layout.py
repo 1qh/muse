@@ -19,6 +19,7 @@ import threading
 import time
 import xml.etree.ElementTree as ET
 import zipfile
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal, TypedDict
 
@@ -278,6 +279,47 @@ def boxes(mpos: pathlib.Path) -> list[dict[str, float]]:
     ]
 
 
+MEASUREMENT_KEEP = 64
+MEASUREMENT_LOCK = threading.Lock()
+
+
+@dataclass(frozen=True)
+class Measurement:
+    """Immutable results of measuring the prepared scores."""
+
+    widths: tuple[float, ...]
+    shares: tuple[float, ...]
+    room: float
+
+
+MEASUREMENTS: OrderedDict[str, Measurement] = OrderedDict()
+
+
+def _measurement_key(
+    natural: pathlib.Path,
+    normal: pathlib.Path,
+    options: port.TransposeOptions | None,
+    noted: list[int],
+) -> str:
+    """Identify every measurement input without ZIP timestamps.
+
+    Returns:
+        The digest of the score contents, paths, transpose options and noted bars.
+
+    """
+    digest = hashlib.sha256(
+        json.dumps([str(natural.resolve()), str(normal.resolve()), options, noted], sort_keys=True).encode(),
+    )
+    for path in (natural, normal):
+        contents = hashlib.sha256()
+        with zipfile.ZipFile(path) as archive:
+            for item in archive.infolist():
+                contents.update(json.dumps(item.filename).encode())
+                contents.update(hashlib.sha256(archive.read(item)).digest())
+        digest.update(contents.digest())
+    return digest.hexdigest()
+
+
 def measure(sheet: Sheet) -> tuple[list[float], float]:
     """Each bar's natural width, and the room 1 line holds, in the program's own units.
 
@@ -294,20 +336,32 @@ def measure(sheet: Sheet) -> tuple[list[float], float]:
     rewrite(natural, unjustified)
     for bar, (line, page) in zip(sheet.score.bars, flags, strict=True):
         bar.new_system, bar.new_page = line, page
-    natural_pdf = natural.with_suffix(".pdf")
-    BATCHER.render(natural, [natural.with_suffix(".mpos"), natural_pdf], sheet.options)
+    noted = [index for index, bar in enumerate(sheet.score.bars) if piano.has_notes(bar)]
+    key = _measurement_key(natural, normal, sheet.options, noted)
+    with MEASUREMENT_LOCK:
+        cached = MEASUREMENTS.get(key)
+        if cached is not None:
+            MEASUREMENTS.move_to_end(key)
+            sheet.shares = list(cached.shares)
+            return list(cached.widths), cached.room
+    BATCHER.render(natural, [natural.with_suffix(".mpos")], sheet.options)
     BATCHER.render(normal, [normal.with_suffix(".mpos")], sheet.options)
     laid_natural = boxes(natural.with_suffix(".mpos"))
     shares = chord_shares(
         natural,
         len(laid_natural),
-        [index for index, bar in enumerate(sheet.score.bars) if piano.has_notes(bar)],
+        noted,
     )
     sheet.shares = shares
     widths = [box["sx"] * share for box, share in zip(laid_natural, shares, strict=True)]
     laid = boxes(normal.with_suffix(".mpos"))
     first = [box for box in laid if box["page"] == laid[0]["page"] and box["y"] == laid[0]["y"]]
-    return widths, sum(box["sx"] for box in first)
+    room = sum(box["sx"] for box in first)
+    with MEASUREMENT_LOCK:
+        MEASUREMENTS[key] = Measurement(tuple(widths), tuple(shares), room)
+        while len(MEASUREMENTS) > MEASUREMENT_KEEP:
+            MEASUREMENTS.popitem(last=False)
+    return widths, room
 
 
 def chord_shares(natural: pathlib.Path, bars: int, noted: list[int]) -> list[float]:
