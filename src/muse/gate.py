@@ -477,6 +477,8 @@ def verdicts(
             ) as error:
                 found[info.name] = [f"refused: {error}"]
         sys.stdout.write(f"{info.name}: {len(found[info.name])} failures\n")
+        for failure in found[info.name]:
+            sys.stdout.write(f"  FAIL: {failure}\n")
         sys.stdout.flush()
     return found
 

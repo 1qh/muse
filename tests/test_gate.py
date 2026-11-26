@@ -543,3 +543,36 @@ def test_a_build_publishes_each_song_without_purging_and_purges_once(tmp_path: p
     calls.clear()
     publish.publish(publish.Places(tmp_path, tmp_path, tmp_path), run, lambda *_: {})
     assert any("--mirror" in call for call in calls)
+
+
+class _Song:
+    """A song whose folder must hold 1 named file."""
+
+    name = "Song"
+
+    @staticmethod
+    def files() -> set[str]:
+        """Name the 1 file the folder must hold.
+
+        Returns:
+            The file's path within the sheets repo.
+
+        """
+        return {"Song/Song-C.pdf"}
+
+
+def test_verdicts_print_every_failure_a_song_has(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: pathlib.Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A build's gate names each failure it counts, so a blocked song says why."""
+    sources_dir = tmp_path / "src"
+    sources_dir.mkdir()
+    (sources_dir / "Song-C.pdf").write_bytes(b"")
+    monkeypatch.setattr(gate, "chord_name_problems", lambda _work: [])
+    monkeypatch.setattr(gate, "song_of", lambda _src: _Song())
+    found = gate.verdicts(sources_dir, tmp_path / "out", tmp_path / "work")
+    printed = capsys.readouterr().out
+    assert found["Song"] == ["missing Song/Song-C.pdf"]
+    assert "  FAIL: missing Song/Song-C.pdf\n" in printed

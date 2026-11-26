@@ -766,3 +766,27 @@ def test_a_lone_line_is_found_and_only_it() -> None:
     assert piano.lone_lines([1, 9, 10, 14], 17) == [9]
     assert piano.lone_lines([1, 9], 9) == [9]
     assert piano.lone_lines([1, 5], 8) == []
+
+
+LONE_EARLY_X = 120.0
+LONE_LATE_X = 160.0
+LONE_SHAPE = (
+    (100.0, Fraction(1, 2), Fraction(0)),
+    (LONE_EARLY_X, Fraction(1, 2), Fraction(1, 2)),
+    (140.0, Fraction(1), Fraction(1)),
+    (LONE_LATE_X, Fraction(2), Fraction(2)),
+)
+
+
+def test_the_verifier_opens_a_lone_chord_unless_it_prints_over_an_event_in_the_second_half(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A lone chord over a note at 1/2 is due on beat 1; one over an event in the 2nd half is due there."""
+    early = written_rest_bar(LONE_SHAPE, (LONE_EARLY_X,))
+    late = written_rest_bar(LONE_SHAPE, (LONE_LATE_X,))
+    saved = write_score(tmp_path / "on-1.mscz", HARMONY_ON_1)
+    monkeypatch.setattr(verify, "decode", lambda _path: Score([early], [], []))
+    assert verify.chord_beat_problems(tmp_path, saved) == []
+    monkeypatch.setattr(verify, "decode", lambda _path: Score([late], [], []))
+    assert verify.chord_beat_problems(tmp_path, saved) == ["bar 1: chords on ['0'], due on ['2']"]

@@ -25,6 +25,7 @@ if TYPE_CHECKING:
 BANNED = ["Copyright", "Contact", "Sáng tác", "Trình bày"]
 PRIVATE_BANNED = "banned.txt"
 PC = {"C": 0, "D": 2, "E": 4, "F": 5, "G": 7, "A": 9, "B": 11}
+HALVES = 2
 
 
 def midi(step: str, alter: int, octave: int) -> int:
@@ -108,6 +109,9 @@ def chord_beat_problems(src: pathlib.Path, path: pathlib.Path) -> list[str]:
         for chord in sorted(bar.chords, key=lambda chord: chord.x):
             nearest = min(events, key=lambda event: abs(event.x - chord.x), default=None)
             want.append(nearest.onset if nearest is not None and abs(nearest.x - chord.x) <= EXACT_OVER_NOTE else None)
+        if len(want) == 1:
+            lone = want[0]
+            want = [lone if lone is not None and lone * HALVES >= bar.length else Fraction()]
         got = [onset for onset, *_ in held.chords]
         valid = len(got) == len(want) and all(Fraction() <= onset < bar.length for onset in got)
         valid = valid and all(left < right for left, right in itertools.pairwise(got))
