@@ -6,9 +6,12 @@ Each prints short and plays like the long form.
 from __future__ import annotations
 
 import json
+import os
 import pathlib
 import re
+import shutil
 import struct
+import tempfile
 import zipfile
 from collections.abc import Callable
 
@@ -103,7 +106,10 @@ def chord_file(work: pathlib.Path) -> pathlib.Path:
     work.mkdir(parents=True, exist_ok=True)
     text = CHORD_FILE.read_text(encoding="utf-8")
     if not path.exists() or path.read_text(encoding="utf-8") != text:
-        path.write_text(text, encoding="utf-8")
+        fd, staged = tempfile.mkstemp(prefix="chords_short-", suffix=".xml", dir=work)
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(text)
+        pathlib.Path(staged).replace(path)
     return path
 
 
@@ -214,15 +220,18 @@ def playback_problems(command: str, style: pathlib.Path, work: pathlib.Path, run
 
     """
     kinds = sorted(set(SHORT.values()))
-    folder = work / "playback"
-    folder.mkdir(parents=True, exist_ok=True)
+    work.mkdir(parents=True, exist_ok=True)
+    folder = pathlib.Path(tempfile.mkdtemp(prefix="playback-", dir=work))
     source = folder / "kinds.musicxml"
     source.write_text(bars_xml(kinds), encoding="utf-8")
     score = folder / "kinds.mscz"
     mid = folder / "kinds.mid"
-    run([command, "-S", str(style), "-o", str(score), str(source)])
-    run([command, "-o", str(mid), str(score)])
-    return wrong_playback(kinds, sounding(mid))
+    try:
+        run([command, "-S", str(style), "-o", str(score), str(source)])
+        run([command, "-o", str(mid), str(score)])
+        return wrong_playback(kinds, sounding(mid))
+    finally:
+        shutil.rmtree(folder, ignore_errors=True)
 
 
 def transposes(command: str, style: pathlib.Path, work: pathlib.Path, run: Runner) -> list[str]:
@@ -234,8 +243,8 @@ def transposes(command: str, style: pathlib.Path, work: pathlib.Path, run: Runne
         A problem line per kind that does not sound as proved a tone up.
 
     """
-    folder = work / "playback4"
-    folder.mkdir(parents=True, exist_ok=True)
+    work.mkdir(parents=True, exist_ok=True)
+    folder = pathlib.Path(tempfile.mkdtemp(prefix="playback-moved-", dir=work))
     kinds = sorted(set(SHORT.values()))
     source = folder / "moved.musicxml"
     source.write_text(bars_xml(kinds), encoding="utf-8")
@@ -251,10 +260,13 @@ def transposes(command: str, style: pathlib.Path, work: pathlib.Path, run: Runne
         "useDoubleSharpsFlats": False,
         "transposeInterval": 0,
     }
-    run([command, "-S", str(style), "-o", str(score), str(source)])
-    run([command, "-o", str(moved), "--transpose", json.dumps(options), str(score)])
-    run([command, "-o", str(mid), str(moved)])
-    heard = sounding(mid)
+    try:
+        run([command, "-S", str(style), "-o", str(score), str(source)])
+        run([command, "-o", str(moved), "--transpose", json.dumps(options), str(score)])
+        run([command, "-o", str(mid), str(moved)])
+        heard = sounding(mid)
+    finally:
+        shutil.rmtree(folder, ignore_errors=True)
     return [
         f"{kind} a tone up: plays {heard.get(bar)}"
         for bar, kind in enumerate(kinds)
