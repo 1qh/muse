@@ -658,6 +658,58 @@ BLANK_BAND = 0.15
 INK_LEVEL = 128
 
 
+def grey_ink_profile(page: pymupdf.Page, dpi: int) -> list[int]:
+    """Count the grey pixels below the ink threshold in each page row.
+
+    Returns:
+        The ink count for each row at the requested resolution.
+
+    """
+    pixmap = page.get_pixmap(dpi=dpi, colorspace=pymupdf.csGRAY)
+    pixels = pixmap.samples
+    return [
+        sum(pixel < INK_LEVEL for pixel in pixels[row * pixmap.width : row * pixmap.width + pixmap.width])
+        for row in range(pixmap.height)
+    ]
+
+
+def render_page_clip(
+    page: pymupdf.Page,
+    zoom: float,
+    clip: pymupdf.Rect | None = None,
+    *,
+    grey: bool = False,
+) -> pymupdf.Pixmap:
+    """Render a page clip at a uniform zoom in RGB or grey.
+
+    Returns:
+        The rendered pixels and their dimensions.
+
+    """
+    return page.get_pixmap(
+        matrix=pymupdf.Matrix(zoom, zoom),
+        clip=clip,
+        colorspace=pymupdf.csGRAY if grey else pymupdf.csRGB,
+    )
+
+
+def identical_pixels(rendered: pathlib.Path, published: pathlib.Path, dpi: int) -> bool:
+    """Compare the page counts, pixel dimensions and pixel values of two PDFs.
+
+    Returns:
+        Whether every page has identical pixels at the requested resolution.
+
+    """
+    with pymupdf.open(rendered) as actual, pymupdf.open(published) as expected:
+        same = len(actual) == len(expected)
+        if same:
+            for actual_page, expected_page in zip(actual, expected, strict=True):
+                left = actual_page.get_pixmap(dpi=dpi)
+                right = expected_page.get_pixmap(dpi=dpi)
+                same = same and (left.width, left.height, left.samples) == (right.width, right.height, right.samples)
+        return same
+
+
 def inked_rows(page: pymupdf.Page, dpi: int) -> tuple[list[int], int]:
     """Find the pixel rows holding any ink at this resolution, and the page's height in rows.
 

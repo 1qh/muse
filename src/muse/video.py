@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Literal
 import mido
 import pymupdf
 
-from muse import port, render, song, status, toolpath
+from muse import pdfcheck, port, render, song, status, toolpath
 from muse.chordseat import MPOS_UNITS
 
 if TYPE_CHECKING:
@@ -41,7 +41,7 @@ HIGH = 96
 OCTAVE = 12
 WHITE = frozenset({0, 2, 4, 5, 7, 9, 11})
 COLOURS = {"chords": (0x8D, 0xB6, 0x00), "staff1": (0x56, 0xB4, 0xE9), "staff2": (0xCC, 0x79, 0xA7)}
-PRIORITY = ("staff1", "staff2", "chords")
+LAYER_PRIORITY = ("staff1", "staff2", "chords")
 CURSOR = (0x00, 0x65, 0xBF)
 BYTE = 255
 CURSOR_ALPHA = 178 / BYTE
@@ -62,7 +62,6 @@ DEFAULT_TEMPO = 500000
 DEFAULT_SIGNATURE = (4, 4)
 PDF_DPI = 100
 POINT_DPI = 72
-INK_THRESHOLD = 128
 LABEL_THRESHOLD = 200
 MILLISECONDS = 1000
 ROW_PRECISION = 1
@@ -501,12 +500,7 @@ def split_rows(document: pymupdf.Document, lines: list[Line], spatium: float) ->
     for index, line in enumerate(lines):
         page = document[line.page]
         if line.page not in profiles:
-            pixmap = page.get_pixmap(dpi=POINT_DPI, colorspace=pymupdf.csGRAY)
-            pixels = pixmap.samples
-            profiles[line.page] = [
-                sum(pixel < INK_THRESHOLD for pixel in pixels[row * pixmap.width : (row + ONE) * pixmap.width])
-                for row in range(pixmap.height)
-            ]
+            profiles[line.page] = pdfcheck.grey_ink_profile(page, POINT_DPI)
         ink = profiles[line.page]
         above = lines[index - ONE] if index > ZERO and lines[index - ONE].page == line.page else None
         below = lines[index + ONE] if index + ONE < len(lines) and lines[index + ONE].page == line.page else None
@@ -547,18 +541,10 @@ def crops(pdf: pathlib.Path, lines: list[Line], spatium: float) -> list[Crop]:
     with pymupdf.open(pdf) as document:
         for line, (upper, lower) in zip(lines, split_rows(document, lines, spatium), strict=True):
             zoom = crop_zoom(right - left, lower - upper)
-            pixmap = document[line.page].get_pixmap(
-                matrix=pymupdf.Matrix(zoom, zoom),
-                clip=pymupdf.Rect(left, upper, right, lower),
-                colorspace=pymupdf.csRGB,
-            )
+            pixmap = pdfcheck.render_page_clip(document[line.page], zoom, pymupdf.Rect(left, upper, right, lower))
             if pixmap.height > SLOT:
                 zoom *= (SLOT - ONE) / pixmap.height
-                pixmap = document[line.page].get_pixmap(
-                    matrix=pymupdf.Matrix(zoom, zoom),
-                    clip=pymupdf.Rect(left, upper, right, lower),
-                    colorspace=pymupdf.csRGB,
-                )
+                pixmap = pdfcheck.render_page_clip(document[line.page], zoom, pymupdf.Rect(left, upper, right, lower))
             pixmap.invert_irect()
             result.append(Crop(pixmap.samples, pixmap.width, pixmap.height, upper, zoom, left))
     return result
@@ -603,7 +589,7 @@ def key_colour(roles: Sequence[Role]) -> Colour:
         The highest priority role's palette colour.
 
     """
-    return COLOURS[min(roles, key=PRIORITY.index)]
+    return COLOURS[min(roles, key=LAYER_PRIORITY.index)]
 
 
 def notes(midi: mido.MidiFile, roles: list[Role], shift: float) -> list[Note]:
@@ -676,8 +662,8 @@ def keyboard_base() -> Keyboard:
                     fontsize=LABEL_SIZE,
                     color=LABEL_SHADE,
                 )
-        pixels = page.get_pixmap(colorspace=pymupdf.csRGB).samples
-        mask = labels.get_pixmap(colorspace=pymupdf.csGRAY).samples
+        pixels = pdfcheck.render_page_clip(page, float(ONE)).samples
+        mask = pdfcheck.render_page_clip(labels, float(ONE), grey=True).samples
         return Keyboard(pixels, boxes, [index * THREE for index, value in enumerate(mask) if value < LABEL_THRESHOLD])
 
 
@@ -889,16 +875,9 @@ def require_identical(rendered: pathlib.Path, published: pathlib.Path) -> None:
         VideoRefusedError: page counts, pixel dimensions or pixel values differ.
 
     """
-    with pymupdf.open(rendered) as actual, pymupdf.open(published) as expected:
-        same = len(actual) == len(expected)
-        if same:
-            for actual_page, expected_page in zip(actual, expected, strict=True):
-                left = actual_page.get_pixmap(dpi=PDF_DPI)
-                right = expected_page.get_pixmap(dpi=PDF_DPI)
-                same = same and (left.width, left.height, left.samples) == (right.width, right.height, right.samples)
-        if not same:
-            message = f"{rendered}: differs from published favourite {published}"
-            raise VideoRefusedError(message)
+    if not pdfcheck.identical_pixels(rendered, published, PDF_DPI):
+        message = f"{rendered}: differs from published favourite {published}"
+        raise VideoRefusedError(message)
 
 
 def render_song(source: pathlib.Path, sheets: pathlib.Path, work: pathlib.Path, videos: pathlib.Path) -> pathlib.Path:
