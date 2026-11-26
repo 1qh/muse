@@ -1,0 +1,6 @@
+# PyMuPDF requires its layout and LLM text engines, which pull onnxruntime and hold Python at the newest release
+# onnxruntime ships for; the pipeline reads glyphs, paths and renders through PyMuPDF's core alone, proven by
+# tests/test_units.py, so setup.sh installs without them.
+onnxruntime; sys_platform == "never"
+pymupdf-layout; sys_platform == "never"
+pymupdf4llm; sys_platform == "never"

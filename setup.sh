@@ -5,7 +5,7 @@ root=$(cd "$(dirname "$0")" && pwd -P)
 for python in $(uv python list --all-versions --output-format json | python3 "${root}/tools/pythons.py"); do
   rm -rf "${root}/.venv.new"
   uv venv -q --relocatable --python "${python}" "${root}/.venv.new"
-  if VIRTUAL_ENV="${root}/.venv.new" uv pip install -q --refresh --upgrade -e "${root}[dev]" 2> /dev/null \
+  if VIRTUAL_ENV="${root}/.venv.new" uv pip install -q --refresh --upgrade --override "${root}/tools/unused-deps.txt" -e "${root}[dev]" 2> /dev/null \
     && uv pip list --outdated --format json --python "${root}/.venv.new/bin/python" | python3 "${root}/tools/outdated.py" > /dev/null; then # a Python that installs only an older release of some dependency is not the one
     rm -rf "${root}/.venv"
     mv "${root}/.venv.new" "${root}/.venv"

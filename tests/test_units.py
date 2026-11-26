@@ -3,6 +3,7 @@
 import ast
 import collections
 import dataclasses
+import importlib.util
 import inspect
 import pathlib
 import re
@@ -1504,3 +1505,23 @@ def test_a_cue_span_belongs_only_to_a_cue_holding_its_words_as_words() -> None:
     assert [words for words, _ in theirs] == ["(After", "IN"]
     assert not chordseat.in_cue("A", "BASS IN /Steel-Gtr")
     assert chordseat.in_cue("BAND IN", "(After Sin - BAND IN )")
+
+
+def test_pymupdf_reads_and_renders_without_its_unused_engines() -> None:
+    """The layout and LLM engines PyMuPDF requires stay uninstalled, so Python can move past onnxruntime's builds."""
+    assert importlib.util.find_spec("onnxruntime") is None
+    page = pymupdf.open()
+    page.new_page(width=200, height=100)
+    sheet = page[0]
+    sheet.insert_text((20, 50), "Am7", fontsize=12)
+    sheet.draw_line((10, 60), (190, 60))
+    chars = [
+        c
+        for b in sheet.get_text("rawdict")["blocks"]
+        for line in b.get("lines", [])
+        for s in line["spans"]
+        for c in s["chars"]
+    ]
+    assert "".join(c["c"] for c in chars) == "Am7"
+    assert sheet.get_drawings()
+    assert sheet.get_pixmap(dpi=36).width == 100
