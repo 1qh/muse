@@ -11,7 +11,7 @@ import zipfile
 from collections.abc import Callable
 from dataclasses import dataclass
 from fractions import Fraction
-from typing import TypeGuard, override
+from typing import TypeGuard, cast, override
 
 import pytest
 
@@ -704,3 +704,27 @@ def test_finishing_1_size_at_a_time_never_starts_a_size_the_best_finished_alread
     best, _ = layout.best_finished([1.5, 1.45, 1.4], {1.5: 12, 1.45: 12, 1.4: 13}, finished)
     assert best is not None
     assert started == [1.5]
+
+
+def test_a_plan_breaking_a_line_rule_is_refused_before_it_is_seated(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: pathlib.Path,
+) -> None:
+    """Seating is the dearest step, and a fitting plan that breaks a line rule is refused after it anyway."""
+
+    class FakeSheet:
+        name = "song"
+        size = 1.3
+        variant = "original"
+        score = None
+
+    def seat(*_: object) -> pathlib.Path:
+        pytest.fail("a rule-breaking plan was seated")
+
+    monkeypatch.setattr(layout, "render", lambda *_: (None, tmp_path / "probe.pdf"))
+    monkeypatch.setattr(layout, "overflowing", lambda *_, **__: set())
+    monkeypatch.setattr(layout.port, "balance", lambda *_: False)
+    monkeypatch.setattr(layout.port, "line_rule_reasons", lambda *_: ["bar 7: lone bar on a line"])
+    monkeypatch.setattr(layout, "seat", seat)
+    with pytest.raises(port.DoesNotFitError, match="lone bar"):
+        layout._fitted(cast("layout.Sheet", FakeSheet()), tmp_path / "final.mscz")

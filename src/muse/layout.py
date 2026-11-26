@@ -850,6 +850,9 @@ def _fitted(sheet: Sheet, score_path: pathlib.Path) -> tuple[set[int], pathlib.P
         if port.balance(sheet.score, probe):
             _, probe = render(sheet, "final")
             bad = overflowing(sheet, probe, seated=False)
+        if not bad and (broken := port.line_rule_reasons(sheet.score, sheet.variant)):
+            msg = f"{sheet.name} at {sheet.size}: {broken[:3]}"
+            raise port.DoesNotFitError(msg)
         if not bad:
             probe = seat(sheet, score_path)
             bad = overflowing(sheet, probe, seated=True)
