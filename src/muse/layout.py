@@ -974,7 +974,21 @@ def finish_at(
     return sheet.score, score_path, size, sheet.distance, len(pdftext.read(probe))
 
 
-FINISHED_AT_ONCE = 1
+MOST_AT_ONCE = 3
+SHEETS_AT_ONCE = 3
+
+
+def finished_at_once() -> int:
+    """Count the sizes of 1 sheet finished side by side: 1 when songs share the cores, up to 3 when 1 song has them.
+
+    Songs already fill every core in a whole build, so sizes finished side by side only add work the stop spares;
+    a song built alone leaves cores idle that finishing several sizes at once uses.
+
+    Returns:
+        How many sizes of 1 sheet finish at once.
+
+    """
+    return max(1, min(MOST_AT_ONCE, launch.slots() // SHEETS_AT_ONCE))
 
 
 def _collect(
@@ -1012,7 +1026,7 @@ def best_finished(
     planned: dict[float, int],
     finished: Callable[[float, Callable[[int], bool]], tuple[Score, pathlib.Path, float, float, int]],
 ) -> tuple[tuple[Score, pathlib.Path, float, float, int] | None, list[str]]:
-    """Finish sizes `FINISHED_AT_ONCE` at a time in their order, and keep the one with the fewest finished lines.
+    """Finish sizes `finished_at_once()` at a time in their order, and keep the one with the fewest finished lines.
 
     A size not yet started is skipped, and a running size is stopped at its next plan, once its lines cannot beat the
     best finished, since finishing only adds lines; ties go to the size earlier in the order, so the choice is the one
@@ -1037,9 +1051,10 @@ def best_finished(
     waiting = list(order)
     running: dict[concurrent.futures.Future[tuple[Score, pathlib.Path, float, float, int]], float] = {}
     began: dict[float, float] = {}
-    with concurrent.futures.ThreadPoolExecutor(max_workers=FINISHED_AT_ONCE) as pool:
+    at_once = finished_at_once()
+    with concurrent.futures.ThreadPoolExecutor(max_workers=at_once) as pool:
         while waiting or running:
-            while waiting and len(running) < FINISHED_AT_ONCE:
+            while waiting and len(running) < at_once:
                 size = waiting.pop(0)
                 best = fewest()
                 if best is not None and planned.get(size, 0) >= best:

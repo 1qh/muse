@@ -622,7 +622,7 @@ def test_finishing_sizes_at_once_picks_what_finishing_them_in_order_picks() -> N
 
 def test_a_running_size_stops_once_a_finished_size_beats_its_plan(monkeypatch: pytest.MonkeyPatch) -> None:
     """A size whose plan already has more lines than a finished size, or as many and later in order, stops there."""
-    monkeypatch.setattr(layout, "FINISHED_AT_ONCE", 3)
+    monkeypatch.setattr(layout, "finished_at_once", lambda: 3)
     first_done = threading.Event()
     asked: dict[float, list[bool]] = {1.45: [], 1.4: []}
 
@@ -693,7 +693,10 @@ def test_a_plan_a_finished_size_beats_stops_its_size_before_any_render(monkeypat
     assert asked == [4]
 
 
-def test_finishing_1_size_at_a_time_never_starts_a_size_the_best_finished_already_beats() -> None:
+def test_finishing_1_size_at_a_time_never_starts_a_size_the_best_finished_already_beats(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(layout, "finished_at_once", lambda: 1)
     started: list[float] = []
 
     def finished(size: float, _beaten: Callable[[int], bool]) -> tuple[Score, pathlib.Path, float, float, int]:
@@ -728,3 +731,12 @@ def test_a_plan_breaking_a_line_rule_is_refused_before_it_is_seated(
     monkeypatch.setattr(layout, "seat", seat)
     with pytest.raises(port.DoesNotFitError, match="lone bar"):
         layout._fitted(cast("layout.Sheet", FakeSheet()), tmp_path / "final.mscz")
+
+
+def test_sizes_finish_side_by_side_only_when_1_song_has_the_cores(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(layout.launch, "slots", lambda: 1)
+    assert layout.finished_at_once() == 1
+    monkeypatch.setattr(layout.launch, "slots", lambda: 10)
+    assert layout.finished_at_once() == 3
+    monkeypatch.setattr(layout.launch, "slots", lambda: 6)
+    assert layout.finished_at_once() == 2
