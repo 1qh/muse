@@ -5,11 +5,13 @@ So 1 build process never runs more at once than its share of the cores.
 
 from __future__ import annotations
 
+import atexit
 import json
 import os
 import pathlib
 import queue
 import re
+import shutil
 import subprocess
 import tempfile
 import threading
@@ -25,6 +27,27 @@ if TYPE_CHECKING:
 
 SLOTS_VARIABLE = "MUSE_LAUNCH_SLOTS"
 MSCORE_VARIABLE = "MUSE_MSCORE"
+MSCORE_TEMP_PREFIX = "muse-mscore-"
+MSCORE_TEMP: dict[str, str] = {}
+MSCORE_TEMP_LOCK = threading.Lock()
+
+
+def mscore_environment() -> dict[str, str]:
+    """Give MuseScore a shared private socket folder without changing the caller's environment.
+
+    Args:
+        None.
+
+    Returns:
+        A fresh environment with this build process's private temporary folder.
+
+    """
+    with MSCORE_TEMP_LOCK:
+        if "TMPDIR" not in MSCORE_TEMP:
+            folder = tempfile.mkdtemp(prefix=MSCORE_TEMP_PREFIX)
+            atexit.register(shutil.rmtree, folder, ignore_errors=True)
+            MSCORE_TEMP["TMPDIR"] = folder
+        return {**os.environ, **MSCORE_TEMP}
 
 
 def mscore_command() -> str:
@@ -136,6 +159,7 @@ def heavy(
     *,
     check: bool = False,
     cwd: pathlib.Path | None = None,
+    env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Run 1 heavy tool, MuseScore or the optical cross-check, waiting for a free slot first.
 
@@ -160,6 +184,7 @@ def heavy(
             text=True,
             stdin=subprocess.DEVNULL,
             cwd=cwd,
+            env=env,
         ) as process:
             try:
                 out, err = process.communicate(timeout=timeout)
@@ -222,7 +247,7 @@ def mscore(
     """
     began = time.time()
     try:
-        return heavy([command or mscore_command(), *args], timeout, check=check)
+        return heavy([command or mscore_command(), *args], timeout, check=check, env=mscore_environment())
     finally:
         drop_own_logs(roots_of(args), began - 1, time.time() + 1)
 
@@ -286,6 +311,7 @@ class Server:
         self.started = time.monotonic()
         self.process = subprocess.Popen(
             [command, SERVE_FLAG],
+            env=mscore_environment(),
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -385,7 +411,14 @@ def require_serve(command: str | None = None) -> None:
 
     """
     found = command or mscore_command()
-    shown = subprocess.run([found, "--help"], capture_output=True, text=True, stdin=subprocess.DEVNULL, check=False)
+    shown = subprocess.run(
+        [found, "--help"],
+        capture_output=True,
+        check=False,
+        env=mscore_environment(),
+        stdin=subprocess.DEVNULL,
+        text=True,
+    )
     if SERVE_FLAG not in shown.stdout:
         msg = f"{found} has no {SERVE_FLAG}: install the fork's MuseScore (1qh/MuseScore)"
         raise RuntimeError(msg)

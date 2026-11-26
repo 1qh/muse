@@ -17,7 +17,8 @@ import time
 import zipfile
 from collections import Counter
 from fractions import Fraction
-from typing import override
+from typing import Self, override
+from unittest.mock import Mock
 
 import psutil
 import pymupdf
@@ -1435,6 +1436,119 @@ def test_chord_ink_is_found_where_it_is_drawn_at_any_window_start() -> None:
         page = pymupdf.open().new_page(width=200, height=100)
         page.draw_rect(pymupdf.Rect(left + 2.0, 40, left + 2.4, 62), color=None, fill=(0, 0, 0), width=0)
         assert chordseat.ink_left(page, left, 60, 13) == pytest.approx(left + 2.0, abs=0.1)
+
+
+def test_musescore_environment_reuses_a_private_existing_folder(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: pathlib.Path,
+) -> None:
+    """Reuse a private folder while preserving the parent's environment.
+
+    Args:
+        monkeypatch: Supplies a known inherited temporary folder.
+        tmp_path: Existing folder representing the user's temporary folder.
+
+    """
+    monkeypatch.setenv("TMPDIR", str(tmp_path))
+    environment = launch.mscore_environment()
+    folder = environment["TMPDIR"]
+    assert folder != os.environ["TMPDIR"]
+    assert pathlib.Path(folder).is_dir()
+    assert pathlib.Path(folder).name.startswith(launch.MSCORE_TEMP_PREFIX)
+    assert launch.mscore_environment()["TMPDIR"] == folder
+    assert os.environ["TMPDIR"] == str(tmp_path)
+    assert environment == {**os.environ, "TMPDIR": folder}
+
+
+def test_server_passes_the_private_musescore_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pass the same private socket folder to every server and single launch.
+
+    Args:
+        monkeypatch: Replaces process creation with a recorder.
+
+    """
+    recorder = Mock(return_value=Mock(stdout=None, stderr=None))
+    monkeypatch.setattr(launch.subprocess, "Popen", recorder)
+    launch.Server("mscore")
+    recorder.assert_called_once_with(
+        ["mscore", launch.SERVE_FLAG],
+        env=launch.mscore_environment(),
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    assert recorder.call_args_list[-1].kwargs["env"]["TMPDIR"] == launch.mscore_environment()["TMPDIR"]
+
+
+def test_single_musescore_launch_is_isolated_and_other_tools_inherit(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Isolate MuseScore while preserving environment inheritance for other tools.
+
+    Args:
+        monkeypatch: Records process creation and removes the CPU availability wait.
+
+    """
+
+    class Process:
+        """Supply a successful process for both launches."""
+
+        returncode = 0
+
+        def __enter__(self) -> Self:
+            """Enter the launch context.
+
+            Returns:
+                This process.
+
+            """
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            """Finish the launch context."""
+
+        @staticmethod
+        def communicate(*, timeout: float) -> tuple[str, str]:
+            """Return empty output for a successful launch.
+
+            Args:
+                timeout: Maximum time allowed for the launch.
+
+            Returns:
+                Empty standard output and error.
+
+            """
+            del timeout
+            return "", ""
+
+    calls: list[dict[str, object]] = []
+
+    def recorder(_argv: list[str], **kwargs: object) -> Process:
+        calls.append(kwargs)
+        return Process()
+
+    monkeypatch.setattr(launch.subprocess, "Popen", recorder)
+    monkeypatch.setattr(launch, "free_core", lambda: None)
+    launch.mscore([], launch.LAUNCH_SECONDS, command="mscore")
+    assert calls[-1]["env"] == launch.mscore_environment()
+    assert calls[-1]["stdin"] == subprocess.DEVNULL
+    calls.clear()
+    launch.heavy(["homr"], launch.LAUNCH_SECONDS)
+    assert calls[-1]["env"] is None
+    assert calls[-1]["stdin"] == subprocess.DEVNULL
+
+
+def test_musescore_help_probe_uses_the_private_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Isolate the capability probe from the user's MuseScore socket folder.
+
+    Args:
+        monkeypatch: Replaces the capability probe with a recorder.
+
+    """
+    recorder = Mock(return_value=subprocess.CompletedProcess(["mscore"], 0, stdout=launch.SERVE_FLAG))
+    monkeypatch.setattr(launch.subprocess, "run", recorder)
+    launch.require_serve("mscore")
+    assert recorder.call_args_list[-1].kwargs["env"] == launch.mscore_environment()
+    assert recorder.call_args_list[-1].kwargs["stdin"] == subprocess.DEVNULL
 
 
 def test_a_served_musescore_that_dies_is_reported_and_replaced(tmp_path: pathlib.Path) -> None:
