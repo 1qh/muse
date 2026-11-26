@@ -1,7 +1,6 @@
 """Song derivation, refusals, the gate's own checks and the publishing guard."""
 
 import concurrent.futures
-import os
 import pathlib
 import shutil
 import subprocess
@@ -12,7 +11,7 @@ from typing import Never
 import pymupdf
 import pytest
 
-from muse import build, chordseat, gate, pdfcheck, pdftext, port, publish, song, symbolfont
+from muse import build, chordseat, gate, pdfcheck, pdftext, port, publish, song, symbolfont, toolpath
 from muse.model import Bar, Chord, Event, Head, Score, Text, UnknownEncodingError, UnknownGlyphError
 
 
@@ -470,15 +469,23 @@ def test_a_song_whose_build_raises_is_refused_and_the_run_goes_on(tmp_path: path
 
 SHELL = shutil.which("sh")
 GROUP_REAP_SECONDS = 10.0
+PS = toolpath.which("ps") or "ps"
 REAP_POLL_SECONDS = 0.05
 
 
 def group_gone(group: int, within: float) -> bool:
+    """Tell whether every process of a group has died; a killed child the system has not reaped yet is dead.
+
+    A loaded machine can leave a killed process unreaped for seconds, and a group signal still finds it.
+
+    Returns:
+        Whether no live process remains in the group within the time given.
+
+    """
     deadline = time.monotonic() + within
     while time.monotonic() < deadline:
-        try:
-            os.killpg(group, 0)
-        except ProcessLookupError:
+        listed = subprocess.run([PS, "-g", str(group), "-o", "stat="], capture_output=True, text=True, check=False)
+        if not [state for state in listed.stdout.split() if not state.startswith("Z")]:
             return True
         time.sleep(REAP_POLL_SECONDS)
     return False
