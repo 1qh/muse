@@ -2,6 +2,7 @@
 
 import ast
 import collections
+import concurrent.futures
 import dataclasses
 import importlib.util
 import inspect
@@ -9,17 +10,21 @@ import os
 import pathlib
 import re
 import shutil
+import signal
 import subprocess
 import threading
 import time
 import zipfile
 from collections import Counter
 from fractions import Fraction
+from typing import override
 
+import psutil
 import pymupdf
 import pytest
 
 from muse import (
+    build,
     chordnames,
     chordseat,
     launch,
@@ -1537,3 +1542,220 @@ def test_a_bare_path_still_finds_package_manager_tools(monkeypatch: pytest.Monke
     assert os.environ["PATH"].split(os.pathsep) == ["/usr/bin", "/bin", "/usr/sbin"]
     toolpath.with_package_paths()
     assert os.environ["PATH"].split(os.pathsep).count("/usr/sbin") == 1
+
+
+STOPPED_TEST_ELAPSED = 12.5
+STOPPED_TEST_WAIT_SECONDS = 5.0
+STOPPED_TEST_POLL_SECONDS = 0.01
+STOPPED_TEST_SLEEP_SECONDS = 30
+
+
+@dataclasses.dataclass(eq=False)
+class StoppedProcess(build.ProcessStatus):
+    """Typed process details and query failures for stopped-process checks."""
+
+    process_id: int = 4321
+    state: str | psutil.Error = psutil.STATUS_STOPPED
+    parent_id: int | psutil.Error = 1234
+    command: list[str] | psutil.Error = dataclasses.field(default_factory=lambda: ["worker"])
+    descendants: list["StoppedProcess"] | psutil.Error = dataclasses.field(default_factory=list)
+    child_queries: list[bool] = dataclasses.field(default_factory=list)
+    exit_code: int | None = None
+
+    @property
+    @override
+    def pid(self) -> int:
+        """The configured process identifier.
+
+        Returns:
+            The process identifier.
+
+        """
+        return self.process_id
+
+    @override
+    def status(self) -> str:
+        """Read the configured process state.
+
+        Returns:
+            The process state.
+
+        """
+        if isinstance(self.state, psutil.Error):
+            raise self.state
+        return self.state
+
+    @override
+    def ppid(self) -> int:
+        """Read the configured parent identifier.
+
+        Returns:
+            The parent identifier.
+
+        """
+        if isinstance(self.parent_id, psutil.Error):
+            raise self.parent_id
+        return self.parent_id
+
+    @override
+    def cmdline(self) -> list[str]:
+        """Read the configured command arguments.
+
+        Returns:
+            The command arguments.
+
+        """
+        if isinstance(self.command, psutil.Error):
+            raise self.command
+        return self.command
+
+    def children(self, *, recursive: bool = False) -> list["StoppedProcess"]:
+        """Record the child query and read the configured descendants.
+
+        Args:
+            recursive: Whether the caller requested recursive traversal.
+
+        Returns:
+            The configured descendants.
+
+        """
+        self.child_queries.append(recursive)
+        if isinstance(self.descendants, psutil.Error):
+            raise self.descendants
+        return self.descendants
+
+    def poll(self) -> int | None:
+        """Read the configured worker exit code.
+
+        Returns:
+            The exit code, or none for a running worker.
+
+        """
+        return self.exit_code
+
+
+def test_a_stopped_process_is_reported_with_its_identity_and_resume_action() -> None:
+    """A stopped process names its identity, command, elapsed time and recovery action.
+
+    Args:
+        None.
+
+    """
+    process = StoppedProcess(command=["worker", "song\nname"])
+    lines = build.stopped_process_lines([process], STOPPED_TEST_ELAPSED)
+    assert len(lines) == 1
+    assert "pid 4321 parent pid 1234" in lines[0]
+    assert 'cmdline ["worker", "song\\nname"]' in lines[0]
+    assert "build elapsed 12.5s" in lines[0]
+    assert "stopped (state T): send SIGCONT to resume, or find the sender" in lines[0]
+    assert "\n" not in lines[0]
+
+
+def test_running_processes_produce_no_stopped_report() -> None:
+    """Healthy workers produce no stopped-process output.
+
+    Args:
+        None.
+
+    """
+    process = StoppedProcess(state=psutil.STATUS_RUNNING)
+    assert build.stopped_process_lines([process], STOPPED_TEST_ELAPSED) == []
+
+
+@pytest.mark.parametrize("error", [psutil.NoSuchProcess, psutil.AccessDenied])
+@pytest.mark.parametrize("method", ["status", "ppid", "cmdline"])
+def test_inaccessible_processes_produce_no_stopped_report(method: str, error: type[psutil.Error]) -> None:
+    """Exiting or inaccessible processes do not interrupt collection.
+
+    Args:
+        method: Process query that fails during inspection.
+        error: Expected psutil failure to ignore.
+
+    """
+    process = StoppedProcess(
+        state=error(4321) if method == "status" else psutil.STATUS_STOPPED,
+        parent_id=error(4321) if method == "ppid" else 1234,
+        command=error(4321) if method == "cmdline" else ["worker"],
+    )
+    assert build.stopped_process_lines([process], STOPPED_TEST_ELAPSED) == []
+
+
+def test_stopped_workers_and_recursive_children_are_reported_only_once(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Repeated checks report both workers and descendants exactly once.
+
+    Args:
+        monkeypatch: Replaces running workers and process lookup with fakes.
+        capsys: Captures the collector's diagnostic output.
+
+    """
+    worker = StoppedProcess()
+    descendant = StoppedProcess(process_id=5432)
+    root = StoppedProcess(process_id=worker.pid, descendants=[descendant])
+    monkeypatch.setattr(build, "RUNNING", {worker})
+    monkeypatch.setattr(build.psutil, "Process", lambda _pid: root)
+    reported: set[psutil.Process] = set()
+    build._warn_stopped(reported, STOPPED_TEST_ELAPSED)
+    build._warn_stopped(reported, STOPPED_TEST_ELAPSED)
+    captured = capsys.readouterr()
+    assert not captured.out
+    assert len(captured.err.splitlines()) == 2
+    assert captured.err.count("pid 4321 parent") == 1
+    assert captured.err.count("pid 5432 parent") == 1
+    assert root.child_queries[-1] is True
+
+
+def test_a_real_sigstopped_child_is_reported() -> None:
+    """A real stopped child is detected and always killed and reaped afterward.
+
+    Args:
+        None.
+
+    """
+    sleep = shutil.which("sleep")
+    assert sleep is not None
+    process = subprocess.Popen([sleep, str(STOPPED_TEST_SLEEP_SECONDS)], stdin=subprocess.DEVNULL)
+    try:
+        process.send_signal(signal.SIGSTOP)
+        inspected = psutil.Process(process.pid)
+        deadline = time.monotonic() + STOPPED_TEST_WAIT_SECONDS
+        lines = build.stopped_process_lines([inspected], STOPPED_TEST_ELAPSED)
+        while not lines and time.monotonic() < deadline:
+            time.sleep(STOPPED_TEST_POLL_SECONDS)
+            lines = build.stopped_process_lines([inspected], STOPPED_TEST_ELAPSED)
+        assert len(lines) == 1
+        assert f"pid {process.pid} " in lines[0]
+        assert "stopped (state T)" in lines[0]
+    finally:
+        process.kill()
+        process.wait(timeout=STOPPED_TEST_WAIT_SECONDS)
+
+
+def test_waiting_for_a_song_checks_stopped_processes_again_after_the_interval(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An unfinished song cannot leave the collector blocked between process checks.
+
+    Args:
+        monkeypatch: Supplies a deterministic clock and future waits.
+
+    """
+    job = concurrent.futures.Future[tuple[dict[str, object] | None, str]]()
+    interval = build.STOPPED_CHECK_SECONDS
+    clock = iter([0.0, 0.0, 0.0, 0.0, interval, interval, interval])
+    batches = iter([(set(), {job}), ({job}, set())])
+    waits: list[tuple[float, str]] = []
+    warning_times: list[float] = []
+    monkeypatch.setattr(build, "_monotonic", lambda: next(clock))
+    monkeypatch.setattr(
+        build.concurrent.futures,
+        "wait",
+        lambda _pending, *, timeout, return_when: waits.append((timeout, return_when)) or next(batches),
+    )
+    monkeypatch.setattr(build, "_warn_stopped", lambda _reported, elapsed: warning_times.append(elapsed))
+    assert list(build._completed({job: pathlib.Path("song.pdf")}, 0.0)) == [job]
+    assert warning_times == [0.0, interval]
+    assert [timeout for timeout, _ in waits] == [interval, interval]
+    assert all(return_when == concurrent.futures.FIRST_COMPLETED for _, return_when in waits)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import concurrent.futures
+import contextlib
 import faulthandler
 import json
 import os
@@ -13,13 +14,18 @@ import subprocess
 import sys
 import threading
 import time
-from typing import TYPE_CHECKING
+from time import monotonic as _monotonic
+from typing import TYPE_CHECKING, Protocol
+
+import psutil
 
 from muse import buildcache, chordnames, fullscore, gate, launch, layout, mode, piano, port, publish, toolpath
 from muse.song import decode, song_of
 from muse.song import sources as song_sources
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
     from muse.model import Score
 
 
@@ -257,6 +263,136 @@ def publish_song(src_dir: pathlib.Path, out_dir: pathlib.Path, work: pathlib.Pat
 CHILD_FLAG = "--song"
 RUNNING: set[subprocess.Popen[bytes]] = set()
 RUNNING_LOCK = threading.Lock()
+STOPPED_CHECK_SECONDS = 3.0
+
+
+class ProcessStatus(Protocol):
+    """Process details needed to describe a stopped worker or descendant."""
+
+    @property
+    def pid(self) -> int:
+        """The process identifier.
+
+        Args:
+            self: The inspected process.
+
+        Returns:
+            Its process identifier.
+
+        """
+
+    def status(self) -> str:
+        """Read the process state.
+
+        Args:
+            self: The inspected process.
+
+        Returns:
+            Its current state.
+
+        """
+
+    def ppid(self) -> int:
+        """Read the parent identifier.
+
+        Args:
+            self: The inspected process.
+
+        Returns:
+            Its parent's process identifier.
+
+        """
+
+    def cmdline(self) -> list[str]:
+        """Read the command arguments.
+
+        Args:
+            self: The inspected process.
+
+        Returns:
+            Its command line arguments.
+
+        """
+
+
+def stopped_process_lines[P: ProcessStatus](processes: list[P], elapsed: float) -> list[str]:
+    """Describe stopped processes without writing output or changing process state.
+
+    Args:
+        processes: Workers or descendants to inspect.
+        elapsed: Seconds since the build began.
+
+    Returns:
+        One line per stopped process whose details remain accessible.
+
+    """
+    lines: list[str] = []
+    for process in processes:
+        try:
+            if process.status() == psutil.STATUS_STOPPED:
+                lines.append(
+                    f"pid {process.pid} parent pid {process.ppid()} cmdline {json.dumps(process.cmdline())} "
+                    f"build elapsed {elapsed:.1f}s: stopped (state T): send SIGCONT to resume, or find the sender",
+                )
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+    return lines
+
+
+def _warn_stopped(reported: set[psutil.Process], elapsed: float) -> None:
+    """Write each stopped worker or recursive descendant to stderr once.
+
+    Args:
+        reported: Process identities already reported during this build.
+        elapsed: Seconds since the build began.
+
+    """
+    with RUNNING_LOCK:
+        workers = list(RUNNING)
+    processes: list[psutil.Process] = []
+    for worker in workers:
+        if worker.poll() is None:
+            with contextlib.suppress(psutil.NoSuchProcess, psutil.AccessDenied):
+                process = psutil.Process(worker.pid)
+                processes.append(process)
+                processes.extend(process.children(recursive=True))
+    for process in processes:
+        if process not in reported:
+            lines = stopped_process_lines([process], elapsed)
+            if lines:
+                sys.stderr.write("\n".join(lines) + "\n")
+                sys.stderr.flush()
+                reported.add(process)
+
+
+def _completed(
+    jobs: dict[concurrent.futures.Future[tuple[dict[str, object] | None, str]], pathlib.Path],
+    began: float,
+) -> Iterator[concurrent.futures.Future[tuple[dict[str, object] | None, str]]]:
+    """Yield finished jobs while periodically checking the running process trees.
+
+    Args:
+        jobs: Song jobs being collected.
+        began: Monotonic time when the build began.
+
+    Yields:
+        Each completed song job.
+
+    """
+    pending = set(jobs)
+    reported: set[psutil.Process] = set()
+    next_check = _monotonic()
+    while pending:
+        now = _monotonic()
+        if now >= next_check:
+            _warn_stopped(reported, now - began)
+            next_check = _monotonic() + STOPPED_CHECK_SECONDS
+        done, pending = concurrent.futures.wait(
+            pending,
+            timeout=max(0.0, next_check - _monotonic()),
+            return_when=concurrent.futures.FIRST_COMPLETED,
+        )
+        yield from done
 
 
 def stop_children() -> None:
@@ -347,10 +483,11 @@ def _collect(
     jobs: dict[concurrent.futures.Future[tuple[dict[str, object] | None, str]], pathlib.Path],
     places: tuple[pathlib.Path, pathlib.Path, pathlib.Path, pathlib.Path, bool],
     tallies: tuple[list[dict[str, object]], list[str], list[str]],
+    began: float | None = None,
 ) -> None:
     src_dir, out_dir, work, stage, publishing = places
     reports, refused, blocked = tallies
-    for job in concurrent.futures.as_completed(jobs):
+    for job in _completed(jobs, time.monotonic() if began is None else began):
         src = jobs[job]
         if (error := job.exception()) is not None:
             report, reason = None, f"its build raised {error!r}"
@@ -392,12 +529,13 @@ def _run(
     workers: int,
     places: tuple[pathlib.Path, pathlib.Path, pathlib.Path, pathlib.Path, bool],
     tallies: tuple[list[dict[str, object]], list[str], list[str]],
+    began: float,
 ) -> None:
     src_dir, out_dir, work, stage, publishing = places
     pool = concurrent.futures.ThreadPoolExecutor(max_workers=workers)
     try:
         jobs = {pool.submit(child, src, stage, work, src_dir if publishing else None): src for src in sources}
-        _collect(pool, jobs, places, tallies)
+        _collect(pool, jobs, places, tallies, began)
         if publishing:
             publish.purge(out_dir)
     except BaseException as error:
@@ -429,7 +567,7 @@ def main() -> None:
     workers = free_workers(len(sources))
     os.environ[launch.SLOTS_VARIABLE] = str(max(1, (os.cpu_count() or 1) // workers))
     layout.install_extension()
-    _run(sources, workers, (src_dir, out_dir, work, stage, publishing), (reports, refused, blocked))
+    _run(sources, workers, (src_dir, out_dir, work, stage, publishing), (reports, refused, blocked), began)
     _record(work, reports, began)
     if refused or blocked:
         msg = f"refused: {refused} blocked: {blocked}"

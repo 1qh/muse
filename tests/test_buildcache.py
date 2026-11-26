@@ -3,6 +3,7 @@
 import json
 import pathlib
 import subprocess
+import time
 import types
 from collections.abc import Callable
 from types import SimpleNamespace
@@ -215,10 +216,10 @@ def test_a_publishing_build_purges_once_after_its_last_song(
     monkeypatch.setattr(build, "_collect", lambda _pool, jobs, *_: [job.result() for job in jobs])
     monkeypatch.setattr(build.publish, "purge", purged.append)
     places = (tmp_path / "src", tmp_path / "out", tmp_path / "work", tmp_path / "stage", True)
-    build._run([tmp_path / "a.pdf", tmp_path / "b.pdf"], 2, places, ([], [], []))
+    build._run([tmp_path / "a.pdf", tmp_path / "b.pdf"], 2, places, ([], [], []), time.monotonic())
     assert purged == [tmp_path / "out"]
     purged.clear()
-    build._run([tmp_path / "a.pdf"], 1, (*places[:4], False), ([], [], []))
+    build._run([tmp_path / "a.pdf"], 1, (*places[:4], False), ([], [], []), time.monotonic())
     assert purged == []
 
 
