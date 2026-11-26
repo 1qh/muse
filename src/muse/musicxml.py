@@ -26,10 +26,12 @@ TYPES = {
 }
 SHAPES = {"x": "x", "diamond": "diamond", "filleddiamond": "diamond", "circlex": "circle-x"}
 COMPOUND_BEAT_TYPE = 8
-SNAP_TO_NOTE_REACH = 9
+SNAP_TO_NOTE_REACH = 12
 FEWEST_POINTS_TO_SNAP = 2
 TWO_STAVES = 2
 LOWER_STAFF = 2
+BAR_MIDPOINT_RATIO = Fraction(1, 2)
+SINGLE_CHORD_COUNT = 1
 
 
 def _given_text(value: str | None) -> bool:
@@ -287,16 +289,21 @@ def has_heads(voices: list[list[Event]]) -> bool:
 
 
 def lone_chord_onset(bar: Bar, voices: list[list[Event]], chord: Chord) -> Fraction:
-    """Open the bar with a lone chord; only printing exactly over a note in the bar's 2nd half moves it there.
+    """Open with a lone chord unless its nearest written event is exactly below it in the second half.
 
     Returns:
         The onset of the lone chord in quarters.
 
     """
-    for event in sorted((e for voice in voices for e in voice if e.heads and not e.grace), key=lambda e: e.onset):
-        if event.onset * 2 >= bar.length and abs(event.x - chord.x) <= EXACT_OVER_NOTE:
-            return event.onset
-    return Fraction(0)
+    events = [e for voice in voices for e in voice if not e.bar_rest and not e.hidden and not e.grace]
+    nearest = min(events, key=lambda event: abs(event.x - chord.x), default=None)
+    if (
+        nearest is not None
+        and nearest.onset >= bar.length * BAR_MIDPOINT_RATIO
+        and abs(nearest.x - chord.x) <= EXACT_OVER_NOTE
+    ):
+        return nearest.onset
+    return Fraction()
 
 
 def chord_onsets(bar: Bar, time: tuple[int, int] | None) -> list[tuple[Fraction, Chord]]:
@@ -310,11 +317,60 @@ def chord_onsets(bar: Bar, time: tuple[int, int] | None) -> list[tuple[Fraction,
         return []
     ordered = sorted(bar.chords, key=lambda c: c.x)
     if not has_heads(bar.voices) and not has_heads(bar.voices2):
+        rests = [e for voice in [*bar.voices, *bar.voices2] for e in voice if not e.bar_rest and not e.hidden]
+        if rests:
+            if len(ordered) == SINGLE_CHORD_COUNT:
+                first = next(iter(ordered))
+                return [(lone_chord_onset(bar, [rests], first), first)]
+            aligned = [(min(rests, key=lambda event: abs(event.x - chord.x)).onset, chord) for chord in ordered]
+            if len({onset for onset, _ in aligned}) == len(aligned):
+                return sorted(aligned, key=operator.itemgetter(0))
         return list(zip(empty_bar_onsets(len(ordered), bar.length, time), ordered, strict=True))
     anchors = bar.voices if has_heads(bar.voices) else bar.voices2
-    if len(ordered) == 1:
+    if len(ordered) == SINGLE_CHORD_COUNT:
         return [(lone_chord_onset(bar, anchors, ordered[0]), ordered[0])]
-    return sorted(((x_to_time(bar, anchors, c.x), c) for c in ordered), key=operator.itemgetter(0))
+    return _noted_chord_onsets(bar, anchors, ordered, time)
+
+
+def _noted_chord_onsets(
+    bar: Bar,
+    voices: list[list[Event]],
+    ordered: list[Chord],
+    time: tuple[int, int] | None,
+) -> list[tuple[Fraction, Chord]]:
+    """Place unanchored chords on their even-spread beats when the surrounding chords permit it.
+
+    Returns:
+        Chords paired with their onsets in onset order.
+
+    """
+    events = [
+        event
+        for voice in [*bar.voices, *bar.voices2]
+        for event in voice
+        if not event.bar_rest and not event.hidden and not event.grace
+    ]
+    anchored: list[Fraction | None] = []
+    for chord in ordered:
+        nearest = min(events, key=lambda event: abs(event.x - chord.x), default=None)
+        anchored.append(
+            nearest.onset if nearest is not None and abs(nearest.x - chord.x) < SNAP_TO_NOTE_REACH else None,
+        )
+    spread = empty_bar_onsets(len(ordered), bar.length, time)
+    placed: list[tuple[Fraction, Chord]] = []
+    previous: Fraction | None = None
+    for index, chord in enumerate(ordered):
+        onset = anchored[index]
+        if onset is None:
+            following = next((at for at in anchored[index:] if at is not None), bar.length)
+            candidate = spread[index]
+            if (previous is None or previous < candidate) and candidate < following:
+                onset = candidate
+            else:
+                onset = x_to_time(bar, voices, chord.x)
+        placed.append((onset, chord))
+        previous = onset
+    return sorted(placed, key=operator.itemgetter(0))
 
 
 def x_to_time(bar: Bar, voices: list[list[Event]], x: float) -> Fraction:

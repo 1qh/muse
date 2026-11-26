@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import errno
+import itertools
 import os
 import pathlib
 import re
@@ -14,7 +15,7 @@ from fractions import Fraction
 from typing import TYPE_CHECKING
 
 from muse import chordnames, launch, scorefile, toolpath
-from muse.musicxml import chord_onsets, times
+from muse.musicxml import EXACT_OVER_NOTE
 from muse.pdfcheck import title_problems
 from muse.song import decode, song_of, sources
 
@@ -87,7 +88,7 @@ def pdf_words_problems(pdf: pathlib.Path, title: str) -> list[str]:
 
 
 def chord_beat_problems(src: pathlib.Path, path: pathlib.Path) -> list[str]:
-    """Check every chord of a saved score against its true beat; a bar without notes follows the fixed rule.
+    """Check saved chord order and beats against nearby written events in the source.
 
     Returns:
         Every bar whose chords sit off their beats.
@@ -95,12 +96,25 @@ def chord_beat_problems(src: pathlib.Path, path: pathlib.Path) -> list[str]:
     """
     score = decode(src)
     problems = []
-    staff = scorefile.read(path)[0]
-    for bar, time, held in zip(score.bars, times(score), staff, strict=False):
-        want = [onset for onset, _ in chord_onsets(bar, bar.time or time)]
-        got = sorted(chord[0] for chord in held.chords)
-        if got != sorted(want):
-            problems.append(f"bar {bar.number}: chords on {[str(x) for x in got]}, due on {[str(x) for x in want]}")
+    staff = next(iter(scorefile.read(path)))
+    for bar, held in zip(score.bars, staff, strict=False):
+        events = [
+            event
+            for voice in [*bar.voices, *bar.voices2]
+            for event in voice
+            if not event.bar_rest and not event.hidden and not event.grace
+        ]
+        want: list[Fraction | None] = []
+        for chord in sorted(bar.chords, key=lambda chord: chord.x):
+            nearest = min(events, key=lambda event: abs(event.x - chord.x), default=None)
+            want.append(nearest.onset if nearest is not None and abs(nearest.x - chord.x) <= EXACT_OVER_NOTE else None)
+        got = [onset for onset, *_ in held.chords]
+        valid = len(got) == len(want) and all(Fraction() <= onset < bar.length for onset in got)
+        valid = valid and all(left < right for left, right in itertools.pairwise(got))
+        valid = valid and all(due is None or onset == due for onset, due in zip(got, want, strict=False))
+        if not valid:
+            due_on = [str(onset) if onset is not None else "in order" for onset in want]
+            problems.append(f"bar {bar.number}: chords on {[str(x) for x in got]}, due on {due_on}")
     return problems
 
 

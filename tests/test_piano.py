@@ -186,6 +186,272 @@ def chord(x: float) -> Chord:
     return Chord(x, "C", 0, "")
 
 
+REST_CHORD_BAR_NUMBER = 1
+REST_CHORD_PAGE = 0
+REST_CHORD_LEFT = 0.0
+REST_CHORD_RIGHT = 600.0
+REST_CHORD_LENGTH = Fraction(4)
+REST_CHORD_TIME = (4, 4)
+REST_CHORD_START = Fraction(0)
+REST_CHORD_QUARTER = Fraction(1)
+REST_CHORD_HALF = Fraction(2)
+REST_CHORD_THREE_QUARTERS = Fraction(3)
+REST_CHORD_DOTTED_QUARTER = Fraction(3, 2)
+REST_CHORD_EIGHTH = Fraction(1, 2)
+REST_CHORD_HALF_QUARTERS = (
+    (489.0, REST_CHORD_HALF, REST_CHORD_START),
+    (520.0, REST_CHORD_QUARTER, REST_CHORD_HALF),
+    (548.0, REST_CHORD_QUARTER, REST_CHORD_THREE_QUARTERS),
+)
+REST_CHORD_DOTTED_EIGHTH_HALF = (
+    (82.0, REST_CHORD_DOTTED_QUARTER, REST_CHORD_START),
+    (100.0, REST_CHORD_EIGHTH, REST_CHORD_DOTTED_QUARTER),
+    (120.0, REST_CHORD_HALF, REST_CHORD_HALF),
+)
+REST_CHORD_TWO_HALVES = (
+    (82.0, REST_CHORD_HALF, REST_CHORD_START),
+    (120.0, REST_CHORD_HALF, REST_CHORD_HALF),
+)
+REST_CHORD_SHIFTED_X = 110.0
+REST_CHORD_BETWEEN_X = 515.0
+REST_CHORD_DUPLICATE_X = 490.0
+REST_CHORD_HALF_QUARTER_XS = tuple(x for x, _, _ in REST_CHORD_HALF_QUARTERS)
+REST_CHORD_DOTTED_XS = (82.0, 100.0)
+REST_CHORD_HALF_XS = (82.0, REST_CHORD_SHIFTED_X)
+REST_CHORD_EXPECTED_THREE = [REST_CHORD_START, REST_CHORD_HALF, REST_CHORD_THREE_QUARTERS]
+REST_CHORD_EVEN_THREE = [REST_CHORD_START, REST_CHORD_QUARTER, REST_CHORD_THREE_QUARTERS]
+REST_CHORD_SAVED_WRONG = (
+    "<Harmony><root>14</root></Harmony><Rest><durationType>quarter</durationType></Rest>"
+    "<Harmony><root>14</root></Harmony><Rest><durationType>half</durationType></Rest>"
+    "<Harmony><root>14</root></Harmony><Rest><durationType>quarter</durationType></Rest>"
+)
+REST_CHORD_SAVED_RIGHT = (
+    "<Harmony><root>14</root></Harmony><Rest><durationType>half</durationType></Rest>"
+    "<Harmony><root>14</root></Harmony><Rest><durationType>quarter</durationType></Rest>"
+    "<Harmony><root>14</root></Harmony><Rest><durationType>quarter</durationType></Rest>"
+)
+REST_CHORD_SAVED_DUPLICATE = (
+    "<Harmony><root>14</root></Harmony><Harmony><root>14</root></Harmony>"
+    "<Rest><durationType>half</durationType></Rest><Harmony><root>14</root></Harmony>"
+)
+REST_CHORD_SAVED_OUTSIDE = (
+    "<Harmony><root>14</root></Harmony><Rest><durationType>half</durationType></Rest>"
+    "<Harmony><root>14</root></Harmony><Rest><durationType>half</durationType></Rest>"
+    "<Harmony><root>14</root></Harmony>"
+)
+REST_CHORD_SAVED_REVERSED = (
+    "<Rest><durationType>half</durationType></Rest><Harmony><root>14</root></Harmony>"
+    "<location><fractions>-1/2</fractions></location><Harmony><root>14</root></Harmony>"
+    "<Rest><durationType>quarter</durationType></Rest><Harmony><root>14</root></Harmony>"
+)
+
+
+def written_rest_bar(shape: tuple[tuple[float, Fraction, Fraction], ...], positions: tuple[float, ...]) -> Bar:
+    return Bar(
+        REST_CHORD_BAR_NUMBER,
+        REST_CHORD_PAGE,
+        REST_CHORD_LEFT,
+        REST_CHORD_RIGHT,
+        REST_CHORD_LENGTH,
+        chords=[chord(x) for x in positions],
+        voices=[[Event(x, [], length, onset=onset) for x, length, onset in shape]],
+    )
+
+
+@pytest.mark.parametrize(
+    ("shape", "positions", "expected"),
+    [
+        (REST_CHORD_HALF_QUARTERS, REST_CHORD_HALF_QUARTER_XS, REST_CHORD_EXPECTED_THREE),
+        (
+            REST_CHORD_DOTTED_EIGHTH_HALF,
+            REST_CHORD_DOTTED_XS,
+            [REST_CHORD_START, REST_CHORD_DOTTED_QUARTER],
+        ),
+        (REST_CHORD_TWO_HALVES, REST_CHORD_HALF_XS, [REST_CHORD_START, REST_CHORD_HALF]),
+    ],
+    ids=["half-quarter-quarter", "dotted-quarter-eighth-half", "half-half-shifted"],
+)
+def test_chords_follow_the_nearest_written_rests(
+    shape: tuple[tuple[float, Fraction, Fraction], ...],
+    positions: tuple[float, ...],
+    expected: list[Fraction],
+) -> None:
+    held = written_rest_bar(shape, positions)
+    assert [onset for onset, _ in musicxml.chord_onsets(held, REST_CHORD_TIME)] == expected
+
+
+def test_three_chords_over_a_whole_bar_rest_keep_the_even_spread() -> None:
+    held = rest(REST_CHORD_BAR_NUMBER, chords=[chord(x) for x in REST_CHORD_HALF_QUARTER_XS])
+    assert [onset for onset, _ in musicxml.chord_onsets(held, REST_CHORD_TIME)] == REST_CHORD_EVEN_THREE
+
+
+def test_chords_sharing_a_written_rest_fall_back_to_the_even_spread() -> None:
+    positions = (
+        next(iter(REST_CHORD_HALF_QUARTER_XS)),
+        REST_CHORD_DUPLICATE_X,
+        next(reversed(REST_CHORD_HALF_QUARTER_XS)),
+    )
+    held = written_rest_bar(REST_CHORD_HALF_QUARTERS, positions)
+    assert [onset for onset, _ in musicxml.chord_onsets(held, REST_CHORD_TIME)] == REST_CHORD_EVEN_THREE
+
+
+@pytest.mark.parametrize(
+    ("position", "expected"),
+    [
+        (next(iter(REST_CHORD_HALF_QUARTER_XS)), REST_CHORD_START),
+        (next(reversed(REST_CHORD_HALF_QUARTER_XS)), REST_CHORD_THREE_QUARTERS),
+        (REST_CHORD_BETWEEN_X, REST_CHORD_START),
+    ],
+)
+def test_a_lone_chord_uses_the_written_rest_only_exactly_in_the_second_half(position: float, expected: Fraction) -> None:
+    held = written_rest_bar(REST_CHORD_HALF_QUARTERS, (position,))
+    assert [onset for onset, _ in musicxml.chord_onsets(held, REST_CHORD_TIME)] == [expected]
+
+
+NOTE_CHORD_BAR_NUMBER = 1
+NOTE_CHORD_PAGE = 0
+NOTE_CHORD_LEFT = 0.0
+NOTE_CHORD_RIGHT = 60.0
+NOTE_CHORD_LENGTH = Fraction(4)
+NOTE_CHORD_TIME = (4, 4)
+NOTE_CHORD_START = Fraction(0)
+NOTE_CHORD_HALF_BEAT = Fraction(1, 2)
+NOTE_CHORD_QUARTER = Fraction(1)
+NOTE_CHORD_HALF = Fraction(2)
+NOTE_CHORD_THREE_QUARTERS = Fraction(3)
+NOTE_CHORD_DOTTED_QUARTER = Fraction(3, 2)
+NOTE_CHORD_REMAINDER = NOTE_CHORD_LENGTH - NOTE_CHORD_DOTTED_QUARTER
+NOTE_CHORD_FIRST_X = 10.0
+NOTE_CHORD_MIDDLE_X = 30.0
+NOTE_CHORD_OFFSET = 32.0
+NOTE_CHORD_SECOND_X = NOTE_CHORD_FIRST_X + NOTE_CHORD_OFFSET
+NOTE_CHORD_HEAD_Y = 0.0
+NOTE_CHORD_OCTAVE = 5
+NOTE_CHORD_WHOLE = ((NOTE_CHORD_FIRST_X, NOTE_CHORD_LENGTH, NOTE_CHORD_START),)
+NOTE_CHORD_DOTTED = (
+    (NOTE_CHORD_FIRST_X, NOTE_CHORD_DOTTED_QUARTER, NOTE_CHORD_START),
+    (NOTE_CHORD_SECOND_X, NOTE_CHORD_REMAINDER, NOTE_CHORD_DOTTED_QUARTER),
+)
+NOTE_CHORD_LATE_ANCHOR = (
+    (NOTE_CHORD_FIRST_X, NOTE_CHORD_HALF, NOTE_CHORD_START),
+    (NOTE_CHORD_MIDDLE_X, NOTE_CHORD_HALF, NOTE_CHORD_HALF),
+)
+NOTE_CHORD_EARLY_ANCHOR = (
+    (NOTE_CHORD_FIRST_X, NOTE_CHORD_QUARTER, NOTE_CHORD_START),
+    (NOTE_CHORD_RIGHT, NOTE_CHORD_THREE_QUARTERS, NOTE_CHORD_QUARTER),
+)
+NOTE_CHORD_SOURCE_G_X = 404.0
+NOTE_CHORD_SOURCE_G_NOTE_X = 405.0
+NOTE_CHORD_SOURCE_D_X = 497.0
+NOTE_CHORD_SOURCE_EM_X = 108.0
+NOTE_CHORD_SOURCE_ESUS_X = 496.0
+NOTE_CHORD_SOURCE_ESUS_NOTE_X = 507.0
+
+
+@pytest.mark.parametrize(
+    ("shape", "positions", "expected"),
+    [
+        (
+            NOTE_CHORD_WHOLE,
+            (NOTE_CHORD_FIRST_X, NOTE_CHORD_SECOND_X),
+            [NOTE_CHORD_START, NOTE_CHORD_HALF],
+        ),
+        (
+            NOTE_CHORD_DOTTED,
+            (NOTE_CHORD_FIRST_X, NOTE_CHORD_SECOND_X),
+            [NOTE_CHORD_START, NOTE_CHORD_DOTTED_QUARTER],
+        ),
+        (
+            NOTE_CHORD_EARLY_ANCHOR,
+            (NOTE_CHORD_FIRST_X, NOTE_CHORD_MIDDLE_X, NOTE_CHORD_RIGHT),
+            [NOTE_CHORD_START, NOTE_CHORD_HALF_BEAT, NOTE_CHORD_QUARTER],
+        ),
+        (
+            NOTE_CHORD_LATE_ANCHOR,
+            (NOTE_CHORD_MIDDLE_X, NOTE_CHORD_SECOND_X),
+            [NOTE_CHORD_HALF, NOTE_CHORD_THREE_QUARTERS],
+        ),
+        (
+            NOTE_CHORD_WHOLE,
+            (NOTE_CHORD_FIRST_X, NOTE_CHORD_MIDDLE_X, NOTE_CHORD_SECOND_X),
+            [NOTE_CHORD_START, NOTE_CHORD_QUARTER, NOTE_CHORD_THREE_QUARTERS],
+        ),
+    ],
+    ids=["whole-note-two-chords", "anchored-dotted-quarter", "next-anchor", "previous-anchor", "all-chord-indices"],
+)
+def test_unanchored_chords_use_their_even_spread_slot_when_order_permits(
+    shape: tuple[tuple[float, Fraction, Fraction], ...],
+    positions: tuple[float, ...],
+    expected: list[Fraction],
+) -> None:
+    held = Bar(
+        NOTE_CHORD_BAR_NUMBER,
+        NOTE_CHORD_PAGE,
+        NOTE_CHORD_LEFT,
+        NOTE_CHORD_RIGHT,
+        NOTE_CHORD_LENGTH,
+        chords=[chord(x) for x in positions],
+        voices=[
+            [
+                Event(x, [Head(x, NOTE_CHORD_HEAD_Y, "C", NOTE_CHORD_OCTAVE)], length, onset=onset)
+                for x, length, onset in shape
+            ],
+        ],
+    )
+    assert [onset for onset, _ in musicxml.chord_onsets(held, NOTE_CHORD_TIME)] == expected
+
+
+@pytest.mark.parametrize(
+    ("chord_x", "note_x", "expected", "trailing_x"),
+    [
+        (NOTE_CHORD_SOURCE_G_X, NOTE_CHORD_SOURCE_G_NOTE_X, NOTE_CHORD_DOTTED_QUARTER, None),
+        (NOTE_CHORD_SOURCE_D_X, NOTE_CHORD_SOURCE_D_X, NOTE_CHORD_DOTTED_QUARTER, None),
+        (NOTE_CHORD_SOURCE_EM_X, NOTE_CHORD_SOURCE_EM_X, NOTE_CHORD_DOTTED_QUARTER, None),
+        (
+            NOTE_CHORD_SOURCE_ESUS_X,
+            NOTE_CHORD_SOURCE_ESUS_NOTE_X,
+            NOTE_CHORD_HALF,
+            NOTE_CHORD_SOURCE_ESUS_NOTE_X + NOTE_CHORD_OFFSET,
+        ),
+    ],
+    ids=["aidoi-52-g", "aidoi-53-d", "aidoi-54-em7", "nuhon-29-esus4"],
+)
+def test_chords_keep_nearby_event_onsets_on_the_other_staff(
+    chord_x: float,
+    note_x: float,
+    expected: Fraction,
+    trailing_x: float | None,
+) -> None:
+    first_x = chord_x - NOTE_CHORD_OFFSET
+    opening = chord(first_x)
+    anchored = chord(chord_x)
+    held = Bar(
+        NOTE_CHORD_BAR_NUMBER,
+        NOTE_CHORD_PAGE,
+        NOTE_CHORD_LEFT,
+        REST_CHORD_RIGHT,
+        NOTE_CHORD_LENGTH,
+        chords=[opening, anchored],
+        voices=[[note(first_x, NOTE_CHORD_LENGTH)]],
+        voices2=[
+            [
+                Event(
+                    note_x,
+                    [Head(note_x, NOTE_CHORD_HEAD_Y, "C", NOTE_CHORD_OCTAVE)],
+                    NOTE_CHORD_LENGTH - expected,
+                    onset=expected,
+                ),
+            ],
+        ],
+    )
+    placed = [(NOTE_CHORD_START, opening), (expected, anchored)]
+    if trailing_x is not None:
+        trailing = chord(trailing_x)
+        held.chords.append(trailing)
+        placed.append((NOTE_CHORD_THREE_QUARTERS, trailing))
+    assert musicxml.chord_onsets(held, NOTE_CHORD_TIME) == placed
+
+
 def test_a_lone_chord_in_a_silent_bar_is_on_beat_1_wherever_it_prints() -> None:
     assert [t for t, _ in musicxml.chord_onsets(rest(1, chords=[chord(30.0)]), (4, 4))] == [Fraction(0)]
 
@@ -379,9 +645,59 @@ def test_piano_sheet_is_judged_by_what_it_holds(tmp_path: Path, monkeypatch: pyt
 
 
 def test_a_late_chord_in_a_saved_score_fails_the_beat_check(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(verify, "decode", lambda _: Score([rest(1, time=(4, 4), chords=[chord(30.0)])], [], []))
+    def source(_path: Path) -> Score:
+        held = written_rest_bar(REST_CHORD_TWO_HALVES, (next(iter(REST_CHORD_HALF_XS)),))
+        return Score([held], [], [])
+
+    monkeypatch.setattr(verify, "decode", source)
     assert verify.chord_beat_problems(tmp_path, write_score(tmp_path / "ok.mscz", HARMONY_ON_1)) == []
     assert "due on" in verify.chord_beat_problems(tmp_path, write_score(tmp_path / "late.mscz", HARMONY_LATE))[0]
+
+
+def test_the_verifier_independently_rejects_beat_two_over_a_half_rest(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def source(_path: Path) -> Score:
+        return Score([written_rest_bar(REST_CHORD_HALF_QUARTERS, REST_CHORD_HALF_QUARTER_XS)], [], [])
+
+    def forbidden_placer(_bar: Bar, _time: tuple[int, int] | None) -> list[tuple[Fraction, Chord]]:
+        pytest.fail("the verifier must read source anchors independently of chord placement")
+
+    monkeypatch.setattr(verify, "decode", source)
+    monkeypatch.setattr(musicxml, "chord_onsets", forbidden_placer)
+    correct = write_score(tmp_path / "rest-chords-right.mscz", REST_CHORD_SAVED_RIGHT)
+    incorrect = write_score(tmp_path / "rest-chords-wrong.mscz", REST_CHORD_SAVED_WRONG)
+    assert verify.chord_beat_problems(tmp_path, correct) == []
+    assert verify.chord_beat_problems(tmp_path, incorrect) == [
+        "bar 1: chords on ['0', '1', '3'], due on ['0', '2', '3']",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("voice", "valid"),
+    [
+        (REST_CHORD_SAVED_WRONG, True),
+        (REST_CHORD_SAVED_DUPLICATE, False),
+        (REST_CHORD_SAVED_OUTSIDE, False),
+        (REST_CHORD_SAVED_REVERSED, False),
+    ],
+    ids=["unanchored-in-order", "duplicate-onset", "outside-bar", "reversed-order"],
+)
+def test_the_verifier_checks_only_order_and_bounds_without_nearby_events(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    voice: str,
+    *,
+    valid: bool,
+) -> None:
+    def source(_path: Path) -> Score:
+        held = rest(REST_CHORD_BAR_NUMBER, chords=[chord(x) for x in REST_CHORD_HALF_QUARTER_XS])
+        return Score([held], [], [])
+
+    monkeypatch.setattr(verify, "decode", source)
+    saved = write_score(tmp_path / "unanchored-chords.mscz", voice)
+    assert bool(verify.chord_beat_problems(tmp_path, saved)) is not valid
 
 
 def test_port_module_names_the_3_sheets() -> None:
