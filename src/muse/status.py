@@ -13,6 +13,26 @@ from muse.song import song_of, sources
 SONG_COLUMN = 22
 
 
+def favourite_size(name: str) -> tuple[str, float]:
+    """Read the favourite sheet's chosen variant and size from its status records.
+
+    Returns:
+        The tone variant when recorded, otherwise the original, and its chosen size.
+
+    Raises:
+        ValueError: the favourite variant has no recorded layout decision.
+
+    """
+    state = buildcache.load(name)
+    variant = "tone" if "tone" in state else "original"
+    entry = state.get(variant)
+    decision = None if entry is None else entry.get("decision")
+    if decision is None:
+        message = f"{name}: no chosen size for {variant}"
+        raise ValueError(message)
+    return variant, decision["spatium"]
+
+
 def blob(out: pathlib.Path, name: str) -> bytes | None:
     git = toolpath.which("git")
     if git is None:
