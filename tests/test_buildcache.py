@@ -231,3 +231,22 @@ def test_a_run_naming_its_own_build_state_never_writes_the_published_records(
     assert buildcache.state_path("Song") == tmp_path / "private" / "build-state" / "Song.json"
     monkeypatch.setenv("MUSE_BUILD_STATE", str(tmp_path / "trial"))
     assert buildcache.state_path("Song") == tmp_path / "trial" / "Song.json"
+
+
+def test_a_build_installs_the_extension_before_any_song_starts_a_server(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: pathlib.Path,
+) -> None:
+    """A served MuseScore reads its extensions at start, so one started first never finds a fresh install."""
+    order: list[str] = []
+    monkeypatch.setattr(build.port, "require_font", lambda: None)
+    monkeypatch.setattr(build.launch, "require_serve", lambda: None)
+    monkeypatch.setattr(build, "song_sources", lambda _src: [tmp_path / "Song-Am.pdf"])
+    monkeypatch.setattr(build, "ordered", lambda sources: sources)
+    monkeypatch.setattr(build, "free_workers", lambda _count: 1)
+    monkeypatch.setattr(build.layout, "install_extension", lambda: order.append("install") or "extension://x")
+    monkeypatch.setattr(build, "_run", lambda *_: order.append("songs"))
+    monkeypatch.setattr(build, "_record", lambda *_: None)
+    monkeypatch.setattr(build.sys, "argv", ["muse.build", str(tmp_path), str(tmp_path / "out"), str(tmp_path / "work")])
+    build.main()
+    assert order == ["install", "songs"]

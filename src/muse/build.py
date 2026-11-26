@@ -428,6 +428,7 @@ def main() -> None:
     blocked: list[str] = []
     workers = free_workers(len(sources))
     os.environ[launch.SLOTS_VARIABLE] = str(max(1, (os.cpu_count() or 1) // workers))
+    layout.install_extension()
     _run(sources, workers, (src_dir, out_dir, work, stage, publishing), (reports, refused, blocked))
     _record(work, reports, began)
     if refused or blocked:
