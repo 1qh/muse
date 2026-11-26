@@ -4,18 +4,17 @@ from __future__ import annotations
 
 import hashlib
 import pathlib
-import shutil
 import subprocess
 import sys
 
-from muse import build, buildcache, gate
+from muse import build, buildcache, gate, toolpath
 from muse.song import song_of, sources
 
 SONG_COLUMN = 22
 
 
 def blob(out: pathlib.Path, name: str) -> bytes | None:
-    git = shutil.which("git")
+    git = toolpath.which("git")
     if git is None:
         raise FileNotFoundError(2, "No such file or directory", "git")
     done = subprocess.run([git, "-C", str(out), "show", f"HEAD:{name}"], capture_output=True, check=False)

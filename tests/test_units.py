@@ -5,6 +5,7 @@ import collections
 import dataclasses
 import importlib.util
 import inspect
+import os
 import pathlib
 import re
 import shutil
@@ -32,6 +33,7 @@ from muse import (
     publish,
     render,
     song,
+    toolpath,
     verify,
 )
 from muse.chordseat import INK_REACH, TOLERANCE, clean_bearings, crowded, ink_left, sign_end
@@ -1525,3 +1527,13 @@ def test_pymupdf_reads_and_renders_without_its_unused_engines() -> None:
     assert "".join(c["c"] for c in chars) == "Am7"
     assert sheet.get_drawings()
     assert sheet.get_pixmap(dpi=36).width == 100
+
+
+def test_a_bare_path_still_finds_package_manager_tools(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A run started over ssh has no login path, so git-filter-repo and homr's helpers would read as missing."""
+    monkeypatch.setenv("PATH", "/usr/bin:/bin")
+    monkeypatch.setattr(toolpath, "PACKAGE_PATHS", ("/usr/sbin",))
+    toolpath.with_package_paths()
+    assert os.environ["PATH"].split(os.pathsep) == ["/usr/bin", "/bin", "/usr/sbin"]
+    toolpath.with_package_paths()
+    assert os.environ["PATH"].split(os.pathsep).count("/usr/sbin") == 1

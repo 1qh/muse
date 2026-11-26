@@ -15,7 +15,7 @@ import threading
 import time
 from typing import TYPE_CHECKING
 
-from muse import buildcache, chordnames, fullscore, gate, launch, layout, mode, piano, port, publish
+from muse import buildcache, chordnames, fullscore, gate, launch, layout, mode, piano, port, publish, toolpath
 from muse.song import decode, song_of
 from muse.song import sources as song_sources
 
@@ -329,7 +329,7 @@ def child_main(src: pathlib.Path, stage: pathlib.Path, work: pathlib.Path, gated
 
 
 def _require_tools(*, publishing: bool) -> None:
-    if publishing and shutil.which("git-filter-repo") in {None, ""}:
+    if publishing and toolpath.which("git-filter-repo") in {None, ""}:
         msg = "git-filter-repo not found"
         raise SystemExit(msg)
     if publishing and gate.homr_command() in {None, ""}:

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pathlib
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -11,7 +10,7 @@ import time
 from collections.abc import Callable
 from typing import NamedTuple
 
-from muse import gate
+from muse import gate, toolpath
 
 PUSH_TRIES = 4
 SH_TIMEOUT_SECONDS = 3000
@@ -210,7 +209,7 @@ def purge(out: pathlib.Path, run: Runner = sh) -> None:
 
 
 def main() -> None:
-    if shutil.which("git-filter-repo") is None:
+    if toolpath.which("git-filter-repo") is None:
         msg = "git-filter-repo not found"
         raise SystemExit(msg)
     src, out, work = map(pathlib.Path, sys.argv[1:4])

@@ -30,6 +30,7 @@ from muse import (
     piano,
     port,
     scorefile,
+    toolpath,
     verify,
 )
 from muse.song import Song, decode, song_of, sources
@@ -84,7 +85,7 @@ def agreement(ours: list[str], where: list[int], theirs: list[str]) -> tuple[flo
 
 
 def homr_command() -> str | None:
-    return os.environ.get("MUSE_HOMR") or shutil.which("homr")
+    return os.environ.get("MUSE_HOMR") or toolpath.which("homr")
 
 
 def homr_reading(src: pathlib.Path, page_no: int, work: pathlib.Path, command: str) -> pathlib.Path:

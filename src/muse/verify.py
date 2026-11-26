@@ -6,7 +6,6 @@ import errno
 import os
 import pathlib
 import re
-import shutil
 import subprocess
 import sys
 import xml.etree.ElementTree as ET
@@ -14,7 +13,7 @@ import zipfile
 from fractions import Fraction
 from typing import TYPE_CHECKING
 
-from muse import chordnames, launch, scorefile
+from muse import chordnames, launch, scorefile, toolpath
 from muse.musicxml import chord_onsets, times
 from muse.pdfcheck import title_problems
 from muse.song import decode, song_of, sources
@@ -75,7 +74,7 @@ def pdf_words_problems(pdf: pathlib.Path, title: str) -> list[str]:
         FileNotFoundError: If ``pdftotext`` is unavailable.
 
     """
-    executable = shutil.which("pdftotext")
+    executable = toolpath.which("pdftotext")
     if executable is None:
         raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), "pdftotext")
     text = subprocess.run([executable, str(pdf), "-"], capture_output=True, text=True, check=True).stdout

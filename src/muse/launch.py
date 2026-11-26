@@ -10,7 +10,6 @@ import os
 import pathlib
 import queue
 import re
-import shutil
 import subprocess
 import tempfile
 import threading
@@ -18,6 +17,8 @@ import time
 from typing import TYPE_CHECKING
 
 import psutil
+
+from muse import toolpath
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -185,7 +186,7 @@ def sample(pid: int) -> pathlib.Path | None:
         The file holding the stack; none where the sampler is absent.
 
     """
-    tool = shutil.which("sample")
+    tool = toolpath.which("sample")
     if tool is None:
         return None
     HANGS.mkdir(parents=True, exist_ok=True)
