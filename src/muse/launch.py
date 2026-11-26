@@ -282,6 +282,7 @@ class Server:
     """1 running `mscore --serve`, answering 1 job per request line."""
 
     def __init__(self, command: str) -> None:
+        self.started = time.monotonic()
         self.process = subprocess.Popen(
             [command, SERVE_FLAG],
             stdin=subprocess.PIPE,
@@ -389,6 +390,14 @@ def require_serve(command: str | None = None) -> None:
         raise RuntimeError(msg)
 
 
+INSTALLED: dict[str, float] = {}
+
+
+def note_installed(extension: str) -> None:
+    """Record that an extension was installed now, so servers started earlier are replaced before running it."""
+    INSTALLED[extension] = time.monotonic()
+
+
 def served(job: pathlib.Path, timeout: float, extension: str | None = None, command: str | None = None) -> str:
     """Run 1 job on a pooled served MuseScore, starting one while fewer run than the slots allow.
 
@@ -403,6 +412,9 @@ def served(job: pathlib.Path, timeout: float, extension: str | None = None, comm
             pool.put(Server(program))
             STARTED[program] = STARTED.get(program, 0) + 1
     server = pool.get()
+    if extension is not None and server.started < INSTALLED.get(extension, float("-inf")):
+        server.stop()
+        server = Server(program)
     count_launch()
     try:
         answer = server.run(job, extension, timeout)

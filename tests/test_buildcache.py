@@ -250,3 +250,39 @@ def test_a_build_installs_the_extension_before_any_song_starts_a_server(
     monkeypatch.setattr(build.sys, "argv", ["muse.build", str(tmp_path), str(tmp_path / "out"), str(tmp_path / "work")])
     build.main()
     assert order == ["install", "songs"]
+
+
+def test_a_server_started_before_an_extension_install_is_replaced_before_running_it(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: pathlib.Path,
+) -> None:
+    """A served MuseScore reads its extensions at start, so 1 started before a fresh install cannot run it."""
+    made: list[object] = []
+    stopped: list[object] = []
+
+    class FakeServer:
+        def __init__(self, _command: str) -> None:
+            self.started = len(made)
+            made.append(self)
+
+        @staticmethod
+        def run(*_: object) -> str:
+            return ""
+
+        def stop(self) -> None:
+            stopped.append(self)
+
+    monkeypatch.setattr(launch, "Server", FakeServer)
+    monkeypatch.setattr(launch, "SERVERS", {})
+    monkeypatch.setattr(launch, "STARTED", {})
+    monkeypatch.setattr(launch, "INSTALLED", {})
+    monkeypatch.setattr(launch, "slots", lambda: 1)
+    monkeypatch.setattr(launch, "count_launch", lambda: None)
+    job = tmp_path / "job.json"
+    launch.served(job, 10, command="mscore")
+    launch.INSTALLED["extension://x"] = 0.5
+    launch.served(job, 10, extension="extension://x", command="mscore")
+    assert len(made) == 2
+    assert stopped == [made[0]]
+    launch.served(job, 10, extension="extension://x", command="mscore")
+    assert len(made) == 2

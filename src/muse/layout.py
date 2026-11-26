@@ -101,6 +101,7 @@ def install_extension() -> str:
             fresh.rename(home)
         except OSError:
             shutil.rmtree(fresh, ignore_errors=True)
+        launch.note_installed(uri)
         shutil.rmtree(extensions_root() / EXTENSION_FOLDER, ignore_errors=True)
     return uri
 
