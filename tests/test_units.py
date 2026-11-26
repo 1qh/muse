@@ -1155,6 +1155,13 @@ def test_a_launch_the_window_server_refuses_stops_as_the_machines_fault(monkeypa
     assert plain.returncode == -6
 
 
+def test_a_checked_run_that_fails_names_what_it_printed() -> None:
+    """A refusal built from a failed run says why, so a cause is never lost with the process."""
+    failing = ["cat", "/no-such-folder/unrolled.mscx"]
+    with pytest.raises(subprocess.CalledProcessError, match="No such file or directory"):
+        launch.heavy(failing, 10.0, check=True)
+
+
 def test_a_mark_starting_just_left_of_a_barline_belongs_to_the_bar_it_runs_into() -> None:
     row = [Bar(n, 0, left, left + 100, Fraction(4)) for n, left in ((1, 40.0), (2, 140.0), (3, 240.0))]
     assert [bar_at(row, x, 4).number for x in (20.0, 60.0, 137.0, 139.0, 141.0, 236.5, 300.0)] == [1, 1, 2, 2, 2, 3, 3]

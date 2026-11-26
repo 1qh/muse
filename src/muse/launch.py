@@ -16,6 +16,7 @@ import subprocess
 import tempfile
 import threading
 import time
+import typing
 from typing import TYPE_CHECKING
 
 import psutil
@@ -69,6 +70,7 @@ def mscore_command() -> str:
 
 LAUNCHES = {"count": 0}
 LAUNCHES_LOCK = threading.Lock()
+FAILED_RUN_TAIL = 400
 LAUNCH_SECONDS = 240
 
 
@@ -153,6 +155,21 @@ HANGS = pathlib.Path(tempfile.gettempdir()) / "muse-hangs"
 SAMPLE_SECONDS = 3
 
 
+class FailedRunError(subprocess.CalledProcessError):
+    """A checked run that exited non-zero, naming the tail of what it printed so a refusal says why."""
+
+    @typing.override
+    def __str__(self) -> str:
+        """Name the command, its exit status and the last of its error output.
+
+        Returns:
+            The message.
+
+        """
+        said = (self.stderr or self.output or "").strip()[-FAILED_RUN_TAIL:]
+        return f"{super().__str__()}: {said or 'it printed nothing'}"
+
+
 def heavy(
     argv: list[str],
     timeout: float,
@@ -172,6 +189,7 @@ def heavy(
     Raises:
         TimeoutExpired: the run outlived its timeout; its stack was sampled first.
         MachineUnavailableError: the locked machine refused the tool a window session.
+        FailedRunError: with check, the run exited non-zero; its message ends with what the run printed.
 
     """
     with GATE:
@@ -197,8 +215,8 @@ def heavy(
         if process.returncode and any(sign in err for sign in REFUSED_BY_LOCK):
             msg = f"{UNAVAILABLE} ({argv[0]} failed: {err.strip()[-200:]})"
             raise MachineUnavailableError(msg)
-        if check:
-            done.check_returncode()
+        if check and process.returncode:
+            raise FailedRunError(process.returncode, argv, out, err)
         return done
 
 
