@@ -1361,7 +1361,7 @@ def test_ink_is_read_off_a_page_in_1_place() -> None:
         found = len(re.findall(r"\.get_pixmap\(", path.read_text(encoding="utf-8")))
         if found:
             readers[path.name] = found
-    assert readers == {"pdfcheck.py": 6, "chordseat.py": 1, "gate.py": 1, "pdftext.py": 1}
+    assert readers == {"pdfcheck.py": 2, "chordseat.py": 1, "gate.py": 1, "pdftext.py": 1}
 
 
 def test_the_ink_reader_finds_a_mark_where_it_is_drawn() -> None:
