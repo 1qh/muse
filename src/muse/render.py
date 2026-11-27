@@ -131,8 +131,8 @@ class Batcher:
             job = pathlib.Path(handle.name)
         try:
             note = launch.served(job, JOB_SECONDS, command=self.command)
-        except subprocess.TimeoutExpired:
-            note = f"job of {len(batch)} renders passed {JOB_SECONDS} seconds"
+        except subprocess.TimeoutExpired as expired:
+            note = f"job of {len(batch)} renders passed {JOB_SECONDS} seconds: {expired.output}"
         finally:
             job.unlink(missing_ok=True)
         results: dict[int, str | None] = {}

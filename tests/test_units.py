@@ -1581,6 +1581,22 @@ def test_a_served_musescore_that_dies_is_reported_and_replaced(tmp_path: pathlib
     assert not launch.served(good, 10, command=str(fake))
 
 
+def test_a_served_job_that_times_out_names_the_output_that_answered_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: pathlib.Path,
+) -> None:
+    """A server printing a line that answers no request times out, and the timeout's message carries that line."""
+    fake = tmp_path / "mscore"
+    fake.write_text('#!/bin/sh\nwhile read -r line; do\n  echo "log text 1 ok"\ndone\n', encoding="utf-8")
+    fake.chmod(0o755)
+    monkeypatch.setattr(launch, "sample", lambda _pid: None)
+    job = tmp_path / "job.json"
+    job.write_text("[]", encoding="utf-8")
+    with pytest.raises(launch.TimedOutError) as raised:
+        launch.served(job, 1, command=str(fake))
+    assert "output that answered no request: ['log text 1 ok']" in str(raised.value)
+
+
 def test_a_render_rasters_1_chord_per_letter_and_size(monkeypatch: pytest.MonkeyPatch) -> None:
     """Chords sharing a first letter and size share their ink offset, read off the first clean one."""
     page = pymupdf.open().new_page(width=400, height=100)

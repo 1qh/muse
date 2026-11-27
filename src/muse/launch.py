@@ -264,6 +264,14 @@ HANGS = pathlib.Path(tempfile.gettempdir()) / "muse-hangs"
 SAMPLE_SECONDS = 3
 
 
+class TimedOutError(subprocess.TimeoutExpired):
+    """A run or a served job that outlived its timeout, its message naming what was gathered before the stop."""
+
+    @typing.override
+    def __str__(self) -> str:
+        return f"{super().__str__()}: {self.output}"
+
+
 class FailedRunError(subprocess.CalledProcessError):
     """A checked run that exited non-zero, naming the tail of what it printed so a refusal says why."""
 
@@ -340,7 +348,7 @@ def heavy(
         The finished run with its exit status and captured output.
 
     Raises:
-        TimeoutExpired: the run outlived its timeout; its stack was sampled first.
+        TimedOutError: the run outlived its timeout; its stack was sampled first.
         MachineUnavailableError: the locked machine refused the tool a window session.
         ToolMissingError: the operating system could not start the named tool.
         FailedRunError: with check, the run exited non-zero; its message ends with what the run printed.
@@ -370,7 +378,7 @@ def heavy(
                 where = sample(process.pid)
                 process.kill()
                 process.communicate()
-                raise subprocess.TimeoutExpired(argv, timeout, output=f"stack sampled to {where}") from expired
+                raise TimedOutError(argv, timeout, output=f"stack sampled to {where}") from expired
         done = subprocess.CompletedProcess(argv, process.returncode, out, err)
         if process.returncode and any(sign in err for sign in REFUSED_BY_LOCK):
             msg = f"{UNAVAILABLE} ({argv[0]} failed: {err.strip()[-200:]})"
@@ -497,6 +505,7 @@ class Server:
         )
         self.answers: queue.Queue[str | None] = queue.Queue()
         self.errors: list[str] = []
+        self.stray: list[str] = []
         self.number = 0
         threading.Thread(target=self._read_answers, daemon=True).start()
         threading.Thread(target=self._read_errors, daemon=True).start()
@@ -522,7 +531,7 @@ class Server:
             Empty when the job succeeded, else MuseScore's reason.
 
         Raises:
-            TimeoutExpired: the job outlived its timeout; the server was sampled and stopped.
+            TimedOutError: the job outlived its timeout; the server was sampled and stopped.
             ServerDiedError: the server exited before answering; a locked machine reports MachineUnavailableError.
 
         """
@@ -548,16 +557,18 @@ class Server:
             except queue.Empty as error:
                 where = sample(self.process.pid)
                 self.stop()
-                raise subprocess.TimeoutExpired(
+                raise TimedOutError(
                     [SERVE_FLAG, str(job)],
                     timeout,
-                    output=f"stack sampled to {where}",
+                    output=f"stack sampled to {where}; output that answered no request: {self.stray or 'none'}",
                 ) from error
             if line is None:
                 raise self._died()
             if line.startswith(ident + " "):
                 answer = line[len(ident) + 1 :]
                 return "" if answer == "ok" else answer.removeprefix("failed ")
+            self.stray.append(line)
+            del self.stray[:-STDERR_KEPT]
 
     def _died(self) -> Exception:
         self.process.wait(timeout=10)
