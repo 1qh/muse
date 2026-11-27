@@ -104,6 +104,8 @@ def check(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> tuple[int
 
 
 def main() -> None:
+    launch.ignore_terminal_stops()
+    launch.require_mscore()
     src_dir, out, work = map(pathlib.Path, sys.argv[1:4])
     bad = 0
     for src in sources(src_dir):

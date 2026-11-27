@@ -12,6 +12,7 @@ import pathlib
 import queue
 import re
 import shutil
+import signal
 import subprocess
 import tempfile
 import threading
@@ -31,6 +32,65 @@ MSCORE_VARIABLE = "MUSE_MSCORE"
 MSCORE_TEMP_PREFIX = "muse-mscore-"
 MSCORE_TEMP: dict[str, str] = {}
 MSCORE_TEMP_LOCK = threading.Lock()
+TOOL_ANSWER_SECONDS = 60
+TOOL_SUCCESS_EXIT = 0
+TERMINAL_STOPS = (signal.SIGTTOU, signal.SIGTTIN)
+
+
+def ignore_terminal_stops() -> None:
+    """Ignore terminal stops in this process and its children."""
+    for stop in TERMINAL_STOPS:
+        signal.signal(stop, signal.SIG_IGN)
+
+
+def tool_answers(command: str | None) -> bool:
+    """Prove a tool starts and answers its help within the deadline.
+
+    Returns:
+        Whether the tool answered successfully.
+
+    """
+    if command is None or not command:
+        return False
+    try:
+        done = subprocess.run(
+            [command, "--help"],
+            capture_output=True,
+            timeout=TOOL_ANSWER_SECONDS,
+            check=False,
+            stdin=subprocess.DEVNULL,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return done.returncode == TOOL_SUCCESS_EXIT
+
+
+def require_tools(*tools: tuple[str, str | None]) -> None:
+    """Refuse unavailable tools before entry point work starts.
+
+    Raises:
+        SystemExit: A named tool did not answer its help.
+
+    """
+    for name, command in tools:
+        if not tool_answers(command):
+            msg = f"{name} does not run (named {command!r}): install it or configure its executable"
+            raise SystemExit(msg)
+
+
+def require_mscore() -> None:
+    """Prove the configured MuseScore can run before doing any work.
+
+    Raises:
+        SystemExit: MuseScore is unconfigured or cannot run.
+
+    """
+    try:
+        command = mscore_command()
+    except RuntimeError as error:
+        msg = f"mscore: {error}"
+        raise SystemExit(msg) from error
+    require_tools(("mscore", command))
 
 
 def mscore_environment() -> dict[str, str]:
@@ -171,8 +231,47 @@ class FailedRunError(subprocess.CalledProcessError):
             The message.
 
         """
-        said = (self.stderr or self.output or "").strip()[-FAILED_RUN_TAIL:]
+        output = self.stderr or self.output or ""
+        said = (output.decode(errors="replace") if isinstance(output, bytes) else output).strip()[-FAILED_RUN_TAIL:]
         return f"{super().__str__()}: {said or 'it printed nothing'}"
+
+
+def checked(
+    argv: list[str],
+    timeout: float | None,
+    *,
+    cwd: pathlib.Path | None = None,
+) -> subprocess.CompletedProcess[bytes]:
+    """Run a short tool with captured bytes and a checked exit status.
+
+    Args:
+        argv: The executable and its arguments.
+        timeout: The caller's deadline, or no deadline.
+        cwd: The working directory, inherited when omitted.
+
+    Returns:
+        The successful run and its unmodified output bytes.
+
+    Raises:
+        ToolMissingError: The operating system could not start the tool.
+        FailedRunError: The tool exited non-zero.
+
+    """
+    try:
+        done = subprocess.run(
+            argv,
+            capture_output=True,
+            check=False,
+            cwd=cwd,
+            stdin=subprocess.DEVNULL,
+            timeout=timeout,
+        )
+    except OSError as error:
+        msg = f"could not start tool {argv[TOOL_PATH_INDEX]!r}: {error}"
+        raise ToolMissingError(msg) from error
+    if done.returncode:
+        raise FailedRunError(done.returncode, argv, done.stdout, done.stderr)
+    return done
 
 
 def heavy(

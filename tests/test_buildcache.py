@@ -240,6 +240,8 @@ def test_a_build_installs_the_extension_before_any_song_starts_a_server(
 ) -> None:
     """A served MuseScore reads its extensions at start, so one started first never finds a fresh install."""
     order: list[str] = []
+    monkeypatch.setattr(build.launch, "mscore_command", lambda: "mscore")
+    monkeypatch.setattr(build.launch, "tool_answers", lambda _command: True)
     monkeypatch.setattr(build.port, "require_font", lambda: None)
     monkeypatch.setattr(build.launch, "require_serve", lambda: None)
     monkeypatch.setattr(build, "song_sources", lambda _src: [tmp_path / "Song-Am.pdf"])

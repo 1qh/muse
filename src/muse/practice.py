@@ -80,6 +80,8 @@ def entries(song: Song, work: pathlib.Path, videos: pathlib.Path) -> list[dict[s
 
 def main() -> None:
     """Write 1 job for every named song and run it once through the app's practice view mode."""
+    launch.ignore_terminal_stops()
+    launch.require_mscore()
     if len(sys.argv) < ARGC:
         sys.stderr.write("usage: python -m muse.practice <sources joined with :> <work> <videos> <song>...\n")
         sys.exit(2)

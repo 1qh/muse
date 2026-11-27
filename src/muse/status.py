@@ -4,10 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import pathlib
-import subprocess
 import sys
 
-from muse import build, buildcache, gate, toolpath
+from muse import build, buildcache, gate, launch, toolpath
 from muse.song import song_of, sources
 
 SONG_COLUMN = 22
@@ -44,13 +43,15 @@ def chosen_size(name: str, variant: str) -> float:
 
 def blob(out: pathlib.Path, name: str) -> bytes | None:
     git = toolpath.which("git")
-    if git is None:
-        raise FileNotFoundError(2, "No such file or directory", "git")
-    done = subprocess.run([git, "-C", str(out), "show", f"HEAD:{name}"], capture_output=True, check=False)
-    return done.stdout if done.returncode == 0 else None
+    try:
+        return launch.checked([git or "git", "-C", str(out), "show", f"HEAD:{name}"], None).stdout
+    except launch.FailedRunError:
+        return None
 
 
 def main() -> None:
+    launch.ignore_terminal_stops()
+    launch.require_tools(("git", toolpath.which("git")))
     src_dirs, out = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
     current = stale = missing = 0
     for src in sources(src_dirs):

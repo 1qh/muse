@@ -10,7 +10,7 @@ import sys
 
 import pymupdf
 
-from muse import chordseat, pdftext
+from muse import chordseat, launch, pdftext
 from muse.smufl import HEAD_CODES, PRIVATE_USE
 
 CHORD = re.compile(r"(?:[A-G][#b♯♭]?)?(?:maj|min|dim|sus|add|aug|m|\d|[#b♯♭()/ Δø°]|[A-G][#b♯♭]?)*")
@@ -745,6 +745,7 @@ def all_problems(path: pathlib.Path, title: str) -> list[str]:
 
 
 def main() -> None:
+    launch.ignore_terminal_stops()
     bad = 0
     for path in sorted(pathlib.Path(sys.argv[1]).glob("*.pdf")):
         found = text_problems(path)

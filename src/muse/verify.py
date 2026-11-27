@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-import errno
 import itertools
 import os
 import pathlib
 import re
-import subprocess
 import sys
 import xml.etree.ElementTree as ET
 import zipfile
@@ -72,14 +70,9 @@ def pdf_words_problems(pdf: pathlib.Path, title: str) -> list[str]:
     Returns:
         Every problem found; empty when the PDF is clean.
 
-    Raises:
-        FileNotFoundError: If ``pdftotext`` is unavailable.
-
     """
     executable = toolpath.which("pdftotext")
-    if executable is None:
-        raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), "pdftotext")
-    text = subprocess.run([executable, str(pdf), "-"], capture_output=True, text=True, check=True).stdout
+    text = launch.checked([executable or "pdftotext", str(pdf), "-"], None).stdout.decode()
     problems = [f"banned text in {pdf.name}: {word}" for word in BANNED if word.lower() in text.lower()]
     names = (pathlib.Path(os.environ["MUSE_PRIVATE"]) / PRIVATE_BANNED).read_text(encoding="utf-8").split("\n")
     problems.extend(f"banned text in {pdf.name}: {word}" for word in names if word.strip() and word in text)
@@ -239,6 +232,8 @@ def check(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path) -> list[str]
 
 
 def main() -> None:
+    launch.ignore_terminal_stops()
+    launch.require_mscore()
     src_dir, out, work = map(pathlib.Path, sys.argv[1:4])
     total = 0
     for src in sources(src_dir):

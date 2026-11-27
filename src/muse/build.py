@@ -33,8 +33,8 @@ Decision = buildcache.Decision
 
 
 Sheet = tuple[str, dict[str, buildcache.CacheRecord], dict[str, object], list[str]]
-TOOL_ANSWER_SECONDS = 60
-TERMINAL_STOPS = (signal.SIGTTOU, signal.SIGTTIN)
+CHILD_REQUIRED_ARGS = 3
+CHILD_ARGUMENT_OFFSET = 2
 
 
 def variant_key(src: pathlib.Path, variant: str) -> str:
@@ -423,17 +423,22 @@ def child(
 
     Raises:
         TypeError: The child's report is not a JSON object.
+        ToolMissingError: The child process could not start.
 
     """
     name = song_of(src).name
     refusal = work / f"{name}-refusal.txt"
     refusal.unlink(missing_ok=True)
-    process = subprocess.Popen(
-        [sys.executable, "-m", "muse.build", CHILD_FLAG, str(src), str(stage), str(work)]
-        + ([str(gated_from)] if gated_from is not None else []),
-        stdin=subprocess.DEVNULL,
-        start_new_session=True,
-    )
+    try:
+        process = subprocess.Popen(
+            [sys.executable, "-m", "muse.build", CHILD_FLAG, str(src), str(stage), str(work)]
+            + ([str(gated_from)] if gated_from is not None else []),
+            stdin=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except OSError as error:
+        msg = f"could not start tool {sys.executable!r}: {error}"
+        raise launch.ToolMissingError(msg) from error
     with RUNNING_LOCK:
         RUNNING.add(process)
     try:
@@ -474,35 +479,16 @@ def child_main(src: pathlib.Path, stage: pathlib.Path, work: pathlib.Path, gated
         raise SystemExit(CHILD_REFUSED_EXIT) from error
 
 
-def tool_answers(command: str | None) -> bool:
-    """Prove a tool runs, not only that something names it: it must start and answer its help.
-
-    Returns:
-        Whether the tool exited cleanly on `--help` within its bound.
-
-    """
-    if command is None or not command:
-        return False
-    try:
-        done = subprocess.run(
-            [command, "--help"],
-            capture_output=True,
-            timeout=TOOL_ANSWER_SECONDS,
-            check=False,
-            stdin=subprocess.DEVNULL,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return False
-    return done.returncode == 0
-
-
 def _require_tools(*, publishing: bool) -> None:
+    launch.require_mscore()
     if not publishing:
         return
-    for name, command in (("git-filter-repo", toolpath.which("git-filter-repo")), ("homr", gate.homr_command())):
-        if not tool_answers(command):
-            msg = f"{name} does not run (named {command!r}): install it or set MUSE_HOMR to a working homr"
-            raise SystemExit(msg)
+    launch.require_tools(
+        ("git", toolpath.which("git")),
+        ("git-filter-repo", toolpath.which("git-filter-repo")),
+        ("homr", gate.homr_command()),
+        ("pdftotext", toolpath.which("pdftotext")),
+    )
 
 
 def _say(line: str) -> None:
@@ -578,14 +564,13 @@ def _run(
         pool.shutdown(wait=True, cancel_futures=True)
 
 
-def ignore_terminal_stops() -> None:
-    """Ignore the signals a terminal stops a background job with, for this process and everything it starts."""
-    for stop in TERMINAL_STOPS:
-        signal.signal(stop, signal.SIG_IGN)
-
-
 def main() -> None:
-    ignore_terminal_stops()
+    launch.ignore_terminal_stops()
+    publishing = "--publish" in sys.argv[1:]
+    child_mode = sys.argv[1:2] == [CHILD_FLAG]
+    _require_tools(publishing=publishing)
+    if child_mode and len(sys.argv[CHILD_ARGUMENT_OFFSET:]) > CHILD_REQUIRED_ARGS:
+        launch.require_tools(("homr", gate.homr_command()), ("pdftotext", toolpath.which("pdftotext")))
     faulthandler.register(signal.SIGUSR1, all_threads=True)
     if sys.argv[1:2] == [CHILD_FLAG]:
         child_main(*map(pathlib.Path, sys.argv[2:6]))
@@ -593,8 +578,6 @@ def main() -> None:
     port.require_font()
     launch.require_serve()
     args = [arg for arg in sys.argv[1:] if arg != "--publish"]
-    publishing = "--publish" in sys.argv[1:]
-    _require_tools(publishing=publishing)
     src_dir, out_dir, work = map(pathlib.Path, args[:3])
     wanted = args[3:]
     sources = ordered([src for src in song_sources(src_dir) if not wanted or src.stem.split("-")[0] in wanted])

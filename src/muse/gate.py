@@ -489,6 +489,9 @@ def verdicts(
 
 
 def main() -> None:
+    launch.ignore_terminal_stops()
+    launch.require_mscore()
+    launch.require_tools(("homr", homr_command()), ("pdftotext", toolpath.which("pdftotext")))
     src_dir, out, work = map(pathlib.Path, sys.argv[1:4])
     work.mkdir(parents=True, exist_ok=True)
     total = 0

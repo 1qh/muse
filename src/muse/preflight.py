@@ -7,7 +7,7 @@ import subprocess
 import sys
 from typing import TYPE_CHECKING
 
-from muse import buildcache, oracle, piano
+from muse import buildcache, launch, oracle, piano
 from muse.song import decode, is_orchestral, orchestra_of, song_of, sources
 
 if TYPE_CHECKING:
@@ -66,6 +66,8 @@ def code_problems(check: Callable[..., subprocess.CompletedProcess[str]] = subpr
 
 
 def main() -> None:
+    launch.ignore_terminal_stops()
+    launch.require_tools(("python", sys.executable))
     bad = {src.stem: found for src in sources(pathlib.Path(sys.argv[1])) if (found := song_problem(src))}
     for song, reason in bad.items():
         sys.stdout.write(f"blocked {song}: {reason}\n")

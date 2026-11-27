@@ -3,18 +3,16 @@
 from __future__ import annotations
 
 import pathlib
-import subprocess
 import sys
 import tempfile
 import time
 from collections.abc import Callable
 from typing import NamedTuple
 
-from muse import gate, toolpath
+from muse import gate, launch, toolpath
 
 PUSH_TRIES = 4
 SH_TIMEOUT_SECONDS = 3000
-ERROR_TAIL_CHARS = 600
 PUSH_WAIT = 60.0
 Runner = Callable[..., str]
 Judge = Callable[[pathlib.Path, pathlib.Path, pathlib.Path, tuple[str, ...]], dict[str, list[str]]]
@@ -25,20 +23,11 @@ class RefusedError(RuntimeError):
 
 
 def sh(*args: str, cwd: pathlib.Path | None = None) -> str:
-    done = subprocess.run(
-        args,
-        cwd=cwd,
-        capture_output=True,
-        text=True,
-        stdin=subprocess.DEVNULL,
-        timeout=SH_TIMEOUT_SECONDS,
-        check=False,
-    )
-    if done.returncode:
-        head = " ".join(args[:3])
-        msg = f"{head}: {done.stdout[-ERROR_TAIL_CHARS:]}{done.stderr[-ERROR_TAIL_CHARS:]}"
-        raise RefusedError(msg)
-    return done.stdout.strip()
+    try:
+        done = launch.checked(list(args), SH_TIMEOUT_SECONDS, cwd=cwd)
+    except launch.FailedRunError as error:
+        raise RefusedError(str(error)) from error
+    return done.stdout.decode().strip()
 
 
 def stray_files(tracked: str) -> list[str]:
@@ -209,9 +198,14 @@ def purge(out: pathlib.Path, run: Runner = sh) -> None:
 
 
 def main() -> None:
-    if toolpath.which("git-filter-repo") is None:
-        msg = "git-filter-repo not found"
-        raise SystemExit(msg)
+    launch.ignore_terminal_stops()
+    launch.require_mscore()
+    launch.require_tools(
+        ("git", toolpath.which("git")),
+        ("git-filter-repo", toolpath.which("git-filter-repo")),
+        ("homr", gate.homr_command()),
+        ("pdftotext", toolpath.which("pdftotext")),
+    )
     src, out, work = map(pathlib.Path, sys.argv[1:4])
     try:
         blocked = publish(Places(src, out, work), names=tuple(sys.argv[4:]))

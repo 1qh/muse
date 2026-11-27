@@ -1885,9 +1885,9 @@ def test_waiting_for_a_song_checks_stopped_processes_again_after_the_interval(
 
 def test_a_build_and_every_tool_it_starts_ignore_terminal_stops() -> None:
     """A build backgrounded in a terminal set to tostop keeps running: its children inherit the ignored stops."""
-    saved = {stop: signal.getsignal(stop) for stop in build.TERMINAL_STOPS}
+    saved = {stop: signal.getsignal(stop) for stop in launch.TERMINAL_STOPS}
     try:
-        build.ignore_terminal_stops()
+        launch.ignore_terminal_stops()
         child = subprocess.run(
             [sys.executable, "-c", "import signal; print(signal.getsignal(signal.SIGTTOU) == signal.SIG_IGN)"],
             capture_output=True,
@@ -1911,8 +1911,8 @@ def test_a_named_tool_counts_only_when_it_runs(tmp_path: pathlib.Path) -> None:
     working = tmp_path / "answers"
     working.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
     working.chmod(0o755)
-    assert not build.tool_answers(None)
-    assert not build.tool_answers(str(tmp_path / "missing"))
-    assert not build.tool_answers(str(broken))
-    assert not build.tool_answers(str(failing))
-    assert build.tool_answers(str(working))
+    assert not launch.tool_answers(None)
+    assert not launch.tool_answers(str(tmp_path / "missing"))
+    assert not launch.tool_answers(str(broken))
+    assert not launch.tool_answers(str(failing))
+    assert launch.tool_answers(str(working))
