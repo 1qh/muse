@@ -146,6 +146,26 @@ class FinishedChild:
     def wait(self) -> int:
         return self.code
 
+    @property
+    def returncode(self) -> int:
+        """Read the completed child's exit code.
+
+        Returns:
+            Its exit code.
+
+        """
+        return self.code
+
+    @staticmethod
+    def communicate() -> tuple[None, bytes]:
+        """Read the completed child's captured diagnostics.
+
+        Returns:
+            No captured stdout and empty stderr.
+
+        """
+        return None, b""
+
     def poll(self) -> int:
         return self.code
 

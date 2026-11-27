@@ -265,6 +265,7 @@ def publish_song(src_dir: pathlib.Path, out_dir: pathlib.Path, work: pathlib.Pat
 CHILD_FLAG = "--song"
 MACHINE_FAULT_PREFIX = "machine fault: "
 CHILD_REFUSED_EXIT = 2
+CHILD_MACHINE_FAULT_EXIT = 3
 RUNNING: set[subprocess.Popen[bytes]] = set()
 RUNNING_LOCK = threading.Lock()
 STOPPED_CHECK_SECONDS = 3.0
@@ -434,18 +435,26 @@ def child(
             [sys.executable, "-m", "muse.build", CHILD_FLAG, str(src), str(stage), str(work)]
             + ([str(gated_from)] if gated_from is not None else []),
             stdin=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
             start_new_session=True,
         )
     except OSError as error:
+        launch.require_disk(error, work)
         msg = f"could not start tool {sys.executable!r}: {error}"
         raise launch.ToolMissingError(msg) from error
     with RUNNING_LOCK:
         RUNNING.add(process)
     try:
-        code = process.wait()
+        _, stderr = process.communicate()
+        code = process.returncode
     finally:
         with RUNNING_LOCK:
             RUNNING.discard(process)
+    if stderr:
+        sys.stderr.write(stderr.decode(errors="replace"))
+        sys.stderr.flush()
+    if code == CHILD_MACHINE_FAULT_EXIT:
+        return None, f"{MACHINE_FAULT_PREFIX}{stderr.decode(errors='replace').strip()}"
     if code == 0:
         loaded = json.loads((work / f"{name}-report.json").read_text(encoding="utf-8"))
         if not isinstance(loaded, dict):
@@ -457,17 +466,20 @@ def child(
     ) if refusal.exists() else f"child exited {code} with no reason"
 
 
-def child_main(src: pathlib.Path, stage: pathlib.Path, work: pathlib.Path, gated_from: pathlib.Path | None = None) -> None:
-    """Build 1 song as the child, its report written by song(); a refusal written to its own file and a non-zero exit.
+def _child_build(src: pathlib.Path, stage: pathlib.Path, work: pathlib.Path, gated_from: pathlib.Path | None) -> None:
+    """Build and gate a song, recording ordinary refusals.
 
     Raises:
-        SystemExit: the song was refused; the reason is in its refusal file.
+        DiskUnavailableError: The disk cannot support the build.
+        SystemExit: The song was refused or the machine cannot support the build.
 
     """
     try:
         song(src, stage, work)
         if gated_from is not None:
             gate.verdicts(gated_from, stage, work, (song_of(src).name,))
+    except launch.DiskUnavailableError:
+        raise
     except launch.MachineUnavailableError as error:
         (work / f"{song_of(src).name}-refusal.txt").write_text(
             f"{MACHINE_FAULT_PREFIX}{error}",
@@ -475,8 +487,25 @@ def child_main(src: pathlib.Path, stage: pathlib.Path, work: pathlib.Path, gated
         )
         raise SystemExit(CHILD_REFUSED_EXIT) from error
     except (port.DoesNotFitError, RuntimeError, OSError, subprocess.SubprocessError, ValueError) as error:
+        launch.require_disk(error, work)
         (work / f"{song_of(src).name}-refusal.txt").write_text(str(error), encoding="utf-8")
         raise SystemExit(CHILD_REFUSED_EXIT) from error
+
+
+def child_main(src: pathlib.Path, stage: pathlib.Path, work: pathlib.Path, gated_from: pathlib.Path | None = None) -> None:
+    """Build a song, recording refusals on disk and exhausted disk capacity through stderr.
+
+    Raises:
+        SystemExit: The song was refused or the machine cannot support the build.
+
+    """
+    try:
+        with launch.disk_faults(work):
+            _child_build(src, stage, work, gated_from)
+    except launch.DiskUnavailableError as error:
+        sys.stderr.write(f"{error}\n")
+        sys.stderr.flush()
+        raise SystemExit(CHILD_MACHINE_FAULT_EXIT) from error
 
 
 def _require_tools(*, publishing: bool) -> None:
@@ -496,6 +525,31 @@ def _say(line: str) -> None:
     sys.stdout.flush()
 
 
+def _outcome(
+    job: concurrent.futures.Future[tuple[dict[str, object] | None, str]],
+    work: pathlib.Path,
+) -> tuple[dict[str, object] | None, str]:
+    """Read a finished song's report, or the reason its build raised, naming the file an OSError names.
+
+    Args:
+        job: The song's finished build.
+        work: The work folder whose disk a capacity fault names.
+
+    Returns:
+        The song's report or none, and the reason; a machine fault the build met, a full disk included, is raised again.
+
+    """
+    if (error := job.exception()) is None:
+        return job.result()
+    launch.require_disk(error, work)
+    if isinstance(error, launch.MachineUnavailableError):
+        raise error
+    reason = f"its build raised {error!r}"
+    if isinstance(error, OSError) and error.filename is not None:
+        reason = f"{reason}: {error.filename}"
+    return None, reason
+
+
 def _collect(
     pool: concurrent.futures.ThreadPoolExecutor,
     jobs: dict[concurrent.futures.Future[tuple[dict[str, object] | None, str]], pathlib.Path],
@@ -507,10 +561,7 @@ def _collect(
     reports, refused, blocked = tallies
     for job in _completed(jobs, time.monotonic() if began is None else began):
         src = jobs[job]
-        if (error := job.exception()) is not None:
-            report, reason = None, f"its build raised {error!r}"
-        else:
-            report, reason = job.result()
+        report, reason = _outcome(job, work)
         if reason.startswith(MACHINE_FAULT_PREFIX) or launch.UNAVAILABLE in reason:
             pool.shutdown(wait=False, cancel_futures=True)
             raise SystemExit(reason)
@@ -542,6 +593,27 @@ def _record(work: pathlib.Path, reports: list[dict[str, object]], began: float) 
     sys.stdout.write(f"songs {len(reports)} launches {launches} seconds {time.monotonic() - began:.1f}" + "\n")
 
 
+def _collect_disk_faults(
+    pool: concurrent.futures.ThreadPoolExecutor,
+    jobs: dict[concurrent.futures.Future[tuple[dict[str, object] | None, str]], pathlib.Path],
+    places: tuple[pathlib.Path, pathlib.Path, pathlib.Path, pathlib.Path, bool],
+    tallies: tuple[list[dict[str, object]], list[str], list[str]],
+    began: float,
+) -> None:
+    """Collect songs while turning machine faults into run stops.
+
+    Raises:
+        SystemExit: The machine cannot support the build.
+
+    """
+    _, _, work, _, _ = places
+    try:
+        with launch.disk_faults(work):
+            _collect(pool, jobs, places, tallies, began)
+    except launch.MachineUnavailableError as error:
+        raise SystemExit(str(error)) from error
+
+
 def _run(
     sources: list[pathlib.Path],
     workers: int,
@@ -553,7 +625,7 @@ def _run(
     pool = concurrent.futures.ThreadPoolExecutor(max_workers=workers)
     try:
         jobs = {pool.submit(child, src, stage, work, src_dir if publishing else None): src for src in sources}
-        _collect(pool, jobs, places, tallies, began)
+        _collect_disk_faults(pool, jobs, places, tallies, began)
         if publishing:
             publish.purge(out_dir)
     except BaseException as error:

@@ -49,7 +49,7 @@ class Batcher:
         self.waiting = 0
         self.flushing = False
         self.pending: list[RenderItem] = []
-        self.done: dict[int, str | None] = {}
+        self.done: dict[int, str | launch.MachineUnavailableError | None] = {}
         self.ticket = 0
         self.jobs = 0
 
@@ -90,24 +90,34 @@ class Batcher:
                 while ticket not in self.done:
                     if not self.flushing and self.pending and self.waiting >= max(1, self.working):
                         batch, self.pending, self.flushing = self.pending, [], True
-                        self.lock.release()
-                        try:
-                            results = self.run(batch)
-                        except (OSError, subprocess.SubprocessError, ValueError) as error:
-                            results = {item["ticket"]: f"job failed: {error}" for item in batch}
-                        finally:
-                            self.lock.acquire()
-                            self.flushing = False
-                            self.lock.notify_all()
-                        self.done.update(results)
-                        self.jobs += 1
+                        self._flush(batch, score)
                     else:
                         self.lock.wait(timeout=1.0)
                 failure = self.done.pop(ticket)
             finally:
                 self.waiting -= 1
+        if isinstance(failure, launch.MachineUnavailableError):
+            raise failure
         if failure is not None and failure:
             raise RenderFailedError(failure)
+
+    def _flush(self, batch: list[RenderItem], score: pathlib.Path) -> None:
+        """Run a batch outside the lock and record a result for every waiting ticket."""
+        self.lock.release()
+        results: dict[int, str | launch.MachineUnavailableError | None] = {}
+        try:
+            with launch.disk_faults(score):
+                results.update(self.run(batch))
+        except launch.MachineUnavailableError as error:
+            results.update({item["ticket"]: error for item in batch})
+        except (OSError, subprocess.SubprocessError, ValueError) as error:
+            results.update({item["ticket"]: f"job failed: {error}" for item in batch})
+        finally:
+            self.lock.acquire()
+            self.flushing = False
+            self.lock.notify_all()
+        self.done.update(results)
+        self.jobs += 1
 
     def run(self, batch: list[RenderItem]) -> dict[int, str | None]:
         """1 MuseScore job for the batch; each render's verdict is whether its outputs exist.

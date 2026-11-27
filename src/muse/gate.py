@@ -184,6 +184,7 @@ def _guarded(failures: list[str], label: str, step: Callable[[], list[str]]) -> 
         LookupError,
         AttributeError,
     ) as error:
+        launch.require_disk(error, pathlib.Path.cwd())
         failures.append(f"{label}: could not run: {str(error)[:160]}")
 
 
@@ -480,6 +481,7 @@ def verdicts(
                 LookupError,
                 AttributeError,
             ) as error:
+                launch.require_disk(error, work)
                 found[info.name] = [f"refused: {error}"]
         sys.stdout.write(f"{info.name}: {len(found[info.name])} failures\n")
         for failure in found[info.name]:

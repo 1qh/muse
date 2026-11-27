@@ -100,7 +100,8 @@ def install_extension() -> str:
         (fresh / "manifest.json").write_text(json.dumps(manifest, indent=4), encoding="utf-8")
         try:
             fresh.rename(home)
-        except OSError:
+        except OSError as error:
+            launch.require_disk(error, home)
             shutil.rmtree(fresh, ignore_errors=True)
         launch.note_installed(uri)
         shutil.rmtree(extensions_root() / EXTENSION_FOLDER, ignore_errors=True)

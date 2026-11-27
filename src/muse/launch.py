@@ -6,6 +6,8 @@ So 1 build process never runs more at once than its share of the cores.
 from __future__ import annotations
 
 import atexit
+import contextlib
+import errno
 import json
 import os
 import pathlib
@@ -25,7 +27,7 @@ import psutil
 from muse import toolpath
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Generator
 
 SLOTS_VARIABLE = "MUSE_LAUNCH_SLOTS"
 MSCORE_VARIABLE = "MUSE_MSCORE"
@@ -209,11 +211,53 @@ REFUSED_BY_LOCK = ("Error creating pasteboard", "Unable to compute the predictio
 
 
 class MachineUnavailableError(RuntimeError):
-    """The machine cannot run a required tool: no song is at fault."""
+    """The machine cannot support the build: no song is at fault."""
 
 
 class ToolMissingError(MachineUnavailableError):
     """A required tool could not start because the operating system refused its launch."""
+
+
+class DiskUnavailableError(MachineUnavailableError):
+    """A disk has no capacity for the build."""
+
+
+DISK_CAPACITY_ERRORS = (errno.ENOSPC, errno.EDQUOT)
+
+
+def require_disk(error: BaseException, fallback: pathlib.Path) -> None:
+    """Promote exhausted disk capacity to a machine fault.
+
+    Args:
+        error: The error being handled.
+        fallback: The working path when the error carries no filename.
+
+    Raises:
+        DiskUnavailableError: The disk has no space or its quota is exhausted.
+
+    """
+    if isinstance(error, OSError) and error.errno in DISK_CAPACITY_ERRORS:
+        path = error.filename or error.filename2 or str(fallback)
+        msg = f"disk containing {path!r} has no space or its quota is exhausted: {error}"
+        raise DiskUnavailableError(msg) from error
+
+
+@contextlib.contextmanager
+def disk_faults(path: pathlib.Path) -> Generator[None, None, None]:
+    """Preserve disk failures across a build boundary.
+
+    Args:
+        path: The working path when an error carries no filename.
+
+    Raises:
+        OSError: An unrelated operating system operation failed.
+
+    """
+    try:
+        yield
+    except OSError as error:
+        require_disk(error, path)
+        raise
 
 
 HANGS = pathlib.Path(tempfile.gettempdir()) / "muse-hangs"
@@ -267,6 +311,7 @@ def checked(
             timeout=timeout,
         )
     except OSError as error:
+        require_disk(error, cwd or pathlib.Path.cwd())
         msg = f"could not start tool {argv[TOOL_PATH_INDEX]!r}: {error}"
         raise ToolMissingError(msg) from error
     if done.returncode:
@@ -315,6 +360,7 @@ def heavy(
                 env=env,
             )
         except OSError as error:
+            require_disk(error, cwd or pathlib.Path.cwd())
             msg = f"could not start tool {argv[TOOL_PATH_INDEX]!r}: {error}"
             raise ToolMissingError(msg) from error
         with process:

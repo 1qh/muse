@@ -182,6 +182,7 @@ def problems(src: pathlib.Path, out: pathlib.Path, work: pathlib.Path, info: Son
             Warning,
             port.DoesNotFitError,
         ) as error:
+            launch.require_disk(error, work)
             failures.append(f"{label}: could not run: {str(error)[:160]}")
 
     orchestra = orchestra_of(src)
