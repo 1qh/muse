@@ -3,6 +3,12 @@
 set -e
 ROOT=$(git rev-parse --show-toplevel)
 cd "$ROOT"
+# the MuseScore-driven tests fail, never skip, without MUSE_MSCORE, and only after the lint and minutes of the suite: refuse
+# at once instead, naming what to set
+[ -n "${MUSE_MSCORE:-}" ] && [ -x "${MUSE_MSCORE}" ] || {
+  echo "pre-push: MUSE_MSCORE must name the pipeline copy of MuseScoreLite's mscore executable; got '${MUSE_MSCORE:-}'" >&2
+  exit 1
+}
 lintmax-py check "$ROOT" </dev/null
 if [ -n "${MUSE_SOURCES:-}" ] && [ -n "${MUSE_PINS:-}" ]; then
   .venv/bin/python -m pytest -q -p no:cacheprovider </dev/null
