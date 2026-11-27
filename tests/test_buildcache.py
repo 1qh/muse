@@ -3,6 +3,7 @@
 import json
 import pathlib
 import subprocess
+import threading
 import time
 import types
 from collections.abc import Callable
@@ -309,3 +310,69 @@ def test_a_server_started_before_an_extension_install_is_replaced_before_running
     assert stopped == [made[0]]
     launch.served(job, 10, extension="extension://x", command="mscore")
     assert len(made) == 2
+
+
+def test_a_waiter_gets_a_fresh_server_when_the_holder_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: pathlib.Path,
+) -> None:
+    """A failed job frees its slot while another thread waits, and the waiter starts a server rather than starving."""
+    made: list[object] = []
+    holding = threading.Event()
+    release = threading.Event()
+
+    class FakeServer:
+        def __init__(self, _command: str) -> None:
+            self.started = 0.0
+            self.first = not made
+            made.append(self)
+
+        def run(self, *_: object) -> str:
+            if self.first:
+                holding.set()
+                release.wait(5)
+                msg = "mscore"
+                raise subprocess.TimeoutExpired(msg, 1)
+            return ""
+
+        def stop(self) -> None:
+            pass
+
+    monkeypatch.setattr(launch, "Server", FakeServer)
+    monkeypatch.setattr(launch, "SERVERS", {})
+    monkeypatch.setattr(launch, "STARTED", {})
+    monkeypatch.setattr(launch, "INSTALLED", {})
+    monkeypatch.setattr(launch, "slots", lambda: 1)
+    monkeypatch.setattr(launch, "count_launch", lambda: None)
+    job = tmp_path / "job.json"
+    failed: list[BaseException] = []
+
+    def holder() -> None:
+        try:
+            launch.served(job, 10, command="mscore")
+        except subprocess.TimeoutExpired as error:
+            failed.append(error)
+
+    first = threading.Thread(target=holder)
+    first.start()
+    assert holding.wait(5)
+    answers: list[str] = []
+    waiter = threading.Thread(target=lambda: answers.append(launch.served(job, 10, command="mscore")))
+    waiter.start()
+    release.set()
+    first.join(5)
+    waiter.join(10)
+    assert not waiter.is_alive()
+    assert answers == [""]
+    assert len(failed) == 1
+    assert len(made) == 2
+
+
+def test_a_pool_wait_gives_up_naming_the_wait(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
+    """A thread finding every slot held past its wait refuses as a machine fault, naming the seconds it waited."""
+    monkeypatch.setattr(launch, "SERVERS", {"mscore": launch.queue.Queue()})
+    monkeypatch.setattr(launch, "STARTED", {"mscore": 1})
+    monkeypatch.setattr(launch, "slots", lambda: 1)
+    monkeypatch.setattr(launch, "POOL_WAIT_JOBS", 0.1)
+    with pytest.raises(launch.MachineUnavailableError, match="no served MuseScore came free in 1 seconds"):
+        launch.served(tmp_path / "job.json", 10, command="mscore")

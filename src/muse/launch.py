@@ -610,6 +610,37 @@ def note_installed(extension: str) -> None:
     INSTALLED[extension] = time.monotonic()
 
 
+POOL_WAIT_JOBS = 3
+
+
+def _take(program: str, wait: float) -> tuple[queue.Queue[Server], Server]:
+    """Take a free served MuseScore, starting one whenever a slot is free, re-checked every second.
+
+    A job that fails stops its server and frees its slot while other threads wait, so the start check runs on every
+    wait rather than once before it; a slot freed by a failure is then refilled instead of starving every waiter.
+
+    Returns:
+        The pool and a server from it no other thread holds.
+
+    Raises:
+        MachineUnavailableError: no server came free within the wait.
+
+    """
+    deadline = time.monotonic() + wait
+    while True:
+        with SERVERS_LOCK:
+            pool = SERVERS.setdefault(program, queue.Queue())
+            if pool.empty() and STARTED.get(program, 0) < slots():
+                pool.put(Server(program))
+                STARTED[program] = STARTED.get(program, 0) + 1
+        try:
+            return pool, pool.get(timeout=1.0)
+        except queue.Empty:
+            if time.monotonic() > deadline:
+                msg = f"{UNAVAILABLE} (no served MuseScore came free in {wait:.0f} seconds)"
+                raise MachineUnavailableError(msg) from None
+
+
 def served(job: pathlib.Path, timeout: float, extension: str | None = None, command: str | None = None) -> str:
     """Run 1 job on a pooled served MuseScore, starting one while fewer run than the slots allow.
 
@@ -618,12 +649,7 @@ def served(job: pathlib.Path, timeout: float, extension: str | None = None, comm
 
     """
     program = command or mscore_command()
-    with SERVERS_LOCK:
-        pool = SERVERS.setdefault(program, queue.Queue())
-        if pool.empty() and STARTED.get(program, 0) < slots():
-            pool.put(Server(program))
-            STARTED[program] = STARTED.get(program, 0) + 1
-    server = pool.get()
+    pool, server = _take(program, POOL_WAIT_JOBS * timeout)
     if extension is not None and server.started < INSTALLED.get(extension, float("-inf")):
         server.stop()
         server = Server(program)
