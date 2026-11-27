@@ -263,6 +263,8 @@ def publish_song(src_dir: pathlib.Path, out_dir: pathlib.Path, work: pathlib.Pat
 
 
 CHILD_FLAG = "--song"
+MACHINE_FAULT_PREFIX = "machine fault: "
+CHILD_REFUSED_EXIT = 2
 RUNNING: set[subprocess.Popen[bytes]] = set()
 RUNNING_LOCK = threading.Lock()
 STOPPED_CHECK_SECONDS = 3.0
@@ -459,11 +461,17 @@ def child_main(src: pathlib.Path, stage: pathlib.Path, work: pathlib.Path, gated
     """
     try:
         song(src, stage, work)
+        if gated_from is not None:
+            gate.verdicts(gated_from, stage, work, (song_of(src).name,))
+    except launch.MachineUnavailableError as error:
+        (work / f"{song_of(src).name}-refusal.txt").write_text(
+            f"{MACHINE_FAULT_PREFIX}{error}",
+            encoding="utf-8",
+        )
+        raise SystemExit(CHILD_REFUSED_EXIT) from error
     except (port.DoesNotFitError, RuntimeError, OSError, subprocess.SubprocessError, ValueError) as error:
         (work / f"{song_of(src).name}-refusal.txt").write_text(str(error), encoding="utf-8")
-        raise SystemExit(2) from error
-    if gated_from is not None:
-        gate.verdicts(gated_from, stage, work, (song_of(src).name,))
+        raise SystemExit(CHILD_REFUSED_EXIT) from error
 
 
 def tool_answers(command: str | None) -> bool:
@@ -517,7 +525,7 @@ def _collect(
             report, reason = None, f"its build raised {error!r}"
         else:
             report, reason = job.result()
-        if launch.UNAVAILABLE in reason:
+        if reason.startswith(MACHINE_FAULT_PREFIX) or launch.UNAVAILABLE in reason:
             pool.shutdown(wait=False, cancel_futures=True)
             raise SystemExit(reason)
         if report is None:

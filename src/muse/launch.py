@@ -72,6 +72,7 @@ LAUNCHES = {"count": 0}
 LAUNCHES_LOCK = threading.Lock()
 FAILED_RUN_TAIL = 400
 LAUNCH_SECONDS = 240
+TOOL_PATH_INDEX = 0
 
 
 def count_launch() -> None:
@@ -148,7 +149,11 @@ REFUSED_BY_LOCK = ("Error creating pasteboard", "Unable to compute the predictio
 
 
 class MachineUnavailableError(RuntimeError):
-    """MuseScore aborted because the machine refused it a window session: no song is at fault."""
+    """The machine cannot run a required tool: no song is at fault."""
+
+
+class ToolMissingError(MachineUnavailableError):
+    """A required tool could not start because the operating system refused its launch."""
 
 
 HANGS = pathlib.Path(tempfile.gettempdir()) / "muse-hangs"
@@ -180,8 +185,12 @@ def heavy(
 ) -> subprocess.CompletedProcess[str]:
     """Run 1 heavy tool, MuseScore or the optical cross-check, waiting for a free slot first.
 
-    The timeout counts only the run, never the wait; with check, a failed run raises;
-    a run past its deadline is sampled before it is killed.
+    Args:
+        argv: The tool path followed by its arguments.
+        timeout: The run's deadline, excluding the wait for a slot.
+        check: Whether a non-zero exit raises a failed-run error.
+        cwd: The tool's working directory.
+        env: The tool's environment, inherited when omitted.
 
     Returns:
         The finished run with its exit status and captured output.
@@ -189,21 +198,27 @@ def heavy(
     Raises:
         TimeoutExpired: the run outlived its timeout; its stack was sampled first.
         MachineUnavailableError: the locked machine refused the tool a window session.
+        ToolMissingError: the operating system could not start the named tool.
         FailedRunError: with check, the run exited non-zero; its message ends with what the run printed.
 
     """
     with GATE:
         free_core()
         count_launch()
-        with subprocess.Popen(
-            argv,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            stdin=subprocess.DEVNULL,
-            cwd=cwd,
-            env=env,
-        ) as process:
+        try:
+            process = subprocess.Popen(
+                argv,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                stdin=subprocess.DEVNULL,
+                cwd=cwd,
+                env=env,
+            )
+        except OSError as error:
+            msg = f"could not start tool {argv[TOOL_PATH_INDEX]!r}: {error}"
+            raise ToolMissingError(msg) from error
+        with process:
             try:
                 out, err = process.communicate(timeout=timeout)
             except subprocess.TimeoutExpired as expired:

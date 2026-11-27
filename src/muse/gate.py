@@ -444,6 +444,9 @@ def verdicts(
     Returns:
         The failures of each song folder, by song name.
 
+    Raises:
+        MachineUnavailableError: a tool the gate runs cannot start or the machine refuses it, which no song causes.
+
     """
     work.mkdir(parents=True, exist_ok=True)
     found: dict[str, list[str]] = {}
@@ -465,6 +468,8 @@ def verdicts(
         if not found[info.name]:
             try:
                 found[info.name] = chord_trouble + cached_check(src, out, work)[0]
+            except launch.MachineUnavailableError:
+                raise
             except (
                 port.DoesNotFitError,
                 RuntimeError,
