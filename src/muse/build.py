@@ -33,6 +33,7 @@ Decision = buildcache.Decision
 
 
 Sheet = tuple[str, dict[str, buildcache.CacheRecord], dict[str, object], list[str]]
+TOOL_ANSWER_SECONDS = 60
 TERMINAL_STOPS = (signal.SIGTTOU, signal.SIGTTIN)
 
 
@@ -465,13 +466,35 @@ def child_main(src: pathlib.Path, stage: pathlib.Path, work: pathlib.Path, gated
         gate.verdicts(gated_from, stage, work, (song_of(src).name,))
 
 
+def tool_answers(command: str | None) -> bool:
+    """Prove a tool runs, not only that something names it: it must start and answer its help.
+
+    Returns:
+        Whether the tool exited cleanly on `--help` within its bound.
+
+    """
+    if command is None or not command:
+        return False
+    try:
+        done = subprocess.run(
+            [command, "--help"],
+            capture_output=True,
+            timeout=TOOL_ANSWER_SECONDS,
+            check=False,
+            stdin=subprocess.DEVNULL,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return done.returncode == 0
+
+
 def _require_tools(*, publishing: bool) -> None:
-    if publishing and toolpath.which("git-filter-repo") in {None, ""}:
-        msg = "git-filter-repo not found"
-        raise SystemExit(msg)
-    if publishing and gate.homr_command() in {None, ""}:
-        msg = "homr not found: install it or set MUSE_HOMR"
-        raise SystemExit(msg)
+    if not publishing:
+        return
+    for name, command in (("git-filter-repo", toolpath.which("git-filter-repo")), ("homr", gate.homr_command())):
+        if not tool_answers(command):
+            msg = f"{name} does not run (named {command!r}): install it or set MUSE_HOMR to a working homr"
+            raise SystemExit(msg)
 
 
 def _say(line: str) -> None:

@@ -1898,3 +1898,21 @@ def test_a_build_and_every_tool_it_starts_ignore_terminal_stops() -> None:
     finally:
         for stop, handler in saved.items():
             signal.signal(stop, handler)
+
+
+def test_a_named_tool_counts_only_when_it_runs(tmp_path: pathlib.Path) -> None:
+    """A path naming nothing, or a program that cannot start, refuses the build before any song."""
+    broken = tmp_path / "homr"
+    broken.write_text("#!/no/such/interpreter\n", encoding="utf-8")
+    broken.chmod(0o755)
+    failing = tmp_path / "fails"
+    failing.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+    failing.chmod(0o755)
+    working = tmp_path / "answers"
+    working.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    working.chmod(0o755)
+    assert not build.tool_answers(None)
+    assert not build.tool_answers(str(tmp_path / "missing"))
+    assert not build.tool_answers(str(broken))
+    assert not build.tool_answers(str(failing))
+    assert build.tool_answers(str(working))
