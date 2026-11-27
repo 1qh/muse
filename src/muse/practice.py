@@ -39,25 +39,42 @@ def find_source(folders: list[pathlib.Path], name: str) -> pathlib.Path:
     raise FileNotFoundError(msg)
 
 
-def entry(song: Song, work: pathlib.Path, videos: pathlib.Path) -> dict[str, object]:
-    """Build 1 song's job entry: its favourite-key final score, transposed when that sheet is the transposed one.
+def final_score(work: pathlib.Path, name: str, variant: str, size: float) -> pathlib.Path:
+    """Name 1 sheet's final score and refuse it when absent.
 
     Returns:
-        The job entry naming the score, the video and any transpose options.
+        The final score's path.
 
     Raises:
-        FileNotFoundError: the favourite sheet's final score is absent.
+        FileNotFoundError: the final score is absent.
+
+    """
+    final = work / f"{name}-{variant}-{size:g}-final.mscz"
+    if not final.exists():
+        msg = f"{name}: no final score {final}"
+        raise FileNotFoundError(msg)
+    return final
+
+
+def entries(song: Song, work: pathlib.Path, videos: pathlib.Path) -> list[dict[str, object]]:
+    """Build 1 song's job entries: its favourite key, and its original key too when the favourite is transposed.
+
+    Returns:
+        The job entries, each naming its score, its video and any transpose options.
 
     """
     variant, size = status.favourite_size(song.name)
-    final = work / f"{song.name}-{variant}-{size:g}-final.mscz"
-    if not final.exists():
-        msg = f"{song.name}: no final score {final}"
-        raise FileNotFoundError(msg)
-    built: dict[str, object] = {"in": str(final), "out": str(videos / f"{song.name}-{song.tone}.mp4")}
+    built: list[dict[str, object]] = [
+        {"in": str(final_score(work, song.name, variant, size)), "out": str(videos / f"{song.name}-{song.tone}.mp4")},
+    ]
     options = port.transpose_options(song) if variant == "tone" else None
     if options:
-        built["transpose"] = options
+        built[0]["transpose"] = options
+        original = status.chosen_size(song.name, "original")
+        built.append({
+            "in": str(final_score(work, song.name, "original", original)),
+            "out": str(videos / f"{song.name}-{song.source_key}.mp4"),
+        })
     return built
 
 
@@ -70,18 +87,18 @@ def main() -> None:
     work, videos = pathlib.Path(sys.argv[2]), pathlib.Path(sys.argv[3])
     names = sys.argv[4:]
     videos.mkdir(parents=True, exist_ok=True)
-    entries = [entry(song_of(find_source(folders, name)), work, videos) for name in names]
+    made = [one for name in names for one in entries(song_of(find_source(folders, name)), work, videos)]
     with tempfile.TemporaryDirectory(prefix="practice-") as folder:
         job = pathlib.Path(folder) / "practice.json"
-        job.write_text(json.dumps(entries), encoding="utf-8")
+        job.write_text(json.dumps(made), encoding="utf-8")
         launch.heavy(
             [launch.mscore_command(), "--view-mode", "practice", "-j", str(job)],
-            PRACTICE_SECONDS_PER_SONG * len(entries),
+            PRACTICE_SECONDS_PER_SONG * len(made),
             check=True,
             env=launch.mscore_environment(),
         )
-    for made in entries:
-        sys.stdout.write(f"{made['out']}\n")
+    for one in made:
+        sys.stdout.write(f"{one['out']}\n")
 
 
 if __name__ == "__main__":

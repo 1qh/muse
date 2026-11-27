@@ -19,18 +19,27 @@ def favourite_size(name: str) -> tuple[str, float]:
     Returns:
         The tone variant when recorded, otherwise the original, and its chosen size.
 
+    """
+    variant = "tone" if "tone" in buildcache.load(name) else "original"
+    return variant, chosen_size(name, variant)
+
+
+def chosen_size(name: str, variant: str) -> float:
+    """Read 1 sheet's chosen size from its song's status records.
+
+    Returns:
+        The size its layout decision chose.
+
     Raises:
-        ValueError: the favourite variant has no recorded layout decision.
+        ValueError: the sheet has no recorded layout decision.
 
     """
-    state = buildcache.load(name)
-    variant = "tone" if "tone" in state else "original"
-    entry = state.get(variant)
+    entry = buildcache.load(name).get(variant)
     decision = None if entry is None else entry.get("decision")
     if decision is None:
         message = f"{name}: no chosen size for {variant}"
         raise ValueError(message)
-    return variant, decision["spatium"]
+    return decision["spatium"]
 
 
 def blob(out: pathlib.Path, name: str) -> bytes | None:
